@@ -1,0 +1,36 @@
+{
+    "name": "mikopbx/modulebitrix24integration",
+    "description": "ModuleBitrix24Integration",
+    "require": {
+        "mikopbx/core": "^2020.2.757"
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\ModuleBitrix24Integration\\": "/"
+        }
+    },
+    "type": "application",
+    "keywords": [
+        "pbx",
+        "asterisk",
+        "freepbx"
+    ],
+    "license": "GPL-3.0-or-later",
+    "homepage": "https://github.com/mikopbx/ModuleTemplate",
+    "authors": [
+        {
+            "name": "Alexey Portnov",
+            "email": "apor@miko.ru"
+        },
+        {
+            "name": "Nikolay Beketov",
+            "email": "nbek@miko.ru"
+        }
+    ],
+    "config": {
+        "sort-packages": true,
+        "platform": {
+            "php": "7.4"
+        }
+    }
+}
