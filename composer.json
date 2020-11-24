@@ -2,7 +2,7 @@
     "name": "mikopbx/modulebitrix24integration",
     "description": "ModuleBitrix24Integration",
     "require": {
-        "mikopbx/core": "^2020.2.*"
+        "mikopbx/core": "^2020.2.757"
     },
     "autoload": {
         "psr-4": {
