@@ -732,7 +732,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $res->processor = __METHOD__;
         $access_token = $this->getAccessToken();
         if (empty($access_token)) {
-            $res->messages[]='Access token is empty';
+            $res->messages[]='Access denied. Check refresh token value.';
             return $res;
         }
         $res->success = true;

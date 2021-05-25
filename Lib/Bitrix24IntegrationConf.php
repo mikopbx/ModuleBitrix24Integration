@@ -12,9 +12,31 @@ use MikoPBX\Core\System\Util;
 use MikoPBX\Modules\Config\ConfigClass;
 use MikoPBX\Core\Workers\Cron\WorkerSafeScriptsCore;
 use MikoPBX\PBXCoreREST\Lib\PBXApiResult;
+use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24ExternalLines;
+use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
+use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Users;
 
 class Bitrix24IntegrationConf extends ConfigClass
 {
+
+
+    /**
+     * Обработчик события изменения данных в базе настроек mikopbx.db.
+     *
+     * @param $data
+     */
+    public function modelsEventChangeData($data): void
+    {
+        $moduleModels = [
+            ModuleBitrix24ExternalLines::class,
+            ModuleBitrix24Integration::class,
+            ModuleBitrix24Users::class,
+        ];
+        if (in_array($data['model'], $moduleModels)){
+            $this->onAfterModuleEnable();
+        }
+    }
+
     /**
      * Returns module workers to start it at WorkerSafeScript
      * @return array
