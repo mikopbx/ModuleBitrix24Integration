@@ -40,4 +40,9 @@ return [
  */
     'repModuleBitrix24Integration' => 'CRM Bitrix24との統合モジュール-％repesent％',
     'mod_b24_i_StatusError' => 'モジュール操作エラー',
+    'mod_b24_i_Region' => 'ポータルが運用されている地域',
+    'mod_b24_i_region_WORLD' => '世界の残りの部分',
+    'mod_b24_i_region_UKRAINE' => 'ウクライナ',
+    'mod_b24_i_region_BELARUS' => 'ベラルーシ',
+    'mod_b24_i_region_RUSSIA' => 'ロシア',
 ];
