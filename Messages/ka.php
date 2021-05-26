@@ -40,4 +40,9 @@ return [
     'mod_b24_i_UsersFilter' => 'ფილტრაცია მომხმარებლების მიერ',
     'mod_b24_i_GeneralSettings' => 'ძირითადი პარამეტრები',
     'mod_b24_i_StatusError' => 'მოდულის მუშაობის შეცდომა',
+    'mod_b24_i_Region' => 'რეგიონი, სადაც მუშაობს თქვენი პორტალი',
+    'mod_b24_i_region_WORLD' => 'Დანარჩენი მსოფლიო',
+    'mod_b24_i_region_UKRAINE' => 'უკრაინა',
+    'mod_b24_i_region_BELARUS' => 'ბელორუსია',
+    'mod_b24_i_region_RUSSIA' => 'რუსეთი',
 ];
