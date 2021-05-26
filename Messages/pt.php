@@ -40,4 +40,9 @@ return [
     'repModuleBitrix24Integration' => 'Módulo de integração com CRM Bitrix24 -% repesent%',
     'mod_b24_i_ColumnNumber' => 'Número de telefone',
     'mod_b24_i_StatusError' => 'Erro de operação do módulo',
+    'mod_b24_i_Region' => 'A região em que seu portal opera',
+    'mod_b24_i_region_WORLD' => 'O resto do mundo',
+    'mod_b24_i_region_UKRAINE' => 'Ucrânia',
+    'mod_b24_i_region_BELARUS' => 'Bielo-Rússia',
+    'mod_b24_i_region_RUSSIA' => 'Rússia',
 ];
