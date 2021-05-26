@@ -40,4 +40,9 @@ return [
  */
     'repModuleBitrix24Integration' => 'Mô-đun tích hợp với CRM Bitrix24 -% repesent%',
     'mod_b24_i_StatusError' => 'Lỗi hoạt động mô-đun',
+    'mod_b24_i_Region' => 'Khu vực mà cổng thông tin của bạn hoạt động',
+    'mod_b24_i_region_WORLD' => 'Phần còn lại của thế giới',
+    'mod_b24_i_region_UKRAINE' => 'Ukraine',
+    'mod_b24_i_region_BELARUS' => 'Belarus',
+    'mod_b24_i_region_RUSSIA' => 'Nga',
 ];
