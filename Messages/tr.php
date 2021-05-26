@@ -40,4 +40,9 @@ return [
     'repModuleBitrix24Integration' => 'CRM Bitrix24 ile entegrasyon modülü -% repesent%',
     'mod_b24_i_EnterSearch' => 'Arama',
     'mod_b24_i_StatusError' => 'Modül işlem hatası',
+    'mod_b24_i_Region' => 'Portalınızın çalıştığı bölge',
+    'mod_b24_i_region_WORLD' => 'Dünyanın geri kalanı',
+    'mod_b24_i_region_UKRAINE' => 'Ukrayna',
+    'mod_b24_i_region_BELARUS' => 'Belarus',
+    'mod_b24_i_region_RUSSIA' => 'Rusya',
 ];
