@@ -48,6 +48,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->SESSION          = empty($data->session) ? null : json_decode($data->session, true);
         $this->portal           = $data->portal;
         $this->refresh_token    = $data->refresh_token;
+        $this->b24_region       = $data->b24_region;
         $this->disabled_numbers = $this->getDisabledNumbers();
         $this->initialized = true;
         unset($data);
@@ -140,7 +141,6 @@ class Bitrix24Integration extends PbxExtensionBase
         }
 
         $oAuthToken = ModuleBitrix24Integration::getAvailableRegions()[$this->b24_region];
-
         $params     = [
             "grant_type"    => "refresh_token",
             "client_id"     => $oAuthToken['CLIENT_ID'],

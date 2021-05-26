@@ -56,6 +56,8 @@ const ModuleBitrix24Integration = {
 		ModuleBitrix24Integration.checkStatusToggle();
 		window.addEventListener('ModuleStatusChanged', ModuleBitrix24Integration.checkStatusToggle);
 		ModuleBitrix24Integration.initializeForm();
+		$('.b24_regions-select').dropdown();
+
 
 		$('.avatar').each(() => {
 			if ($(this).attr('src') === '') {
@@ -305,6 +307,7 @@ const ModuleBitrix24Integration = {
 			});
 		});
 		result.data.externalLines = JSON.stringify(arrExternalLines);
+		result.data.portal = result.data.portal.replace(/^(https?|http):\/\//, '');
 
 		return result;
 	},

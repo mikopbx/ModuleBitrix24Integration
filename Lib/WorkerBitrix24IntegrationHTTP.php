@@ -13,11 +13,9 @@ use MikoPBX\Core\System\BeanstalkClient;
 use Exception;
 use MikoPBX\Core\Workers\WorkerBase;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24CDR;
-use MikoPBX\Core\System\Util;
 
 class WorkerBitrix24IntegrationHTTP extends WorkerBase
 {
-    private int $id_worker;
     private Bitrix24Integration $b24;
     private array $q_req      = [];
     private array $q_pre_req  = [];
@@ -31,8 +29,6 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
      */
     public function start($argv):void
     {
-        $id = count($argv) > 2 ? $argv[2] : 1;
-        $this->id_worker = $id;
         $this->b24       = new Bitrix24Integration();
         if (!$this->b24->initialized) {
             die('Settings not set...');
@@ -218,16 +214,6 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
 
 }
 
+
 // Start worker process
-$workerClassname = WorkerBitrix24IntegrationHTTP::class;
-if (isset($argv) && count($argv) > 1) {
-    cli_set_process_title($workerClassname);
-    try {
-        $worker = new $workerClassname();
-        $worker->start($argv);
-    } catch (\Throwable $e) {
-        global $errorLogger;
-        $errorLogger->captureException($e);
-        Util::sysLogMsg("{$workerClassname}_EXCEPTION", $e->getMessage(), LOG_ERR);
-    }
-}
+WorkerBitrix24IntegrationHTTP::startWorker($argv??null);
