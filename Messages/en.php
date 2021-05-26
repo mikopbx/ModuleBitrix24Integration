@@ -40,4 +40,9 @@ return [
     'mod_b24_i_EnterSearch' => 'Enter search',
     'mod_b24_i_NoSettings' => 'Need some settings before start',
     'mod_b24_i_StatusError' => 'Module operation error',
+    'mod_b24_i_Region' => 'The region in which your portal operates',
+    'mod_b24_i_region_WORLD' => 'The rest of the world',
+    'mod_b24_i_region_UKRAINE' => 'Ukraine',
+    'mod_b24_i_region_BELARUS' => 'Belarus',
+    'mod_b24_i_region_RUSSIA' => 'Russia',
 ];

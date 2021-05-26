@@ -40,4 +40,9 @@ return [
  * Written by Alexey Portnov, 5 2020
  */
     'repModuleBitrix24Integration' => 'Integrační modul s CRM Bitrix24 -% repesent%',
+    'mod_b24_i_Region' => 'Region, ve kterém váš portál funguje',
+    'mod_b24_i_region_WORLD' => 'Zbytek světa',
+    'mod_b24_i_region_UKRAINE' => 'Ukrajina',
+    'mod_b24_i_region_BELARUS' => 'Bělorusko',
+    'mod_b24_i_region_RUSSIA' => 'Rusko',
 ];
