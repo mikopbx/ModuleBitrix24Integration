@@ -25,9 +25,6 @@ use MikoPBX\Core\System\Util;
 
 class Bitrix24Integration extends PbxExtensionBase
 {
-    private const CLIENT_ID = 'app.5ea2ab337deab1.57263195';
-    private const CLIENT_SECRET = 'XUMGJmFTgg2mjAnuZ0XykBODqToLT2f0HPDZagKP3HKtH6RT18';
-
     public const B24_INTEGRATION_CHANNEL = 'b24_integration_channel';
     public array $inner_numbers;
     public array $mobile_numbers;
@@ -37,6 +34,7 @@ class Bitrix24Integration extends PbxExtensionBase
     private string $refresh_token;
     private string $portal;
     public bool $initialized = false;
+    private string $b24_region;
 
     public function __construct()
     {
@@ -140,10 +138,13 @@ class Bitrix24Integration extends PbxExtensionBase
         if ( ! isset($this->SESSION["refresh_token"])) {
             return $result;
         }
+
+        $oAuthToken = ModuleBitrix24Integration::getAvailableRegions()[$this->b24_region];
+
         $params     = [
             "grant_type"    => "refresh_token",
-            "client_id"     => self::CLIENT_ID,
-            "client_secret" => self::CLIENT_SECRET,
+            "client_id"     => $oAuthToken['CLIENT_ID'],
+            "client_secret" => $oAuthToken['CLIENT_SECRET'],
             "refresh_token" => $this->SESSION["refresh_token"],
         ];
         $query_data = $this->query("https://oauth.bitrix.info/oauth/token/", $params);

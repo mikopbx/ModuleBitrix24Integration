@@ -40,5 +40,10 @@ return [
     'mod_b24_i_ColumnNumber'              => 'Номер телефона',
     'mod_b24_i_ColumnDidAlias'            => 'Псевдонимы номера (DID)',
     'mod_b24_i_EnterSearch'               => 'Поиск',
-    'mod_b24_i_NoSettings'                => 'Модуль не настроен'
+    'mod_b24_i_NoSettings'                => 'Модуль не настроен',
+    'mod_b24_i_region_RUSSIA'             => 'Россия',
+    'mod_b24_i_region_BELARUS'            => 'Беларусь',
+    'mod_b24_i_region_UKRAINE'            => 'Украина',
+    'mod_b24_i_region_WORLD'              => 'Весь остальной мир',
+    'mod_b24_i_Region'                    => 'Регион в котором работает ваш портал',
 ];

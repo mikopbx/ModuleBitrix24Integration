@@ -12,6 +12,7 @@ namespace Modules\ModuleBitrix24Integration\Setup;
 use MikoPBX\Common\Models\PbxSettings;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use MikoPBX\Modules\Setup\PbxExtensionSetupBase;
+use Phalcon\Mvc\Model;
 
 class PbxExtensionSetup extends PbxExtensionSetupBase
 {
@@ -39,6 +40,17 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
             $this->transferOldSettings();
         }
 
+        if ($result) {
+            $settings = ModuleBitrix24Integration::findFirst();
+            if ($settings === null) {
+                $settings = new ModuleBitrix24Integration();
+            }
+            if (empty($settings->b24_region)) {
+                $settings->b24_region = 'RUSSIA';
+            }
+            $result = $settings->save();
+        }
+
         return $result;
     }
 
@@ -61,6 +73,7 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
                 $settings->$key = $oldSettings[$key];
             }
         }
+
         if ($settings->save()) {
             $this->db->dropTable('m_ModuleBitrix24Integration');
         } else {

@@ -7,7 +7,9 @@
  */
 namespace Modules\ModuleBitrix24Integration\App\Forms;
 
+use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use Phalcon\Forms\Element\Check;
+use Phalcon\Forms\Element\Select;
 use Phalcon\Forms\Element\Text;
 use Phalcon\Forms\Form;
 
@@ -35,5 +37,28 @@ class ModuleBitrix24IntegrationForm extends Form
         }
 
         $this->add(new Check('export_records', $cheskarr));
+
+
+        // Region
+        $regionsForSelect = [];
+        foreach (ModuleBitrix24Integration::getAvailableRegions() as $region=>$keys){
+            $regionsForSelect[$region]=$this->translation->_('mod_b24_i_region_'.$region);
+        }
+
+        $regions = new Select(
+            'b24_region',
+            $regionsForSelect
+            , [
+                'using'    => [
+                    'id',
+                    'name',
+                ],
+                'value'    => $entity->b24_region,
+                'useEmpty' => false,
+                'class'    => 'ui selection dropdown b24_regions-select',
+            ]
+        );
+        $this->add($regions);
+
     }
 }
