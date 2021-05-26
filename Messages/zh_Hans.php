@@ -40,4 +40,9 @@ return [
  */
     'repModuleBitrix24Integration' => 'CRM Bitrix24的集成模块-％repeent％',
     'mod_b24_i_StatusError' => '模块操作错误',
+    'mod_b24_i_Region' => '您的门户网站所在的区域',
+    'mod_b24_i_region_WORLD' => '剩下的世界',
+    'mod_b24_i_region_UKRAINE' => '乌克兰',
+    'mod_b24_i_region_BELARUS' => '白俄罗斯',
+    'mod_b24_i_region_RUSSIA' => '俄罗斯',
 ];
