@@ -40,4 +40,9 @@ return [
     'mod_b24_i_NoSettings' => 'Modul nicht konfiguriert',
     'mod_b24_i_DisableAll' => 'Schalten Sie alle aus',
     'mod_b24_i_StatusError' => 'Modulbetriebsfehler',
+    'mod_b24_i_Region' => 'Die Region, in der Ihr Portal betrieben wird',
+    'mod_b24_i_region_WORLD' => 'Der Rest der Welt',
+    'mod_b24_i_region_UKRAINE' => 'Ukraine',
+    'mod_b24_i_region_BELARUS' => 'Weißrussland',
+    'mod_b24_i_region_RUSSIA' => 'Russland',
 ];
