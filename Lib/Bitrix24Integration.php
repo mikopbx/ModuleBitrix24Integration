@@ -26,23 +26,28 @@ use MikoPBX\Core\System\Util;
 class Bitrix24Integration extends PbxExtensionBase
 {
     public const B24_INTEGRATION_CHANNEL = 'b24_integration_channel';
+
     public array $inner_numbers;
     public array $mobile_numbers;
     private $SESSION;
     private array $disabled_numbers;
     private array $mem_cache;
-    private string $refresh_token;
-    private string $portal;
+    private string $refresh_token = '';
+    private string $portal = '';
     public bool $initialized = false;
-    private string $b24_region;
+    private string $b24_region = '';
 
     public function __construct()
     {
         parent::__construct();
         $this->mem_cache = [];
-        $data = ModuleBitrix24Integration::findFirst();
-        if ($data === null) {
+        $data            = ModuleBitrix24Integration::findFirst();
+        if ($data === null
+            || empty($data->portal)
+            || empty($data->refresh_token)
+            || empty($data->b24_region)) {
             $this->logger->writeError('Settings not set...');
+
             return;
         }
         $this->SESSION          = empty($data->session) ? null : json_decode($data->session, true);
@@ -50,7 +55,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->refresh_token    = $data->refresh_token;
         $this->b24_region       = $data->b24_region;
         $this->disabled_numbers = $this->getDisabledNumbers();
-        $this->initialized = true;
+        $this->initialized      = true;
         unset($data);
     }
 
@@ -110,7 +115,7 @@ class Bitrix24Integration extends PbxExtensionBase
     public function checkNeedUpdateToken(): void
     {
         $s_refresh_token = $this->SESSION["refresh_token"] ?? '';
-        $s_access_token  = $this->SESSION["access_token"]  ?? '';
+        $s_access_token  = $this->SESSION["access_token"] ?? '';
 
         if (empty($s_refresh_token) || empty($s_access_token)) {
             $this->SESSION = ['refresh_token' => $this->refresh_token];
@@ -118,7 +123,6 @@ class Bitrix24Integration extends PbxExtensionBase
         }
         // Обновим подписки на события.
         $this->eventsBind();
-
     }
 
     /**
@@ -171,14 +175,14 @@ class Bitrix24Integration extends PbxExtensionBase
         if (parse_url($url) === false) {
             return [];
         }
-        $q4Dump     = json_encode($data);
-        $startTime  = microtime(true);
+        $q4Dump                              = json_encode($data);
+        $startTime                           = microtime(true);
         $curlOptions                         = [];
         $curlOptions[CURLOPT_POST]           = true;
         $curlOptions[CURLOPT_POSTFIELDS]     = http_build_query($data);
         $curlOptions[CURLOPT_RETURNTRANSFER] = true;
 
-        $status   = 0;
+        $status          = 0;
         $headersResponse = '';
 
         $totalTime = 0;
@@ -224,8 +228,12 @@ class Bitrix24Integration extends PbxExtensionBase
         }
 
         $delta = microtime(true) - $startTime;
-        if($delta > 1 || $totalTime > 1){
-            $this->logger->writeError("Slow response. PHP time:{$delta}s, cURL time: {$totalTime}, url:{$url}, Data:$q4Dump, Response: ".json_encode($response));
+        if ($delta > 1 || $totalTime > 1) {
+            $this->logger->writeError(
+                "Slow response. PHP time:{$delta}s, cURL time: {$totalTime}, url:{$url}, Data:$q4Dump, Response: " . json_encode(
+                    $response
+                )
+            );
             // $this->logger->writeError("Slow response. PHP time:{$delta}s, cURL time: {$totalTime}, url:{$url}, Data:$q4Dump, Response headers: {$headersResponse}, Response: ".json_encode($response));
         }
 
@@ -235,10 +243,10 @@ class Bitrix24Integration extends PbxExtensionBase
     /**
      * Выполнить запрос HTTP через CURL
      *
-     * @param $url
-     * @param $curlOptions
-     * @param $status
-     * @param $headers
+     * @param     $url
+     * @param     $curlOptions
+     * @param     $status
+     * @param     $headers
      * @param int $time
      *
      * @return mixed
@@ -247,16 +255,16 @@ class Bitrix24Integration extends PbxExtensionBase
     {
         $curl = curl_init($url);
         curl_setopt_array($curl, $curlOptions);
-        curl_setopt($curl , CURLOPT_HEADER , 1);
+        curl_setopt($curl, CURLOPT_HEADER, 1);
 
-        $result = curl_exec($curl);
-        $header_size = curl_getinfo($curl,CURLINFO_HEADER_SIZE);
+        $result      = curl_exec($curl);
+        $header_size = curl_getinfo($curl, CURLINFO_HEADER_SIZE);
         $headers     = substr($result, 0, $header_size);
-        $response    = trim(substr( $result, $header_size ));
+        $response    = trim(substr($result, $header_size));
 
         $status = (int)curl_getinfo($curl, CURLINFO_HTTP_CODE);
-        $time  += (float) curl_getinfo($curl, CURLINFO_TOTAL_TIME);
-        $data = json_decode($response, true);
+        $time   += (float)curl_getinfo($curl, CURLINFO_TOTAL_TIME);
+        $data   = json_decode($response, true);
         if ( ! $data) {
             // Передаем ответ "КАК ЕСТЬ".
             $data = $response;
@@ -294,10 +302,10 @@ class Bitrix24Integration extends PbxExtensionBase
      * Сохраняет даныне в кэш.
      *
      * @param string $cacheKey ключ
-     * @param mixed  $resData данные
-     * @param int    $ttl время жизни кеша
+     * @param mixed  $resData  данные
+     * @param int    $ttl      время жизни кеша
      */
-    public function saveCache(string $cacheKey, $resData, int $ttl=3600): void
+    public function saveCache(string $cacheKey, $resData, int $ttl = 3600): void
     {
         $managedCache = $this->di->getManagedCache();
         $managedCache->set($cacheKey, $resData, $ttl);
@@ -423,7 +431,9 @@ class Bitrix24Integration extends PbxExtensionBase
 
     /**
      * Модули: Выполнение к-либо действия.
+     *
      * @param $req_data
+     *
      * @return array
      * @throws \Exception
      */
@@ -681,7 +691,7 @@ class Bitrix24Integration extends PbxExtensionBase
             }
             $params = [
                 'NUMBER' => $line,
-                'NAME'   => ''
+                'NAME'   => '',
             ];
             // Ключа нет на MIKOPBX. Удалим его из Б24
             $arg[uniqid('externalLine.add', true)] = 'telephony.externalLine.delete?' . http_build_query($params);
@@ -729,15 +739,16 @@ class Bitrix24Integration extends PbxExtensionBase
      */
     public function getScope(): PBXApiResult
     {
-        $res = new PBXApiResult();
+        $res            = new PBXApiResult();
         $res->processor = __METHOD__;
-        $access_token = $this->getAccessToken();
+        $access_token   = $this->getAccessToken();
         if (empty($access_token)) {
-            $res->messages[]='Access denied. Check refresh token value.';
+            $res->messages[] = Util::translate('mod_b24_i_AuthError');
+
             return $res;
         }
         $res->success = true;
-        $res_data = $this->getCache(__FUNCTION__);
+        $res_data     = $this->getCache(__FUNCTION__);
         if ($res_data === null || isset($res_data['error'])) {
             $params   = ["auth" => $access_token];
             $url      = "https://" . $this->portal . "/rest/scope";
@@ -746,17 +757,17 @@ class Bitrix24Integration extends PbxExtensionBase
         }
 
         if (is_array($res_data) && isset($res_data['error'])) {
-            $res->messages=(array)$res_data;
-            $res->success = false;
+            $res->messages = $res_data;
+            $res->success  = false;
         } else {
-            $result = $res_data['result'] ?? [];
+            $result  = $res_data['result'] ?? [];
             $needles = ['user', 'telephony', 'crm'];
             foreach ($needles as $needle) {
                 if (in_array($needle, $result)) {
                     continue;
                 }
-                $res->success = false;
-                $res->messages[] = 'You must issue the following permissions: ' . implode(
+                $res->success    = false;
+                $res->messages[] = Util::translate('mod_b24_i_CheckPermissions').' ' . implode(
                         ',',
                         $needles
                     );
