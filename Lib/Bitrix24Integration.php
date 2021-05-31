@@ -469,14 +469,14 @@ class Bitrix24Integration extends PbxExtensionBase
                     );
                 $this->saveCache($pre_call_key, $data, 5);
 
-                $dst = preg_replace('/\D/', '', urldecode($dst));
+                $dst = preg_replace("/[^0-9+]/", '', $dst);
                 Util::amiOriginate($phone_data['peer_number'], '', $dst);
                 $this->logger->writeInfo(
                     "ONEXTERNALCALLSTART: originate from user {$FROM_USER_ID} <{$phone_data['peer_number']}> to {$dst})"
                 );
             }
         } elseif ('ONEXTERNALCALLBACKSTART' === $req_data['event']) {
-            $PHONE_NUMBER = preg_replace('/\D/', '', urldecode($req_data['data']['PHONE_NUMBER']));
+            $PHONE_NUMBER = preg_replace("/[^0-9+]/", '', urldecode($req_data['data']['PHONE_NUMBER']));
             $data         = [
                 'CRM_ENTITY_TYPE' => $req_data['data']['CRM_ENTITY_TYPE'],
                 'CRM_ENTITY_ID'   => $req_data['data']['CRM_ENTITY_ID'],
