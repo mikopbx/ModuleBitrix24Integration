@@ -2,7 +2,7 @@
   ~ Copyright © MIKO LLC - All Rights Reserved
   ~ Unauthorized copying of this file, via any medium is strictly prohibited
   ~ Proprietary and confidential
-  ~ Written by Alexey Portnov, 10 2020
+  ~ Written by Alexey Portnov, 4 2020
   -->
 
 <!DOCTYPE html>
@@ -26,21 +26,57 @@
 
 </head>
 <body>
-<script>
+	
+<div class="row">
+  <div class="col-md-1"></div>
+  <div class="col-md-7">
+	<div class="">
+	  <h2>Модуль интеграции Bitrix 24 АТС MIKOPBX</h2>
+	  <hr>
+	  <p><button id='b_get_token' type="button" onclick='app()' class="btn btn-lg btn-success">Получить ключ к API</button></p>
+	
+		<div hidden id="token" class="alert alert-success" role="alert">
+		    <strong>Получение данных... </strong>
+		</div>
+	</div>
+  </div>
+  <div class="col-md-1"></div>
+</div>
+	
 
+<script>
     function app() {
+        BX24.init();
         $("#token").show();
         $("#b_get_token").hide();
         const initDate = BX24.getAuth();
-        // console.log("ititDate: ", initDate);
-        // console.log("refresh_token: ", initDate.refresh_token);
         $("#token").html("<strong>refresh_token:</strong> " + initDate.refresh_token);
+
+        BX24.callMethod('event.get', {}, function(result) {
+            if(result.error()){
+                console.log(result.error());
+            }else{
+                var event_exists = false;
+                console.log(result.data());
+                result.data().forEach(function(item, i, arr) {
+                    if(item.event === 'ONEXTERNALCALLSTART'){
+                        event_exists = true;
+                    }
+                });
+                if(!event_exists){
+                    BX24.callMethod('event.bind', {event_type:'offline',event:'OnExternalCallStart'}, function(result){
+                        if(result.error()){
+                            console.log(result.error());
+                        } else{
+                            console.log(result.data());
+                        }
+                    });
+                }
+            }
+        });
     }
 
 </script>
-<button id='b_get_token' type="button" onclick='BX24.init(app)' class="btn btn-lg btn-success">Получить ключ к API</button>
-<div hidden id="token" class="alert alert-success" role="alert">
-    <strong>Получение данных... </strong>
-</div>
+
 </body>
 </html>
