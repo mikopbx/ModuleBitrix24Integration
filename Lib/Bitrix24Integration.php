@@ -572,11 +572,10 @@ class Bitrix24Integration extends PbxExtensionBase
     public function userGet(): array
     {
         // Пробуем получить закэшированные записи
-        $res_data = $this->getCache(__FUNCTION__, 300);
+        $res_data = $this->getCache(__FUNCTION__);
         if (is_array($res_data) && count($res_data) === 0) {
-            $res_data = $this->getCache(__FUNCTION__, 10);
+            $res_data = $this->getCache(__FUNCTION__);
         }
-
         if ($res_data === null) {
             // Кэш не существует / истекло время жизни.
             $res_data = [];
@@ -616,7 +615,7 @@ class Bitrix24Integration extends PbxExtensionBase
                 }
             }
             // Сохраняем их в кэше
-            $this->saveCache(__FUNCTION__, $res_data);
+            $this->saveCache(__FUNCTION__, $res_data, 90);
         }
 
         if (count($res_data) > 1) {
