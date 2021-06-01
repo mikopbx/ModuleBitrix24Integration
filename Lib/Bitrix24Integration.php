@@ -8,6 +8,7 @@
 
 namespace Modules\ModuleBitrix24Integration\Lib;
 
+use MikoPBX\Common\Models\CallQueues;
 use MikoPBX\Common\Models\IncomingRoutingTable;
 use MikoPBX\Common\Models\Extensions;
 use MikoPBX\Core\System\Processes;
@@ -22,6 +23,7 @@ use Modules\ModuleBitrix24Integration\Models\{ModuleBitrix24ExternalLines,
 };
 use MikoPBX\Core\System\Util;
 use Phalcon\Mvc\Model;
+use Phalcon\Mvc\Model\Resultset;
 
 
 class Bitrix24Integration extends PbxExtensionBase
@@ -489,17 +491,26 @@ class Bitrix24Integration extends PbxExtensionBase
             $default_action = IncomingRoutingTable::findFirst('priority = 9999');
             if ($default_action !== null) {
                 $data        = $default_action->toArray();
-                $dest_number = $data['extension'];
-                $peer_mobile = '';
-
-                $am       = Util::getAstManager('off');
-                $channel  = 'Local/' . $PHONE_NUMBER . '@outgoing-b24';
-                $context  = 'internal';
-                $IS_ORGNT = Util::generateRandomString();
-                $variable = "__FROM_DID=B24,_IS_ORGNT={$IS_ORGNT},_b24_dst={$dest_number},pt1c_cid={$dest_number},__peer_mobile={$peer_mobile},_FROM_PEER={$PHONE_NUMBER}";
-
-                $am->Originate($channel, $dest_number, $context, '1', null, null, null, null, $variable, null, true);
                 unset($default_action);
+                $filter =  [
+                    'conditions' => 'extension = :extension:',
+                    'hydration'  => Resultset::HYDRATE_ARRAYS,
+                    'bind'       => [
+                        'extension' => $data['extension'],
+                    ]
+                ];
+                $extData = CallQueues::findFirst($filter);
+                if(!$extData){
+                    $this->logger->writeInfo("ONEXTERNALCALLBACKSTART: default action for incoming rout is not queue)");
+                }else{
+                    $queueData      = $extData->toArray();
+                    $channel        = "Local/{$data['extension']}@internal-originate";
+                    $variable = "pt1c_cid={$PHONE_NUMBER},SRC_QUEUE={$queueData['uniqid']}";
+
+                    $am       = Util::getAstManager('off');
+                    $am->Originate($channel, $PHONE_NUMBER, 'all_peers', '1', null, null, null, null, $variable, null, true);
+                    $this->logger->writeInfo("ONEXTERNALCALLBACKSTART: originate from queue {$data['extension']} to {$PHONE_NUMBER})");
+                }
             }
         }
 
