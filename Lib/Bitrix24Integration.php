@@ -21,6 +21,7 @@ use Modules\ModuleBitrix24Integration\Models\{ModuleBitrix24ExternalLines,
     ModuleBitrix24Users
 };
 use MikoPBX\Core\System\Util;
+use Phalcon\Mvc\Model;
 
 
 class Bitrix24Integration extends PbxExtensionBase
@@ -832,6 +833,31 @@ class Bitrix24Integration extends PbxExtensionBase
     }
 
     /**
+     * Запись в базу данных идентификаторов звонка.
+     *
+     * @param $key
+     * @param $response
+     */
+    public function telephonyExternalCallPostRegister($key, $response): void
+    {
+        $request = $this->mem_cache[$key] ?? null;
+        if ( ! $request) {
+            return;
+        }
+        unset($this->mem_cache[$key]);
+        $res = ModuleBitrix24CDR::findFirst("uniq_id='{$request['UNIQUEID']}'");
+        if ($res === null && isset($response['CALL_ID'])) {
+            $res           = new ModuleBitrix24CDR();
+            $res->uniq_id  = $request['UNIQUEID'];
+            $res->user_id  = $request['USER_ID'];
+            $res->linkedid = $request['linkedid'];
+            $res->call_id  = $response['CALL_ID'];
+            $res->lead_id  = $response['CRM_CREATED_LEAD'];
+            $res->save();
+        }
+    }
+
+    /**
      * @param       $options
      * @param array $params
      */
@@ -868,9 +894,11 @@ class Bitrix24Integration extends PbxExtensionBase
         if (empty($CALL_ID)) {
             return [];
         }
+
+        $userId = ($CALL_DATA['answer'] === '1') ? $CALL_DATA['user_id'] : '';
         $params = [
             'CALL_ID'       => $CALL_ID,
-            'USER_ID'       => '',
+            'USER_ID'       => $userId,
             'DURATION'      => '',
             'COST'          => '', // Стоимость звонка.
             'COST_CURRENCY' => '', // Валюта, в которой указана стоимость звонка.
@@ -884,8 +912,8 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->fillPropertyValues($options, $params);
 
         $arg              = [];
-        $finish_key       = 'finish__' . uniqid('', true);
-        $arg[$finish_key] = 'telephony.externalcall.finish?' . http_build_query($params);
+        $finishKey       = 'finish__' . uniqid('', true);
+        $arg[$finishKey] = 'telephony.externalcall.finish?' . http_build_query($params);
         if ($options['export_records']) {
             $cmd = $this->telephonyExternalCallAttachRecord($options);
             if ($cmd !== '') {
@@ -894,8 +922,59 @@ class Bitrix24Integration extends PbxExtensionBase
         }
 
         if ($options['GLOBAL_STATUS'] === 'ANSWERED' && $options['disposition'] !== 'ANSWERED') {
-            $this->mem_cache[$finish_key] = $CALL_DATA;
+            $this->mem_cache[$finishKey] = $CALL_DATA;
         }
+        if ($options['GLOBAL_STATUS'] === 'ANSWERED' && $options['disposition'] === 'ANSWERED') {
+            $this->mem_cache["{$finishKey}-answered"] = $CALL_DATA;
+        }
+        return $arg;
+    }
+
+    /**
+     * Обработка действий после получения ответа на telephonyExternalCallFinish.
+     * @param string $finishKey
+     * @param array  $response
+     * @param array  $queryArray
+     */
+    public function telephonyExternalCallPostFinish(string $finishKey, array $response, array &$queryArray): void{
+        $cache_data = $this->getMemCache($finishKey);
+        /*
+        $leadId = $cache_data['lead_id']??'';
+        if(!empty($leadId)){
+            // Постановка задачи на удаление Лида.
+            $queryArray[] = $this->crmLeadDelete($leadId);
+        }
+        //*/
+        $activityId = $response['CRM_ACTIVITY_ID']??'';
+        if($cache_data && !empty($activityId)){
+            // Постановка задачи на удаление activity.
+            $queryArray[] = $this->crmActivityDelete($activityId);
+        }
+        $cacheDataAnswered = $this->getMemCache("{$finishKey}-answered");
+        $leadIdAnswered    = $cacheDataAnswered['lead_id']??'';
+        if(!empty($leadIdAnswered)){
+            $queryArray[] = $this->crmLeadUpdate($leadIdAnswered, $cacheDataAnswered['user_id']);
+        }
+    }
+
+    /**
+     * Обновление пользователя для Lead,
+     * @param string $id
+     * @param string $newUserId
+     * @return array
+     */
+    public function crmLeadUpdate(string $id, string $newUserId): array
+    {
+        $params = [
+            'id'   => $id,
+            'fields' => [
+                'ASSIGNED_BY_ID' => $newUserId
+            ],
+            'auth' => $this->getAccessToken(),
+        ];
+
+        $arg                                        = [];
+        $arg['crm.lead.update_' . uniqid('', true)] = 'crm.lead.update?' . http_build_query($params);
 
         return $arg;
     }
@@ -913,14 +992,22 @@ class Bitrix24Integration extends PbxExtensionBase
      */
     public function getCallDataByUniqueId($uniq_id): array
     {
-        $call_id = [];
+        $CALL_DATA = [];
         /** @var ModuleBitrix24CDR $res */
         $res = ModuleBitrix24CDR::findFirst("uniq_id='{$uniq_id}'");
         if ($res !== null) {
-            $call_id = $res->toArray();
+            $CALL_DATA = $res->toArray();
+            $userId = ($CALL_DATA['answer'] === '1') ? $CALL_DATA['user_id'] : '';
+            if(!empty($userId) && empty($CALL_DATA['lead_id'])){
+                $result = ModuleBitrix24CDR::findFirst("linkedid='{$CALL_DATA['linkedid']}' AND lead_id IS NOT NULL");
+                if($result){
+                    $CALL_DATA['lead_id'] = $result->lead_id;
+                }
+                unset($result);
+            }
         }
 
-        return $call_id;
+        return $CALL_DATA;
     }
 
     /**
@@ -1030,31 +1117,6 @@ class Bitrix24Integration extends PbxExtensionBase
         $arg['lead.delete_' . uniqid('', true)] = 'crm.lead.delete?' . http_build_query($params);
 
         return $arg;
-    }
-
-    /**
-     * Запись в базу данных идентификаторов звонка.
-     *
-     * @param $key
-     * @param $response
-     */
-    public function registerCallData($key, $response): void
-    {
-        $request = $this->mem_cache[$key] ?? null;
-        if ( ! $request) {
-            return;
-        }
-        unset($this->mem_cache[$key]);
-        $res = ModuleBitrix24CDR::findFirst("uniq_id='{$request['UNIQUEID']}'");
-        if ($res === null && isset($response['CALL_ID'])) {
-            $res           = new ModuleBitrix24CDR();
-            $res->uniq_id  = $request['UNIQUEID'];
-            $res->user_id  = $request['USER_ID'];
-            $res->linkedid = $request['linkedid'];
-            $res->call_id  = $response['CALL_ID'];
-            $res->lead_id  = $response['CRM_CREATED_LEAD'];
-            $res->save();
-        }
     }
 
     /**

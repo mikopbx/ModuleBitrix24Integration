@@ -130,24 +130,12 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $this->q_req = [];
 
             $tmpArr = [];
-            foreach ($result as $key => $value){
+            foreach ($result as $key => $partResponse){
                 $sub_key = substr($key, 0, 8);
                 if($sub_key === 'register'){
-                    $this->b24->registerCallData($key, $value);
+                    $this->b24->telephonyExternalCallPostRegister($key, $partResponse);
                 }elseif ($sub_key === 'finish__'){
-                    $cache_data = $this->b24->getMemCache($key);
-                    if($cache_data && isset($cache_data['lead_id'])){
-                        // Удаляем лид.
-                        $lead_delete = $this->b24->crmLeadDelete($cache_data['lead_id']);
-                        if($lead_delete){
-                            $tmpArr[] = $lead_delete;
-                        }
-                    }
-                    if($cache_data && !empty($value['CRM_ACTIVITY_ID'])){
-                        // Удаляем activity.
-                        $activity_delete = $this->b24->crmActivityDelete($value['CRM_ACTIVITY_ID']);
-                        $tmpArr[] = $activity_delete;
-                    }
+                    $this->b24->telephonyExternalCallPostFinish($key, $partResponse, $tmpArr);
                 }
             }
             $this->q_req = array_merge(...$tmpArr);
