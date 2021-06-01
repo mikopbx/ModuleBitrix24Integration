@@ -65,18 +65,6 @@ class Bitrix24IntegrationConf extends ConfigClass
         }
     }
 
-    /**
-     * Генерация дополнительных контекстов.
-     *
-     * @return string
-     */
-    public function extensionGenContexts():string
-    {
-        return   '[outgoing-b24]'."\n".
-            'exten => _.!,1,ExecIf($["${b24_dst}x" != "x"]?Set(CALLERID(num)=${b24_dst}))'."\n".
-            '	same => n,Goto(outgoing,${EXTEN},1)'."\n";
-    }
-
 
     /**
      *  Process CoreAPI requests under root rights
@@ -114,7 +102,6 @@ class Bitrix24IntegrationConf extends ConfigClass
         $module = new Bitrix24Integration();
         if ($module->initialized) {
             $module->startAllServices(true);
-            PBX::dialplanReload();
         }
     }
 }
