@@ -3,7 +3,7 @@
   "moduleUniqueID":"ModuleBitrix24Integration",
   "support_email": "help@miko.ru",
   "version": "%ModuleVersion%",
-  "min_pbx_version": "2020.2.757",
+  "min_pbx_version": "2021.2.170",
   "lic_product_id": 31,
   "lic_feature_id": 41
 }
