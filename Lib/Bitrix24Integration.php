@@ -494,7 +494,6 @@ class Bitrix24Integration extends PbxExtensionBase
                 unset($default_action);
                 $filter =  [
                     'conditions' => 'extension = :extension:',
-                    'hydration'  => Resultset::HYDRATE_ARRAYS,
                     'bind'       => [
                         'extension' => $data['extension'],
                     ]
