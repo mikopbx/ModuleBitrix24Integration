@@ -8,6 +8,7 @@
 
 namespace Modules\ModuleBitrix24Integration\Lib;
 
+use MikoPBX\Core\System\PBX;
 use MikoPBX\Core\System\Util;
 use MikoPBX\Modules\Config\ConfigClass;
 use MikoPBX\Core\Workers\Cron\WorkerSafeScriptsCore;
@@ -18,8 +19,6 @@ use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Users;
 
 class Bitrix24IntegrationConf extends ConfigClass
 {
-
-
     /**
      * Обработчик события изменения данных в базе настроек mikopbx.db.
      *
@@ -115,7 +114,7 @@ class Bitrix24IntegrationConf extends ConfigClass
         $module = new Bitrix24Integration();
         if ($module->initialized) {
             $module->startAllServices(true);
+            PBX::dialplanReload();
         }
-
     }
 }
