@@ -20,8 +20,15 @@
 
 use MikoPBX\Core\Asterisk\AGI;
 use Modules\ModuleBitrix24Integration\Lib\ModuleBitrix24GetResponsible;
+use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 
 require_once 'Globals.php';
+$settings = ModuleBitrix24Integration::findFirst()->toArray();
+
+$useInterception = $settings['use_interception']??'0';
+if($useInterception !== '1'){
+    exit(0);
+}
 
 $agi        = new AGI();
 $number     = $agi->request['agi_callerid'];
@@ -31,6 +38,6 @@ $agent = new ModuleBitrix24GetResponsible();
 $resposibleNumber = $agent->getResposibleNumber($number);
 if(!empty($resposibleNumber)){
     $agi->set_variable('B24_RESPONSIBLE_NUMBER', $resposibleNumber);
-    $agi->set_variable('B24_RESPONSIBLE_TIMEOUT', 60);
+    $agi->set_variable('B24_RESPONSIBLE_TIMEOUT', $settings['interception_call_duration']??60);
     $agi->exec('Gosub', "b24-interception,{$extensions},1");
 }

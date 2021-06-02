@@ -8,7 +8,9 @@
 namespace Modules\ModuleBitrix24Integration\App\Forms;
 
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
+use Phalcon\Forms\Element\AbstractElement;
 use Phalcon\Forms\Element\Check;
+use Phalcon\Forms\Element\Numeric;
 use Phalcon\Forms\Element\Select;
 use Phalcon\Forms\Element\Text;
 use Phalcon\Forms\Form;
@@ -38,6 +40,12 @@ class ModuleBitrix24IntegrationForm extends Form
 
         $this->add(new Check('export_records', $cheskarr));
 
+        $cheskarr = ['value' => null];
+        if ($entity->use_interception) {
+            $cheskarr = ['checked' => 'checked', 'value' => null];
+        }
+        $this->add(new Check('use_interception', $cheskarr));
+        $this->add(new Numeric('interception_call_duration'));
 
         // Region
         $regionsForSelect = [];

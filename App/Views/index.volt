@@ -40,6 +40,20 @@
             </div>
         </div>
     </div>
+
+    <div class="field">
+        <div class="ui segment">
+            <div class="ui toggle checkbox">
+                {{ form.render('use_interception') }}
+                <label>{{ t._('mod_b24_i_useInterception') }}</label>
+            </div>
+        </div>
+    </div>
+    <div class="field">
+        <label>{{ t._('mod_b24_i_interceptionCallDuration') }}</label>
+        {{ form.render('interception_call_duration') }}
+    </div>
+
     </div>
     <div class="ui bottom attached tab segment" data-tab="users">
         <div class="ui basic buttons">
