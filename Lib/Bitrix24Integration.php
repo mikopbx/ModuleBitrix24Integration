@@ -29,6 +29,7 @@ use Phalcon\Mvc\Model\Resultset;
 class Bitrix24Integration extends PbxExtensionBase
 {
     public const B24_INTEGRATION_CHANNEL = 'b24_integration_channel';
+    public const B24_SEARCH_CHANNEL = 'b24_search_channel';
 
     public array $inner_numbers;
     public array $mobile_numbers;
@@ -50,7 +51,6 @@ class Bitrix24Integration extends PbxExtensionBase
             || empty($data->refresh_token)
             || empty($data->b24_region)) {
             $this->logger->writeError('Settings not set...');
-
             return;
         }
         $this->SESSION          = empty($data->session) ? null : json_decode($data->session, true);
@@ -922,7 +922,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->fillPropertyValues($options, $params);
 
         $arg              = [];
-        $finishKey       = 'finish__' . uniqid('', true);
+        $finishKey       = 'finish_' . uniqid('', true);
         $arg[$finishKey] = 'telephony.externalcall.finish?' . http_build_query($params);
         if ($options['export_records']) {
             $cmd = $this->telephonyExternalCallAttachRecord($options);
@@ -1125,6 +1125,25 @@ class Bitrix24Integration extends PbxExtensionBase
         ];
         $arg                                    = [];
         $arg['lead.delete_' . uniqid('', true)] = 'crm.lead.delete?' . http_build_query($params);
+
+        return $arg;
+    }
+
+    /**
+     * Удаление Дела по ID
+     *
+     * @param  string $phone
+     *
+     * @return array
+     */
+    public function searchCrmEntities(string $phone): array
+    {
+        $params                                 = [
+            'PHONE_NUMBER'   => $phone,
+            'auth' => $this->getAccessToken(),
+        ];
+        $arg                                    = [];
+        $arg['searchCrmEntities_' . uniqid('', true)] = 'telephony.externalCall.searchCrmEntities?' . http_build_query($params);
 
         return $arg;
     }

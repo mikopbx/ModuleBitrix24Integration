@@ -53,6 +53,18 @@ class ModuleBitrix24Integration extends ModulesModelsBase
     public $export_records; // Выгружать в b24 записи разговоров.
 
     /**
+     *
+     * @Column(type="integer", nullable=true)
+     */
+    public $use_interception;
+
+    /**
+     *
+     * @Column(type="integer", nullable=true)
+     */
+    public $interception_call_duration;
+
+    /**
      * Bitrix24 region
      *
      * @Column(type="string", nullable=true)

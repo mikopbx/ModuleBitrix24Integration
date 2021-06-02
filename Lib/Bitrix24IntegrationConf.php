@@ -103,5 +103,35 @@ class Bitrix24IntegrationConf extends ConfigClass
         if ($module->initialized) {
             $module->startAllServices(true);
         }
+        PBX::dialplanReload();
     }
+
+    /**
+     * Prepares additional contexts sections in the extensions.conf file
+     *
+     * @return string
+     */
+    public function extensionGenContexts(): string
+    {
+        return  '[b24-interception]'.PHP_EOL.
+                'exten => _[0-9*#+]!,1,ExecIf($["${B24_RESPONSIBLE_NUMBER}x" == "x" && "${B24_RESPONSIBLE_TIMEOUT}x" == "x"]?return)'."\n\t".
+                'same => n,Set(M_TIMEOUT=${B24_RESPONSIBLE_TIMEOUT)'."\n\t".
+	            'same => n,Dial(Local/${B24_RESPONSIBLE_NUMBER}@internal-incoming/n,${B24_RESPONSIBLE_TIMEOUT},${TRANSFER_OPTIONS}Kg)'."\n\t".
+	            'same => n,return'.PHP_EOL;
+    }
+
+    /**
+     * Prepares additional parameters for each incoming context for each incoming route before dial in the
+     * extensions.conf file
+     *
+     * @param string $rout_number
+     *
+     * @return string
+     */
+    public function generateIncomingRoutBeforeDial(string $rout_number): string
+    {
+        $scriptFile = "{$this->moduleDir}/agi-bin/b24CheckResponsible.php";
+        return "\t".'same => n,AGI('.$scriptFile.')' . "\n\t";
+    }
+
 }

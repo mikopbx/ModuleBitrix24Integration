@@ -21,6 +21,8 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     private array $q_pre_req  = [];
     private bool $need_get_events = false;
     private int $last_update_inner_num = 0;
+    private array $channelSearchCashe = [];
+    private BeanstalkClient $queueAgent;
 
     /**
      * Начало работы демона.
@@ -38,29 +40,39 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $this->b24->syncExternalLines();
 
         /** Основной цикл демона. */
-        $client = $this->initBeanstalk();
+        $this->initBeanstalk();
         while (true) {
             try {
-                $client->wait(1);
+                $this->queueAgent->wait(1);
             } catch (Exception $e) {
                 sleep(1);
-                $client = $this->initBeanstalk();
+                $this->initBeanstalk();
             }
         }
     }
 
     /**
      * Инициализация BeanstalkClient.
-     * @return BeanstalkClient
      */
-    private function initBeanstalk():BeanstalkClient{
-        $client = new BeanstalkClient(Bitrix24Integration::B24_INTEGRATION_CHANNEL);
-        $client->subscribe($this->makePingTubeName(self::class),    [$this, 'pingCallBack']);
-        $client->subscribe(Bitrix24Integration::B24_INTEGRATION_CHANNEL,      [$this, 'b24ChannelCallBack']);
-        $client->setTimeoutHandler([$this, 'executeTasks']);
-        return $client;
+    private function initBeanstalk():void{
+        $this->queueAgent = new BeanstalkClient(Bitrix24Integration::B24_INTEGRATION_CHANNEL);
+        $this->queueAgent->subscribe($this->makePingTubeName(self::class), [$this, 'pingCallBack']);
+        $this->queueAgent->subscribe(Bitrix24Integration::B24_INTEGRATION_CHANNEL,  [$this, 'b24ChannelCallBack']);
+        $this->queueAgent->subscribe(Bitrix24Integration::B24_SEARCH_CHANNEL,       [$this, 'b24ChannelSearch']);
+        $this->queueAgent->setTimeoutHandler([$this, 'executeTasks']);
     }
 
+    public function b24ChannelSearch($client):void
+    {
+        $data = json_decode($client->getBody(), true);
+        // Добавляем запрос в очередь
+        $arg    = $this->b24->searchCrmEntities($data['phone']??'');
+        $this->q_req = array_merge($arg, $this->q_req);
+
+        // Сохраняем ID, куда вернуть ответ.
+        $taskId = array_keys($arg)[0]??'';
+        $this->channelSearchCashe[$taskId] = $data['inbox_tube']??'';
+    }
     /**
      * @param BeanstalkClient $client
      */
@@ -128,19 +140,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $result   = $response['result']['result']??[];
             // Чистим очередь запросов.
             $this->q_req = [];
-
-            $tmpArr = [];
-            foreach ($result as $key => $partResponse){
-                $sub_key = substr($key, 0, 8);
-                if($sub_key === 'register'){
-                    $this->b24->telephonyExternalCallPostRegister($key, $partResponse);
-                }elseif ($sub_key === 'finish__'){
-                    $this->b24->telephonyExternalCallPostFinish($key, $partResponse, $tmpArr);
-                }
-            }
-            $this->q_req = array_merge(...$tmpArr);
-            unset($tmpArr);
-
+            $this->postReceivingResponseProcessing($result);
             $events = $response['result']['result']['event.offline.get']['events']??[];
             foreach ($events as $event){
                 $delta = time()-strtotime($event['TIMESTAMP_X']);
@@ -154,7 +154,6 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 ];
                 $this->b24->handleEvent($req_data);
             }
-
         }
 
         if(count($this->q_pre_req) > 0){
@@ -198,6 +197,41 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $this->q_pre_req = [];
         }
 
+    }
+
+    /**
+     * Дополнительные действия после получения овета на запрос к API.
+     * @param array $result
+     */
+    public function postReceivingResponseProcessing(array $result):void{
+        $tmpArr = [];
+        foreach ($result as $key => $partResponse){
+            $actionName = explode('_', $key)[0]??'';
+            if($actionName === 'register'){
+                $this->b24->telephonyExternalCallPostRegister($key, $partResponse);
+            }elseif ($actionName === 'searchCrmEntities'){
+                $this->postSearchCrmEntities($key, $partResponse);
+            }elseif ($actionName === 'finish'){
+                $this->b24->telephonyExternalCallPostFinish($key, $partResponse, $tmpArr);
+            }
+        }
+        $this->q_req = array_merge(...$tmpArr);
+        unset($tmpArr);
+    }
+
+    /**
+     * Удаление Дела по ID
+     *
+     * @param  string $key
+     * @param  array $response
+     *
+     */
+    public function postSearchCrmEntities(string $key, array $response): void
+    {
+        $tube = $this->channelSearchCashe[$key]??'';
+        if(!empty($tube)){
+            $this->queueAgent->publish(json_encode($response), $tube);
+        }
     }
 
 }

@@ -45,4 +45,6 @@ return [
     'mod_b24_i_region_UKRAINE' => 'Ukraine',
     'mod_b24_i_region_BELARUS' => 'Belarus',
     'mod_b24_i_region_RUSSIA' => 'Russia',
+    'mod_b24_i_useInterception'           => 'Use Interception',
+    'mod_b24_i_interceptionCallDuration'  => 'Interception call duration',
 ];
