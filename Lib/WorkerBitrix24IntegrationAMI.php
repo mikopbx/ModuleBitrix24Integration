@@ -37,6 +37,8 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     private array $external_lines = [];
     private BeanstalkClient $client;
 
+    private array $channelCounter = [];
+
     /**
      * Старт работы листнера.
      *
@@ -224,6 +226,9 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             case 'hangup_chan':
                 $this->actionHangupChan($data);
                 break;
+            case 'dial_create_chan':
+                $this->actionDialCreateChan($data);
+                break;
             case 'dial_answer':
                 $this->actionDialAnswer($data['id'], $data['linkedid']);
                 break;
@@ -298,13 +303,14 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             return;
         }
         $LINE_NUMBER = $this->external_lines[$data['did']]??'';
-        if (isset($this->inner_numbers[$data['src_num']]) && strlen("$general_src_num") <= $this->extensionLength) {
+        if (isset($this->inner_numbers[$data['src_num']]) && strlen($general_src_num) <= $this->extensionLength) {
             // Это исходящий вызов с внутреннего номера.
-            if (strlen($data['dst_num']) > $this->extensionLength && ! in_array($data['dst_num'], $this->extensions)) {
+            if (strlen($data['dst_num']) > $this->extensionLength && ! in_array($data['dst_num'], $this->extensions, true)) {
                 $req_data = [
-                    'CALL_START_DATE'  => date(DateTime::ATOM, strtotime($data['start'])),
+                    'CALL_START_DATE'  => date(\DateTimeInterface::ATOM, strtotime($data['start'])),
                     'USER_ID'          => $this->inner_numbers[$data['src_num']]['ID'],
                     'USER_PHONE_INNER' => $data['src_num'],
+                    'DST_USER_CHANNEL'     => '',
                     'PHONE_NUMBER'     => $data['dst_num'],
                     'TYPE'             => '1',
                     'UNIQUEID'         => $data['UNIQUEID'],
@@ -316,29 +322,31 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             }
         } elseif (isset($this->inner_numbers[$data['dst_num']])) {
             // Это входящий вызов на внутренний номер сотрудника.
-            if (strlen($general_src_num) > $this->extensionLength && ! in_array($general_src_num, $this->extensions)) {
+            if (strlen($general_src_num) > $this->extensionLength && ! in_array($general_src_num, $this->extensions, true)) {
                 // Это переадресация от с.
                 $req_data = [
                     'UNIQUEID'         => $data['UNIQUEID'],
                     'linkedid'         => $data['linkedid'],
-                    'CALL_START_DATE'  => date(DateTime::ATOM, strtotime($data['start'])),
+                    'CALL_START_DATE'  => date(\DateTimeInterface::ATOM, strtotime($data['start'])),
                     'USER_ID'          => $this->inner_numbers[$data['dst_num']]['ID'],
                     'USER_PHONE_INNER' => $data['dst_num'],
+                    'DST_USER_CHANNEL' => $data['dst_chan']??'',
                     'PHONE_NUMBER'     => $general_src_num,
                     'TYPE'             => '3',
                     'LINE_NUMBER'      => $LINE_NUMBER,
                     'action'           => 'telephonyExternalCallRegister',
                 ];
                 $this->Action_SendToBeanstalk($req_data);
-            } elseif (strlen($data['src_num']) > $this->extensionLength && ! in_array($data['src_num'], $this->extensions)) {
+            } elseif (strlen($data['src_num']) > $this->extensionLength && ! in_array($data['src_num'], $this->extensions, true)) {
                 // Это вызов с номера клиента.
                 $req_data = [
                     'UNIQUEID'         => $data['UNIQUEID'],
                     'linkedid'         => $data['linkedid'],
-                    'CALL_START_DATE'  => date(DateTime::ATOM, strtotime($data['start'])),
+                    'CALL_START_DATE'  => date(\DateTimeInterface::ATOM, strtotime($data['start'])),
                     'USER_ID'          => $this->inner_numbers[$data['dst_num']]['ID'],
                     'USER_PHONE_INNER' => $data['dst_num'],
                     'PHONE_NUMBER'     => $data['src_num'],
+                    'DST_USER_CHANNEL' => $data['dst_chan']??'',
                     'TYPE'             => '2',
                     'LINE_NUMBER'      => $LINE_NUMBER,
                     'action'           => 'telephonyExternalCallRegister',
@@ -376,6 +384,12 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             return;
         }
 
+        if(isset($this->channelCounter[$data['UNIQUEID']])){
+            // Не все каналы с этим ID были завершены.
+            // Вероятно это множественная регистрация.
+            return;
+        }
+
         if (isset($this->inner_numbers[$data['src_num']])) {
             // Это исходящий вызов.
             $USER_ID = $this->inner_numbers[$data['src_num']]['ID'];
@@ -404,6 +418,21 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
      */
     public function actionHangupChan($data):void
     {
+        // Считаем каналы с одинаковым UID
+        $countChannel = $this->channelCounter[$data['UNIQUEID']]??0;
+        $countChannel--;
+        if($countChannel>0){
+            $this->channelCounter[$data['UNIQUEID']] = $countChannel;
+        }else{
+            unset($this->channelCounter[$data['UNIQUEID']]);
+        }
+        // end
+        if(isset($this->channelCounter[$data['UNIQUEID']])){
+            // Не все каналы с этим ID были завершены.
+            // Вероятно это множественная регистрация.
+            return;
+        }
+
         $not_local = (stripos($data['agi_channel'], 'local/') === false);
         if ($not_local) {
             $data = [
@@ -413,8 +442,14 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             $this->Action_SendToBeanstalk($data);
         }
     }
-}
+    public function actionDialCreateChan($data):void{
+        // Считаем каналы с одинаковым UID
+        $countChannel = $this->channelCounter[$data['UNIQUEID']]??0;
+        $countChannel++;
+        $this->channelCounter[$data['UNIQUEID']] = $countChannel;
+    }
 
+}
 
 // Start worker process
 WorkerBitrix24IntegrationAMI::startWorker($argv??null);

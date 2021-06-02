@@ -231,7 +231,7 @@ class Bitrix24Integration extends PbxExtensionBase
         }
 
         $delta = microtime(true) - $startTime;
-        if ($delta > 1 || $totalTime > 1) {
+        if ($delta > 2 || $totalTime > 2) {
             $this->logger->writeError(
                 "Slow response. PHP time:{$delta}s, cURL time: {$totalTime}, url:{$url}, Data:$q4Dump, Response: " . json_encode(
                     $response
@@ -795,7 +795,7 @@ class Bitrix24Integration extends PbxExtensionBase
      *
      * @return array
      */
-    public function telephonyExternalCallRegister($options): array
+    public function telephonyExternalCallRegister(array $options): array
     {
         // Сформируем кэш, чтобы исключить дублирующие события.
         $cache_key = "tmp180_call_register_{$options['USER_ID']}_" .
