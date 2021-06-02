@@ -8,13 +8,34 @@
 
 namespace Modules\ModuleBitrix24Integration\Lib;
 
+use MikoPBX\Core\System\PBX;
 use MikoPBX\Core\System\Util;
 use MikoPBX\Modules\Config\ConfigClass;
 use MikoPBX\Core\Workers\Cron\WorkerSafeScriptsCore;
 use MikoPBX\PBXCoreREST\Lib\PBXApiResult;
+use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24ExternalLines;
+use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
+use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Users;
 
 class Bitrix24IntegrationConf extends ConfigClass
 {
+    /**
+     * Обработчик события изменения данных в базе настроек mikopbx.db.
+     *
+     * @param $data
+     */
+    public function modelsEventChangeData($data): void
+    {
+        $moduleModels = [
+            ModuleBitrix24ExternalLines::class,
+            ModuleBitrix24Integration::class,
+            ModuleBitrix24Users::class,
+        ];
+        if (in_array($data['model'], $moduleModels)){
+            $this->onAfterModuleEnable();
+        }
+    }
+
     /**
      * Returns module workers to start it at WorkerSafeScript
      * @return array
@@ -42,18 +63,6 @@ class Bitrix24IntegrationConf extends ConfigClass
         if ($module->initialized) {
             $module->startAllServices(true);
         }
-    }
-
-    /**
-     * Генерация дополнительных контекстов.
-     *
-     * @return string
-     */
-    public function extensionGenContexts():string
-    {
-        return   '[outgoing-b24]'."\n".
-            'exten => _.!,1,ExecIf($["${b24_dst}x" != "x"]?Set(CALLERID(num)=${b24_dst}))'."\n".
-            '	same => n,Goto(outgoing,${EXTEN},1)'."\n";
     }
 
 
@@ -94,6 +103,5 @@ class Bitrix24IntegrationConf extends ConfigClass
         if ($module->initialized) {
             $module->startAllServices(true);
         }
-
     }
 }

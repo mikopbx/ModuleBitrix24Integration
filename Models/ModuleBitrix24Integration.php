@@ -52,11 +52,45 @@ class ModuleBitrix24Integration extends ModulesModelsBase
      */
     public $export_records; // Выгружать в b24 записи разговоров.
 
+    /**
+     * Bitrix24 region
+     *
+     * @Column(type="string", nullable=true)
+     */
+    public $b24_region;
+
 
     public function initialize(): void
     {
         $this->setSource('m_ModuleBitrix24Integration');
         parent::initialize();
+    }
+
+    /**
+     * Returns b24 regions
+     *
+     * @return array
+     */
+    public static function getAvailableRegions():array
+    {
+        return [
+            'RUSSIA'=>[
+                'CLIENT_ID'=>'app.5ea2ab337deab1.57263195',
+                'CLIENT_SECRET'=>'XUMGJmFTgg2mjAnuZ0XykBODqToLT2f0HPDZagKP3HKtH6RT18',
+            ],
+            'BELARUS'=>[
+                'CLIENT_ID'=>'app.609f6df4629d95.85311286',
+                'CLIENT_SECRET'=>'cWNRrpmDzye1nqzE2lTjEcILaYl4iECo4h7LZfbzfUf8cuBU7G',
+            ],
+            'UKRAINE'=>[
+                'CLIENT_ID'=>'app.609f6df4629d95.85311286',
+                'CLIENT_SECRET'=>'cWNRrpmDzye1nqzE2lTjEcILaYl4iECo4h7LZfbzfUf8cuBU7G',
+            ],
+            'WORLD'=>[
+                'CLIENT_ID'=>'app.609f6df4629d95.85311286',
+                'CLIENT_SECRET'=>'cWNRrpmDzye1nqzE2lTjEcILaYl4iECo4h7LZfbzfUf8cuBU7G',
+            ],
+        ];
     }
 
 }

@@ -5,11 +5,10 @@
  * Written by Alexey Portnov, 5 2020
  */
 
-/* global globalRootUrl, globalTranslate, Form, Config, SemanticLocalization, InputMaskPatterns  */
+/* global globalRootUrl, globalTranslate, Form, SemanticLocalization, InputMaskPatterns  */
 
 const ModuleBitrix24Integration = {
 	$formObj: $('#module-bitrix24-integration-form'),
-	apiRoot: `${Config.pbxUrl}/pbxcore/api/modules/ModuleBitrix24Integration`,
 	$submitButton: $('#submitbutton'),
 	$statusToggle: $('#module-status-toggle'),
 	$moduleStatus: $('#status'),
@@ -57,6 +56,8 @@ const ModuleBitrix24Integration = {
 		ModuleBitrix24Integration.checkStatusToggle();
 		window.addEventListener('ModuleStatusChanged', ModuleBitrix24Integration.checkStatusToggle);
 		ModuleBitrix24Integration.initializeForm();
+		$('.b24_regions-select').dropdown();
+
 
 		$('.avatar').each(() => {
 			if ($(this).attr('src') === '') {
@@ -234,73 +235,13 @@ const ModuleBitrix24Integration = {
 		if (ModuleBitrix24Integration.$statusToggle.checkbox('is checked')) {
 			$('[data-tab = "general"] .disability').removeClass('disabled');
 			ModuleBitrix24Integration.$moduleStatus.show();
-			ModuleBitrix24Integration.testConnection();
+			ModuleBitrix24IntegrationStatusWorker.initialize();
 		} else {
 			ModuleBitrix24Integration.$moduleStatus.hide();
 			$('[data-tab = "general"] .disability').addClass('disabled');
 		}
 	},
-	/**
-	 * Применение настроек модуля после изменения данных формы
-	 */
-	applyConfigurationChanges() {
-		$.api({
-			url: `${ModuleBitrix24Integration.apiRoot}/reload`,
-			on: 'now',
-			successTest(response) {
-				// test whether a JSON response is valid
-				return response !== undefined
-					&& Object.keys(response).length > 0
-					&& response.result === true;
-			},
-			onSuccess() {
-				ModuleBitrix24Integration.checkStatusToggle();
-			},
-		});
-	},
-	/**
-	 * Проверка соединения с сервером Bitrix24
-	 * @returns {boolean}
-	 */
-	testConnection() {
-		$.api({
-			url: `${ModuleBitrix24Integration.apiRoot}/check`,
-			on: 'now',
-			successTest(response) {
-				return response !== undefined
-				&& Object.keys(response).length > 0
-				&& response.result !== undefined
-				&& response.result === true;
-			},
-			onSuccess() {
-				ModuleBitrix24Integration.$moduleStatus.removeClass('grey').addClass('green');
-				ModuleBitrix24Integration.$moduleStatus.html(globalTranslate.mod_b24_i_Connected);
-				// const FullName = `${response.data.data.LAST_NAME} ${response.data.data.NAME}`;
-			},
-			onFailure() {
-				ModuleBitrix24Integration.$moduleStatus.removeClass('green').addClass('grey');
-				ModuleBitrix24Integration.$moduleStatus.html(globalTranslate.mod_b24_i_Disconnected);
-			},
-			onResponse(response) {
-				$('.message.ajax').remove();
-				// Debug mode
-				if (typeof (response.data) !== 'undefined') {
-					let visualErrorString = JSON.stringify(response.data, null, 2);
 
-					if (typeof visualErrorString === 'string') {
-						visualErrorString = visualErrorString.replace(/\n/g, '<br/>');
-
-						if (Object.keys(response).length > 0 && response.result !== true) {
-							ModuleBitrix24Integration.$formObj
-								.after(`<div class="ui error message ajax">						
-									<pre style='white-space: pre-wrap'>${visualErrorString}</pre>										  
-								</div>`);
-						}
-					}
-				}
-			},
-		});
-	},
 	/**
 	 * Инициализирует красивое представление номеров
 	 */
@@ -366,6 +307,7 @@ const ModuleBitrix24Integration = {
 			});
 		});
 		result.data.externalLines = JSON.stringify(arrExternalLines);
+		result.data.portal = result.data.portal.replace(/^(https?|http):\/\//, '');
 
 		return result;
 	},
@@ -374,7 +316,7 @@ const ModuleBitrix24Integration = {
 	 * Колбек после отправки формы
 	 */
 	cbAfterSendForm() {
-		ModuleBitrix24Integration.applyConfigurationChanges();
+		ModuleBitrix24IntegrationStatusWorker.initialize();
 	},
 	initializeForm() {
 		Form.$formObj = ModuleBitrix24Integration.$formObj;

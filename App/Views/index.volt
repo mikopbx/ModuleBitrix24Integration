@@ -20,6 +20,11 @@
         {{ form.render('refresh_token') }}
     </div>
     <div class="field">
+            <label>{{ t._('mod_b24_i_Region') }}</label>
+            {{ form.render('b24_region') }}
+    </div>
+
+    <div class="field">
         <div class="ui segment">
             <div class="ui toggle checkbox ">
                 {{ form.render('export_cdr') }}

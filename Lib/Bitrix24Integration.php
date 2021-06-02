@@ -8,6 +8,7 @@
 
 namespace Modules\ModuleBitrix24Integration\Lib;
 
+use MikoPBX\Common\Models\CallQueues;
 use MikoPBX\Common\Models\IncomingRoutingTable;
 use MikoPBX\Common\Models\Extensions;
 use MikoPBX\Core\System\Processes;
@@ -21,37 +22,43 @@ use Modules\ModuleBitrix24Integration\Models\{ModuleBitrix24ExternalLines,
     ModuleBitrix24Users
 };
 use MikoPBX\Core\System\Util;
+use Phalcon\Mvc\Model;
+use Phalcon\Mvc\Model\Resultset;
 
 
 class Bitrix24Integration extends PbxExtensionBase
 {
-    private const CLIENT_ID = 'app.5ea2ab337deab1.57263195';
-    private const CLIENT_SECRET = 'XUMGJmFTgg2mjAnuZ0XykBODqToLT2f0HPDZagKP3HKtH6RT18';
-
     public const B24_INTEGRATION_CHANNEL = 'b24_integration_channel';
+
     public array $inner_numbers;
     public array $mobile_numbers;
     private $SESSION;
     private array $disabled_numbers;
     private array $mem_cache;
-    private string $refresh_token;
-    private string $portal;
+    private string $refresh_token = '';
+    private string $portal = '';
     public bool $initialized = false;
+    private string $b24_region = '';
 
     public function __construct()
     {
         parent::__construct();
         $this->mem_cache = [];
-        $data = ModuleBitrix24Integration::findFirst();
-        if ($data === null) {
+        $data            = ModuleBitrix24Integration::findFirst();
+        if ($data === null
+            || empty($data->portal)
+            || empty($data->refresh_token)
+            || empty($data->b24_region)) {
             $this->logger->writeError('Settings not set...');
+
             return;
         }
         $this->SESSION          = empty($data->session) ? null : json_decode($data->session, true);
         $this->portal           = $data->portal;
         $this->refresh_token    = $data->refresh_token;
+        $this->b24_region       = $data->b24_region;
         $this->disabled_numbers = $this->getDisabledNumbers();
-        $this->initialized = true;
+        $this->initialized      = true;
         unset($data);
     }
 
@@ -111,7 +118,7 @@ class Bitrix24Integration extends PbxExtensionBase
     public function checkNeedUpdateToken(): void
     {
         $s_refresh_token = $this->SESSION["refresh_token"] ?? '';
-        $s_access_token  = $this->SESSION["access_token"]  ?? '';
+        $s_access_token  = $this->SESSION["access_token"] ?? '';
 
         if (empty($s_refresh_token) || empty($s_access_token)) {
             $this->SESSION = ['refresh_token' => $this->refresh_token];
@@ -119,7 +126,6 @@ class Bitrix24Integration extends PbxExtensionBase
         }
         // Обновим подписки на события.
         $this->eventsBind();
-
     }
 
     /**
@@ -140,10 +146,12 @@ class Bitrix24Integration extends PbxExtensionBase
         if ( ! isset($this->SESSION["refresh_token"])) {
             return $result;
         }
+
+        $oAuthToken = ModuleBitrix24Integration::getAvailableRegions()[$this->b24_region];
         $params     = [
             "grant_type"    => "refresh_token",
-            "client_id"     => self::CLIENT_ID,
-            "client_secret" => self::CLIENT_SECRET,
+            "client_id"     => $oAuthToken['CLIENT_ID'],
+            "client_secret" => $oAuthToken['CLIENT_SECRET'],
             "refresh_token" => $this->SESSION["refresh_token"],
         ];
         $query_data = $this->query("https://oauth.bitrix.info/oauth/token/", $params);
@@ -170,14 +178,14 @@ class Bitrix24Integration extends PbxExtensionBase
         if (parse_url($url) === false) {
             return [];
         }
-        $q4Dump     = json_encode($data);
-        $startTime  = microtime(true);
+        $q4Dump                              = json_encode($data);
+        $startTime                           = microtime(true);
         $curlOptions                         = [];
         $curlOptions[CURLOPT_POST]           = true;
         $curlOptions[CURLOPT_POSTFIELDS]     = http_build_query($data);
         $curlOptions[CURLOPT_RETURNTRANSFER] = true;
 
-        $status   = 0;
+        $status          = 0;
         $headersResponse = '';
 
         $totalTime = 0;
@@ -223,8 +231,12 @@ class Bitrix24Integration extends PbxExtensionBase
         }
 
         $delta = microtime(true) - $startTime;
-        if($delta > 1 || $totalTime > 1){
-            $this->logger->writeError("Slow response. PHP time:{$delta}s, cURL time: {$totalTime}, url:{$url}, Data:$q4Dump, Response: ".json_encode($response));
+        if ($delta > 2 || $totalTime > 2) {
+            $this->logger->writeError(
+                "Slow response. PHP time:{$delta}s, cURL time: {$totalTime}, url:{$url}, Data:$q4Dump, Response: " . json_encode(
+                    $response
+                )
+            );
             // $this->logger->writeError("Slow response. PHP time:{$delta}s, cURL time: {$totalTime}, url:{$url}, Data:$q4Dump, Response headers: {$headersResponse}, Response: ".json_encode($response));
         }
 
@@ -234,10 +246,10 @@ class Bitrix24Integration extends PbxExtensionBase
     /**
      * Выполнить запрос HTTP через CURL
      *
-     * @param $url
-     * @param $curlOptions
-     * @param $status
-     * @param $headers
+     * @param     $url
+     * @param     $curlOptions
+     * @param     $status
+     * @param     $headers
      * @param int $time
      *
      * @return mixed
@@ -246,16 +258,16 @@ class Bitrix24Integration extends PbxExtensionBase
     {
         $curl = curl_init($url);
         curl_setopt_array($curl, $curlOptions);
-        curl_setopt($curl , CURLOPT_HEADER , 1);
+        curl_setopt($curl, CURLOPT_HEADER, 1);
 
-        $result = curl_exec($curl);
-        $header_size = curl_getinfo($curl,CURLINFO_HEADER_SIZE);
+        $result      = curl_exec($curl);
+        $header_size = curl_getinfo($curl, CURLINFO_HEADER_SIZE);
         $headers     = substr($result, 0, $header_size);
-        $response    = trim(substr( $result, $header_size ));
+        $response    = trim(substr($result, $header_size));
 
         $status = (int)curl_getinfo($curl, CURLINFO_HTTP_CODE);
-        $time  += (float) curl_getinfo($curl, CURLINFO_TOTAL_TIME);
-        $data = json_decode($response, true);
+        $time   += (float)curl_getinfo($curl, CURLINFO_TOTAL_TIME);
+        $data   = json_decode($response, true);
         if ( ! $data) {
             // Передаем ответ "КАК ЕСТЬ".
             $data = $response;
@@ -293,10 +305,10 @@ class Bitrix24Integration extends PbxExtensionBase
      * Сохраняет даныне в кэш.
      *
      * @param string $cacheKey ключ
-     * @param mixed  $resData данные
-     * @param int    $ttl время жизни кеша
+     * @param mixed  $resData  данные
+     * @param int    $ttl      время жизни кеша
      */
-    public function saveCache(string $cacheKey, $resData, int $ttl=3600): void
+    public function saveCache(string $cacheKey, $resData, int $ttl = 3600): void
     {
         $managedCache = $this->di->getManagedCache();
         $managedCache->set($cacheKey, $resData, $ttl);
@@ -422,7 +434,9 @@ class Bitrix24Integration extends PbxExtensionBase
 
     /**
      * Модули: Выполнение к-либо действия.
+     *
      * @param $req_data
+     *
      * @return array
      * @throws \Exception
      */
@@ -458,14 +472,14 @@ class Bitrix24Integration extends PbxExtensionBase
                     );
                 $this->saveCache($pre_call_key, $data, 5);
 
-                $dst = preg_replace('/\D/', '', urldecode($dst));
+                $dst = preg_replace("/[^0-9+]/", '', $dst);
                 Util::amiOriginate($phone_data['peer_number'], '', $dst);
                 $this->logger->writeInfo(
                     "ONEXTERNALCALLSTART: originate from user {$FROM_USER_ID} <{$phone_data['peer_number']}> to {$dst})"
                 );
             }
         } elseif ('ONEXTERNALCALLBACKSTART' === $req_data['event']) {
-            $PHONE_NUMBER = preg_replace('/\D/', '', urldecode($req_data['data']['PHONE_NUMBER']));
+            $PHONE_NUMBER = preg_replace("/[^0-9+]/", '', urldecode($req_data['data']['PHONE_NUMBER']));
             $data         = [
                 'CRM_ENTITY_TYPE' => $req_data['data']['CRM_ENTITY_TYPE'],
                 'CRM_ENTITY_ID'   => $req_data['data']['CRM_ENTITY_ID'],
@@ -477,17 +491,25 @@ class Bitrix24Integration extends PbxExtensionBase
             $default_action = IncomingRoutingTable::findFirst('priority = 9999');
             if ($default_action !== null) {
                 $data        = $default_action->toArray();
-                $dest_number = $data['extension'];
-                $peer_mobile = '';
-
-                $am       = Util::getAstManager('off');
-                $channel  = 'Local/' . $PHONE_NUMBER . '@outgoing-b24';
-                $context  = 'internal';
-                $IS_ORGNT = Util::generateRandomString();
-                $variable = "__FROM_DID=B24,_IS_ORGNT={$IS_ORGNT},_b24_dst={$dest_number},pt1c_cid={$dest_number},__peer_mobile={$peer_mobile},_FROM_PEER={$PHONE_NUMBER}";
-
-                $am->Originate($channel, $dest_number, $context, '1', null, null, null, null, $variable, null, true);
                 unset($default_action);
+                $filter =  [
+                    'conditions' => 'extension = :extension:',
+                    'bind'       => [
+                        'extension' => $data['extension'],
+                    ]
+                ];
+                $extData = CallQueues::findFirst($filter);
+                if(!$extData){
+                    $this->logger->writeInfo("ONEXTERNALCALLBACKSTART: default action for incoming rout is not queue)");
+                }else{
+                    $queueData      = $extData->toArray();
+                    $channel        = "Local/{$data['extension']}@internal-originate";
+                    $variable = "pt1c_cid={$PHONE_NUMBER},SRC_QUEUE={$queueData['uniqid']}";
+
+                    $am       = Util::getAstManager('off');
+                    $am->Originate($channel, $PHONE_NUMBER, 'all_peers', '1', null, null, null, null, $variable, null, true);
+                    $this->logger->writeInfo("ONEXTERNALCALLBACKSTART: originate from queue {$data['extension']} to {$PHONE_NUMBER})");
+                }
             }
         }
 
@@ -572,11 +594,10 @@ class Bitrix24Integration extends PbxExtensionBase
     public function userGet(): array
     {
         // Пробуем получить закэшированные записи
-        $res_data = $this->getCache(__FUNCTION__, 300);
+        $res_data = $this->getCache(__FUNCTION__);
         if (is_array($res_data) && count($res_data) === 0) {
-            $res_data = $this->getCache(__FUNCTION__, 10);
+            $res_data = $this->getCache(__FUNCTION__);
         }
-
         if ($res_data === null) {
             // Кэш не существует / истекло время жизни.
             $res_data = [];
@@ -616,7 +637,7 @@ class Bitrix24Integration extends PbxExtensionBase
                 }
             }
             // Сохраняем их в кэше
-            $this->saveCache(__FUNCTION__, $res_data);
+            $this->saveCache(__FUNCTION__, $res_data, 90);
         }
 
         if (count($res_data) > 1) {
@@ -680,7 +701,7 @@ class Bitrix24Integration extends PbxExtensionBase
             }
             $params = [
                 'NUMBER' => $line,
-                'NAME'   => ''
+                'NAME'   => '',
             ];
             // Ключа нет на MIKOPBX. Удалим его из Б24
             $arg[uniqid('externalLine.add', true)] = 'telephony.externalLine.delete?' . http_build_query($params);
@@ -728,15 +749,16 @@ class Bitrix24Integration extends PbxExtensionBase
      */
     public function getScope(): PBXApiResult
     {
-        $res = new PBXApiResult();
+        $res            = new PBXApiResult();
         $res->processor = __METHOD__;
-        $access_token = $this->getAccessToken();
+        $access_token   = $this->getAccessToken();
         if (empty($access_token)) {
-            $res->messages[]='Access token is empty';
+            $res->messages[] = Util::translate('mod_b24_i_AuthError');
+
             return $res;
         }
         $res->success = true;
-        $res_data = $this->getCache(__FUNCTION__);
+        $res_data     = $this->getCache(__FUNCTION__);
         if ($res_data === null || isset($res_data['error'])) {
             $params   = ["auth" => $access_token];
             $url      = "https://" . $this->portal . "/rest/scope";
@@ -745,17 +767,17 @@ class Bitrix24Integration extends PbxExtensionBase
         }
 
         if (is_array($res_data) && isset($res_data['error'])) {
-            $res->messages=(array)$res_data;
-            $res->success = false;
+            $res->messages = $res_data;
+            $res->success  = false;
         } else {
-            $result = $res_data['result'] ?? [];
+            $result  = $res_data['result'] ?? [];
             $needles = ['user', 'telephony', 'crm'];
             foreach ($needles as $needle) {
                 if (in_array($needle, $result)) {
                     continue;
                 }
-                $res->success = false;
-                $res->messages[] = 'You must issue the following permissions: ' . implode(
+                $res->success    = false;
+                $res->messages[] = Util::translate('mod_b24_i_CheckPermissions').' ' . implode(
                         ',',
                         $needles
                     );
@@ -773,7 +795,7 @@ class Bitrix24Integration extends PbxExtensionBase
      *
      * @return array
      */
-    public function telephonyExternalCallRegister($options): array
+    public function telephonyExternalCallRegister(array $options): array
     {
         // Сформируем кэш, чтобы исключить дублирующие события.
         $cache_key = "tmp180_call_register_{$options['USER_ID']}_" .
@@ -821,6 +843,31 @@ class Bitrix24Integration extends PbxExtensionBase
     }
 
     /**
+     * Запись в базу данных идентификаторов звонка.
+     *
+     * @param $key
+     * @param $response
+     */
+    public function telephonyExternalCallPostRegister($key, $response): void
+    {
+        $request = $this->mem_cache[$key] ?? null;
+        if ( ! $request) {
+            return;
+        }
+        unset($this->mem_cache[$key]);
+        $res = ModuleBitrix24CDR::findFirst("uniq_id='{$request['UNIQUEID']}'");
+        if ($res === null && isset($response['CALL_ID'])) {
+            $res           = new ModuleBitrix24CDR();
+            $res->uniq_id  = $request['UNIQUEID'];
+            $res->user_id  = $request['USER_ID'];
+            $res->linkedid = $request['linkedid'];
+            $res->call_id  = $response['CALL_ID'];
+            $res->lead_id  = $response['CRM_CREATED_LEAD'];
+            $res->save();
+        }
+    }
+
+    /**
      * @param       $options
      * @param array $params
      */
@@ -857,9 +904,11 @@ class Bitrix24Integration extends PbxExtensionBase
         if (empty($CALL_ID)) {
             return [];
         }
+
+        $userId = ($CALL_DATA['answer'] === '1') ? $CALL_DATA['user_id'] : '';
         $params = [
             'CALL_ID'       => $CALL_ID,
-            'USER_ID'       => '',
+            'USER_ID'       => $userId,
             'DURATION'      => '',
             'COST'          => '', // Стоимость звонка.
             'COST_CURRENCY' => '', // Валюта, в которой указана стоимость звонка.
@@ -873,8 +922,8 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->fillPropertyValues($options, $params);
 
         $arg              = [];
-        $finish_key       = 'finish__' . uniqid('', true);
-        $arg[$finish_key] = 'telephony.externalcall.finish?' . http_build_query($params);
+        $finishKey       = 'finish__' . uniqid('', true);
+        $arg[$finishKey] = 'telephony.externalcall.finish?' . http_build_query($params);
         if ($options['export_records']) {
             $cmd = $this->telephonyExternalCallAttachRecord($options);
             if ($cmd !== '') {
@@ -883,8 +932,59 @@ class Bitrix24Integration extends PbxExtensionBase
         }
 
         if ($options['GLOBAL_STATUS'] === 'ANSWERED' && $options['disposition'] !== 'ANSWERED') {
-            $this->mem_cache[$finish_key] = $CALL_DATA;
+            $this->mem_cache[$finishKey] = $CALL_DATA;
         }
+        if ($options['GLOBAL_STATUS'] === 'ANSWERED' && $options['disposition'] === 'ANSWERED') {
+            $this->mem_cache["{$finishKey}-answered"] = $CALL_DATA;
+        }
+        return $arg;
+    }
+
+    /**
+     * Обработка действий после получения ответа на telephonyExternalCallFinish.
+     * @param string $finishKey
+     * @param array  $response
+     * @param array  $queryArray
+     */
+    public function telephonyExternalCallPostFinish(string $finishKey, array $response, array &$queryArray): void{
+        $cache_data = $this->getMemCache($finishKey);
+        /*
+        $leadId = $cache_data['lead_id']??'';
+        if(!empty($leadId)){
+            // Постановка задачи на удаление Лида.
+            $queryArray[] = $this->crmLeadDelete($leadId);
+        }
+        //*/
+        $activityId = $response['CRM_ACTIVITY_ID']??'';
+        if($cache_data && !empty($activityId)){
+            // Постановка задачи на удаление activity.
+            $queryArray[] = $this->crmActivityDelete($activityId);
+        }
+        $cacheDataAnswered = $this->getMemCache("{$finishKey}-answered");
+        $leadIdAnswered    = $cacheDataAnswered['lead_id']??'';
+        if(!empty($leadIdAnswered)){
+            $queryArray[] = $this->crmLeadUpdate($leadIdAnswered, $cacheDataAnswered['user_id']);
+        }
+    }
+
+    /**
+     * Обновление пользователя для Lead,
+     * @param string $id
+     * @param string $newUserId
+     * @return array
+     */
+    public function crmLeadUpdate(string $id, string $newUserId): array
+    {
+        $params = [
+            'id'   => $id,
+            'fields' => [
+                'ASSIGNED_BY_ID' => $newUserId
+            ],
+            'auth' => $this->getAccessToken(),
+        ];
+
+        $arg                                        = [];
+        $arg['crm.lead.update_' . uniqid('', true)] = 'crm.lead.update?' . http_build_query($params);
 
         return $arg;
     }
@@ -902,14 +1002,22 @@ class Bitrix24Integration extends PbxExtensionBase
      */
     public function getCallDataByUniqueId($uniq_id): array
     {
-        $call_id = [];
+        $CALL_DATA = [];
         /** @var ModuleBitrix24CDR $res */
         $res = ModuleBitrix24CDR::findFirst("uniq_id='{$uniq_id}'");
         if ($res !== null) {
-            $call_id = $res->toArray();
+            $CALL_DATA = $res->toArray();
+            $userId = ($CALL_DATA['answer'] === '1') ? $CALL_DATA['user_id'] : '';
+            if(!empty($userId) && empty($CALL_DATA['lead_id'])){
+                $result = ModuleBitrix24CDR::findFirst("linkedid='{$CALL_DATA['linkedid']}' AND lead_id IS NOT NULL");
+                if($result){
+                    $CALL_DATA['lead_id'] = $result->lead_id;
+                }
+                unset($result);
+            }
         }
 
-        return $call_id;
+        return $CALL_DATA;
     }
 
     /**
@@ -1019,31 +1127,6 @@ class Bitrix24Integration extends PbxExtensionBase
         $arg['lead.delete_' . uniqid('', true)] = 'crm.lead.delete?' . http_build_query($params);
 
         return $arg;
-    }
-
-    /**
-     * Запись в базу данных идентификаторов звонка.
-     *
-     * @param $key
-     * @param $response
-     */
-    public function registerCallData($key, $response): void
-    {
-        $request = $this->mem_cache[$key] ?? null;
-        if ( ! $request) {
-            return;
-        }
-        unset($this->mem_cache[$key]);
-        $res = ModuleBitrix24CDR::findFirst("uniq_id='{$request['UNIQUEID']}'");
-        if ($res === null && isset($response['CALL_ID'])) {
-            $res           = new ModuleBitrix24CDR();
-            $res->uniq_id  = $request['UNIQUEID'];
-            $res->user_id  = $request['USER_ID'];
-            $res->linkedid = $request['linkedid'];
-            $res->call_id  = $response['CALL_ID'];
-            $res->lead_id  = $response['CRM_CREATED_LEAD'];
-            $res->save();
-        }
     }
 
     /**

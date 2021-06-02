@@ -52,6 +52,7 @@ class ModuleBitrix24IntegrationController extends BaseController
             ->addJs('js/vendor/datatable/dataTables.semanticui.js', true)
             ->addJs('js/pbx/Extensions/input-mask-patterns.js', true)
             ->addJs('js/pbx/main/form.js', true)
+            ->addJs("js/cache/{$this->moduleUniqueID}/module-bitrix24-integration-status-worker.js", true)
             ->addJs("js/cache/{$this->moduleUniqueID}/module-bitrix24-integration-index.js", true);
         $headerCollectionCSS = $this->assets->collection('headerCSS');
         $headerCollectionCSS
