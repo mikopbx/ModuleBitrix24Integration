@@ -11,6 +11,7 @@ use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use Phalcon\Forms\Element\AbstractElement;
 use Phalcon\Forms\Element\Check;
 use Phalcon\Forms\Element\Numeric;
+use Phalcon\Forms\Element\Password;
 use Phalcon\Forms\Element\Select;
 use Phalcon\Forms\Element\Text;
 use Phalcon\Forms\Form;
@@ -23,6 +24,9 @@ class ModuleBitrix24IntegrationForm extends Form
     {
         $this->add(new Text('portal'));
         $this->add(new Text('refresh_token'));
+
+        $this->add(new Text('client_id'));
+        $this->add(new Password('client_secret'));
 
         // Export cdr
         $cheskarr = ['value' => null];

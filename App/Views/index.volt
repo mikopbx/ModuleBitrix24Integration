@@ -24,6 +24,17 @@
             {{ form.render('b24_region') }}
     </div>
 
+    <div id="b24-app-data">
+        <div class="field">
+                <label>{{ t._('mod_b24_i_client_id') }}</label>
+                {{ form.render('client_id') }}
+        </div>
+        <div class="field">
+                <label>{{ t._('mod_b24_i_client_secret') }}</label>
+                {{ form.render('client_secret') }}
+        </div>
+    </div>
+
     <div class="field">
         <div class="ui segment">
             <div class="ui toggle checkbox ">

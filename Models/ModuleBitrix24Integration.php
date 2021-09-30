@@ -50,7 +50,7 @@ class ModuleBitrix24Integration extends ModulesModelsBase
      *
      * @Column(type="integer", nullable=true)
      */
-    public $export_records; // Выгружать в b24 записи разговоров.
+    public $export_records;
 
     /**
      *
@@ -71,6 +71,19 @@ class ModuleBitrix24Integration extends ModulesModelsBase
      */
     public $b24_region;
 
+    /**
+     * Bitrix24 region
+     *
+     * @Column(type="string", nullable=true)
+     */
+    public $client_id;
+
+    /**
+     * Bitrix24 region
+     *
+     * @Column(type="string", nullable=true)
+     */
+    public $client_secret;
 
     public function initialize(): void
     {
@@ -101,6 +114,10 @@ class ModuleBitrix24Integration extends ModulesModelsBase
             'WORLD'=>[
                 'CLIENT_ID'=>'app.609f6df4629d95.85311286',
                 'CLIENT_SECRET'=>'cWNRrpmDzye1nqzE2lTjEcILaYl4iECo4h7LZfbzfUf8cuBU7G',
+            ],
+            'REST_API'=>[
+                'CLIENT_ID'=>'',
+                'CLIENT_SECRET'=>'',
             ],
         ];
     }
