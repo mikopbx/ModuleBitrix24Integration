@@ -36,10 +36,12 @@ class Bitrix24Integration extends PbxExtensionBase
     private $SESSION;
     private array $disabled_numbers;
     private array $mem_cache;
-    private string $refresh_token = '';
-    private string $portal = '';
+    private string $refresh_token;
+    private string $portal;
     public bool $initialized = false;
-    private string $b24_region = '';
+    private string $b24_region;
+    private string $client_id;
+    private string $client_secret;
 
     public function __construct()
     {
@@ -57,6 +59,8 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->portal           = $data->portal;
         $this->refresh_token    = $data->refresh_token;
         $this->b24_region       = $data->b24_region;
+        $this->client_id        = $data->client_id;
+        $this->client_secret    = $data->client_secret;
         $this->disabled_numbers = $this->getDisabledNumbers();
         $this->initialized      = true;
         unset($data);
@@ -148,6 +152,11 @@ class Bitrix24Integration extends PbxExtensionBase
         }
 
         $oAuthToken = ModuleBitrix24Integration::getAvailableRegions()[$this->b24_region];
+        if(empty($oAuthToken['CLIENT_ID'])){
+            $oAuthToken['CLIENT_ID']     = $this->client_id;
+            $oAuthToken['CLIENT_SECRET'] = $this->client_secret;
+        }
+
         $params     = [
             "grant_type"    => "refresh_token",
             "client_id"     => $oAuthToken['CLIENT_ID'],
@@ -159,9 +168,8 @@ class Bitrix24Integration extends PbxExtensionBase
             $result = true;
             $this->updateSessionData($query_data);
         } else {
-            $this->logger->writeError('Refresh token: ' . json_encode($query_data));
+            $this->logger->writeError('Refresh token: '.json_encode($query_data));
         }
-
         return $result;
     }
 

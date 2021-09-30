@@ -18,6 +18,8 @@ const ModuleBitrix24Integration = {
 	$globalSearch: $('#globalsearch'),
 	$recordsTable: $('#external-line-table'),
 	$addNewButton: $('#add-new-external-line-button'),
+	$elRegion: $('#b24_region'),
+	$elAppData: $('#b24-app-data'),
 
 	inputNumberJQTPL: 'input.external-number',
 	$maskList: null,
@@ -52,12 +54,22 @@ const ModuleBitrix24Integration = {
 			],
 		},
 	},
+	onChangeRegion(){
+		let region = ModuleBitrix24Integration.$elRegion.val();
+		if(region === 'REST_API'){
+			ModuleBitrix24Integration.$elAppData.show();
+		}else{
+			ModuleBitrix24Integration.$elAppData.hide();
+		}
+	},
 	initialize() {
 		ModuleBitrix24Integration.checkStatusToggle();
 		window.addEventListener('ModuleStatusChanged', ModuleBitrix24Integration.checkStatusToggle);
 		ModuleBitrix24Integration.initializeForm();
 		$('.b24_regions-select').dropdown();
 
+		ModuleBitrix24Integration.onChangeRegion();
+		ModuleBitrix24Integration.$elRegion.change(ModuleBitrix24Integration.onChangeRegion);
 
 		$('.avatar').each(() => {
 			if ($(this).attr('src') === '') {

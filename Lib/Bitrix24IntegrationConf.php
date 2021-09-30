@@ -31,7 +31,7 @@ class Bitrix24IntegrationConf extends ConfigClass
             ModuleBitrix24Integration::class,
             ModuleBitrix24Users::class,
         ];
-        if (in_array($data['model'], $moduleModels)){
+        if (in_array($data['model'], $moduleModels, true)){
             $this->onAfterModuleEnable();
         }
     }
@@ -77,17 +77,15 @@ class Bitrix24IntegrationConf extends ConfigClass
     {
         $res = new PBXApiResult();
         $action = strtoupper($request['action']);
-        switch ($action){
-            case 'CHECK':
-                $module = new Bitrix24Integration();
-                if ($module->initialized){
-                    $res =  $module->getScope();
-                } else {
-                    $res->messages[]=Util::translate('mod_b24_i_NoSettings');
-                }
-                break;
-            default:
-                $res->messages[] = 'API action not found in moduleRestAPICallback ModuleBitrix24Integration;';
+        if($action === 'CHECK'){
+            $module = new Bitrix24Integration();
+            if ($module->initialized){
+                $res =  $module->getScope();
+            } else {
+                $res->messages[]=Util::translate('mod_b24_i_NoSettings');
+            }
+        }else{
+            $res->messages[] = 'API action not found in moduleRestAPICallback ModuleBitrix24Integration;';
         }
         return $res;
     }
@@ -130,7 +128,7 @@ class Bitrix24IntegrationConf extends ConfigClass
      */
     public function generateIncomingRoutBeforeDial(string $rout_number): string
     {
-        $scriptFile = "{$this->moduleDir}/agi-bin/b24CheckResponsible.php";
+        $scriptFile = "$this->moduleDir/agi-bin/b24CheckResponsible.php";
         return "\t".'same => n,AGI('.$scriptFile.')' . "\n\t";
     }
 
