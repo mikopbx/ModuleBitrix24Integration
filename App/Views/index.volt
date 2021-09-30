@@ -33,6 +33,7 @@
                 <label>{{ t._('mod_b24_i_client_secret') }}</label>
                 {{ form.render('client_secret') }}
         </div>
+        <br>
     </div>
 
     <div class="field">
