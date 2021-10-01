@@ -1,6 +1,8 @@
 
 <form class="ui large grey segment form" id="module-bitrix24-integration-form">
     <input type="hidden" name="dirrty" id="dirrty"/>
+    <input type="hidden" name="isREST" id="isREST"/>
+
     <div class="ui grey top right attached label" id="status"><i class="spinner loading icon"></i>{{ t._("mod_b24_i_UpdateStatus") }}</div>
     <div class="ui top attached tabular menu" id="extensions-menu">
         <a class="item active" data-tab="general">{{ t._('mod_b24_i_GeneralSettings') }}</a>
