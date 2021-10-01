@@ -10,6 +10,7 @@ return [
     'BreadcrumbModuleBitrix24Integration' => 'The Bitrix24 CRM integration module',
     'SubHeaderModuleBitrix24Integration' => 'Click to call, show customer card on call',
     'mod_b24_i_ValidatePortalEmpty' => 'Portal url is empty',
+    'mod_b24_i_ValidateRefreshTokenEmpty' => 'Refresh token is empty',
     'mod_b24_i_ValidateClientIDEmpty' => 'Client ID is empty',
     'mod_b24_i_ValidateClientSecretEmpty' => 'Secret code is empty',
     'mod_b24_i_ValidateClientRefreshTokenEmpty' => 'Refresh token is empty',

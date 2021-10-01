@@ -35,8 +35,18 @@ const ModuleBitrix24Integration = {
 				},
 			],
 		},
+		refresh_token: {
+			identifier: 'refresh_token',
+			rules: [
+				{
+					type: 'empty',
+					prompt: globalTranslate.mod_b24_i_ValidateRefreshTokenEmpty,
+				},
+			],
+		},
 		client_id: {
 			identifier: 'client_id',
+			depends: 'isREST',
 			rules: [
 				{
 					type: 'empty',
@@ -46,6 +56,7 @@ const ModuleBitrix24Integration = {
 		},
 		client_secret: {
 			identifier: 'client_secret',
+			depends: 'isREST',
 			rules: [
 				{
 					type: 'empty',
@@ -57,8 +68,10 @@ const ModuleBitrix24Integration = {
 	onChangeRegion(){
 		let region = ModuleBitrix24Integration.$elRegion.val();
 		if(region === 'REST_API'){
+			ModuleBitrix24Integration.$formObj.form('set value', 'isREST', true);
 			ModuleBitrix24Integration.$elAppData.show();
 		}else{
+			ModuleBitrix24Integration.$formObj.form('set value', 'isREST', '');
 			ModuleBitrix24Integration.$elAppData.hide();
 		}
 	},

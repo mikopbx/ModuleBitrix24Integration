@@ -11,6 +11,7 @@ return [
     'BreadcrumbModuleBitrix24Integration' => 'Интеграция с CRM Bitrix24',
     'SubHeaderModuleBitrix24Integration'  => 'Позволяет звонить из Bitrix24, а при входящем отображать карточку клиента',
     'mod_b24_i_ValidatePortalEmpty'       => 'Не заполнен адрес портала Bitrix24',
+    'mod_b24_i_ValidateRefreshTokenEmpty' => 'Не заполнен Refresh token',
     'mod_b24_i_ValidateClientIDEmpty'     => 'Не заполнен Client ID приложения',
     'mod_b24_i_ValidateClientSecretEmpty' => 'Не заполнен Secret код приложения',
     'mod_b24_i_ValidateClientRefreshTokenEmpty' => 'Не заполнен Refresh token приложения',
