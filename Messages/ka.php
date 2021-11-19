@@ -45,4 +45,12 @@ return [
     'mod_b24_i_region_UKRAINE' => 'უკრაინა',
     'mod_b24_i_region_BELARUS' => 'ბელორუსია',
     'mod_b24_i_region_RUSSIA' => 'რუსეთი',
+    'mod_b24_i_CheckPermissions' => 'პორტალზე განაცხადს მოკლებულია შემდეგი უფლებები:',
+    'mod_b24_i_AuthError' => 'პორტალის ავტორიზაციის შეცდომა, არასწორი პორტალის მისამართი, ჟეტონი ან რეგიონი.',
+    'mod_b24_i_ValidateRefreshTokenEmpty' => 'განახლების ჟეტონი ცარიელია',
+    'mod_b24_i_interceptionCallDuration' => 'პასუხისმგებელი პირის გამოძახების მცდელობის ხანგრძლივობა',
+    'mod_b24_i_useInterception' => 'გამოიყენეთ ჩარევა პასუხისმგებელზე',
+    'mod_b24_i_client_secret' => 'აპლიკაციის გასაღები (client_secret)',
+    'mod_b24_i_client_id' => 'აპლიკაციის კოდი (client_id)',
+    'mod_b24_i_region_REST_API' => 'REST API',
 ];
