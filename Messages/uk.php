@@ -45,4 +45,12 @@ return [
     'mod_b24_i_region_UKRAINE' => 'Україна',
     'mod_b24_i_region_BELARUS' => 'Білорусь',
     'mod_b24_i_region_RUSSIA' => 'Росія',
+    'mod_b24_i_interceptionCallDuration' => 'Тривалість спроби дзвінка на відповідального',
+    'mod_b24_i_useInterception' => 'Використовувати перехоплення на відповідального',
+    'mod_b24_i_CheckPermissions' => 'У програми на порталі не вистачає таких прав:',
+    'mod_b24_i_AuthError' => 'Помилка авторизації на порталі, неправильна адреса порталу, токен або регіон.',
+    'mod_b24_i_ValidateRefreshTokenEmpty' => 'Не заповнено Refresh token',
+    'mod_b24_i_client_secret' => 'Ключ програми (client_secret)',
+    'mod_b24_i_client_id' => 'Код програми (client_id)',
+    'mod_b24_i_region_REST_API' => 'REST API',
 ];
