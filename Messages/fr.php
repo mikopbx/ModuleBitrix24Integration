@@ -45,4 +45,12 @@ return [
     'mod_b24_i_region_UKRAINE' => 'Ukraine',
     'mod_b24_i_region_BELARUS' => 'Biélorussie',
     'mod_b24_i_region_RUSSIA' => 'Russie',
+    'mod_b24_i_interceptionCallDuration' => 'La durée de la tentative d\'appel de la personne responsable',
+    'mod_b24_i_useInterception' => 'Utiliser l\'interception sur le responsable',
+    'mod_b24_i_CheckPermissions' => 'L\'application sur le portail ne dispose pas des droits suivants :',
+    'mod_b24_i_AuthError' => 'Erreur d\'autorisation de portail, adresse de portail, jeton ou région non valide.',
+    'mod_b24_i_ValidateRefreshTokenEmpty' => 'Le jeton d\'actualisation est vide',
+    'mod_b24_i_client_secret' => 'Clé d\'application (client_secret)',
+    'mod_b24_i_client_id' => 'Code d\'application (client_id)',
+    'mod_b24_i_region_REST_API' => 'API REST',
 ];
