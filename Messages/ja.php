@@ -45,4 +45,12 @@ return [
     'mod_b24_i_region_UKRAINE' => 'ウクライナ',
     'mod_b24_i_region_BELARUS' => 'ベラルーシ',
     'mod_b24_i_region_RUSSIA' => 'ロシア',
+    'mod_b24_i_interceptionCallDuration' => '責任者に電話をかける試みの期間',
+    'mod_b24_i_useInterception' => '責任者に傍受を使用する',
+    'mod_b24_i_CheckPermissions' => 'ポータル上のアプリケーションには、次の権限がありません。',
+    'mod_b24_i_AuthError' => 'ポータル認証エラー、無効なポータルアドレス、トークン、またはリージョン。',
+    'mod_b24_i_ValidateRefreshTokenEmpty' => '更新トークンが空です',
+    'mod_b24_i_client_secret' => 'アプリケーションキー（client_secret）',
+    'mod_b24_i_client_id' => 'アプリケーションコード（client_id）',
+    'mod_b24_i_region_REST_API' => 'REST API',
 ];
