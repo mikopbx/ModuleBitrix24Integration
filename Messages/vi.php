@@ -45,4 +45,12 @@ return [
     'mod_b24_i_region_UKRAINE' => 'Ukraine',
     'mod_b24_i_region_BELARUS' => 'Belarus',
     'mod_b24_i_region_RUSSIA' => 'Nga',
+    'mod_b24_i_interceptionCallDuration' => 'Khoảng thời gian cố gắng gọi cho người có trách nhiệm',
+    'mod_b24_i_useInterception' => 'Sử dụng biện pháp đánh chặn đối với những người có trách nhiệm',
+    'mod_b24_i_ValidateRefreshTokenEmpty' => 'Làm mới mã thông báo trống',
+    'mod_b24_i_CheckPermissions' => 'Ứng dụng trên cổng thông tin thiếu các quyền sau:',
+    'mod_b24_i_AuthError' => 'Lỗi ủy quyền cổng, địa chỉ cổng, mã thông báo hoặc khu vực không hợp lệ.',
+    'mod_b24_i_client_secret' => 'Khóa ứng dụng (client_secret)',
+    'mod_b24_i_client_id' => 'Mã ứng dụng (client_id)',
+    'mod_b24_i_region_REST_API' => 'API REST',
 ];
