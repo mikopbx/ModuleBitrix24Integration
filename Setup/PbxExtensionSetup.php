@@ -90,8 +90,7 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
     {
         $lic = PbxSettings::getValueByKey('PBXLicense');
         if (empty($lic)) {
-            $this->messges[] = 'License key not found...';
-
+            $this->messages[] = 'License key not found...';
             return false;
         }
         // Получение пробной лицензии. Продукт "Bitrix24Integration".
