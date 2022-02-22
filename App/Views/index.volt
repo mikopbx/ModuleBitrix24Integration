@@ -2,7 +2,6 @@
 <form class="ui large grey segment form" id="module-bitrix24-integration-form">
     <input type="hidden" name="dirrty" id="dirrty"/>
     <input type="hidden" name="isREST" id="isREST"/>
-
     <div class="ui grey top right attached label" id="status"><i class="spinner loading icon"></i>{{ t._("mod_b24_i_UpdateStatus") }}</div>
     <div class="ui top attached tabular menu" id="extensions-menu">
         <a class="item active" data-tab="general">{{ t._('mod_b24_i_GeneralSettings') }}</a>
@@ -11,63 +10,67 @@
         <a class="item" data-tab="docs">{{ t._('mod_b24_i_Docs') }}</a>
     </div>
     <div class="ui bottom attached tab segment active" data-tab="general">
-
-    <div class="ui hidden divider"></div>
-    <div class="field">
-        <label>{{ t._('mod_b24_i_PortalUrl') }}</label>
-        {{ form.render('portal') }}
-    </div>
-    <div class="field">
-        <label>{{ t._('mod_b24_i_RefreshToken') }}</label>
-        {{ form.render('refresh_token') }}
-    </div>
-    <div class="field">
-            <label>{{ t._('mod_b24_i_Region') }}</label>
-            {{ form.render('b24_region') }}
-    </div>
-
-    <div id="b24-app-data">
         <div class="field">
-                <label>{{ t._('mod_b24_i_client_id') }}</label>
-                {{ form.render('client_id') }}
+            <label>{{ t._('mod_b24_i_PortalUrl') }}</label>
+            {{ form.render('portal') }}
         </div>
         <div class="field">
-                <label>{{ t._('mod_b24_i_client_secret') }}</label>
-                {{ form.render('client_secret') }}
+            <label>{{ t._('mod_b24_i_RefreshToken') }}</label>
+            {{ form.render('refresh_token') }}
         </div>
-        <br>
-    </div>
+        <div class="field">
+                <label>{{ t._('mod_b24_i_Region') }}</label>
+                {{ form.render('b24_region') }}
+        </div>
 
-    <div class="field">
-        <div class="ui segment">
-            <div class="ui toggle checkbox ">
-                {{ form.render('export_cdr') }}
-                <label>{{ t._('mod_b24_i_NotifyOnCall') }}</label>
+        <div id="b24-app-data">
+            <div class="field">
+                    <label>{{ t._('mod_b24_i_client_id') }}</label>
+                    {{ form.render('client_id') }}
+            </div>
+            <div class="field">
+                    <label>{{ t._('mod_b24_i_client_secret') }}</label>
+                    {{ form.render('client_secret') }}
+            </div>
+            <br>
+        </div>
+
+        <div class="field">
+            <div class="ui segment">
+                <div class="ui toggle checkbox ">
+                    {{ form.render('export_cdr') }}
+                    <label>{{ t._('mod_b24_i_NotifyOnCall') }}</label>
+                </div>
             </div>
         </div>
-    </div>
-    <div class="field">
-        <div class="ui segment">
-            <div class="ui toggle checkbox">
-                {{ form.render('export_records') }}
-                <label>{{ t._('mod_b24_i_ExportRecords') }}</label>
+        <div class="field">
+            <div class="ui segment">
+                <div class="ui toggle checkbox ">
+                    {{ form.render('crmCreateLead') }}
+                    <label>{{ t._('mod_b24_i_CrmCreate') }}</label>
+                </div>
             </div>
         </div>
-    </div>
-
-    <div class="field">
-        <div class="ui segment">
-            <div class="ui toggle checkbox">
-                {{ form.render('use_interception') }}
-                <label>{{ t._('mod_b24_i_useInterception') }}</label>
+        <div class="field">
+            <div class="ui segment">
+                <div class="ui toggle checkbox">
+                    {{ form.render('export_records') }}
+                    <label>{{ t._('mod_b24_i_ExportRecords') }}</label>
+                </div>
             </div>
         </div>
-    </div>
-    <div class="field">
-        <label>{{ t._('mod_b24_i_interceptionCallDuration') }}</label>
-        {{ form.render('interception_call_duration') }}
-    </div>
-
+        <div class="field">
+            <div class="ui segment">
+                <div class="ui toggle checkbox">
+                    {{ form.render('use_interception') }}
+                    <label>{{ t._('mod_b24_i_useInterception') }}</label>
+                </div>
+            </div>
+        </div>
+        <div class="field">
+            <label>{{ t._('mod_b24_i_interceptionCallDuration') }}</label>
+            {{ form.render('interception_call_duration') }}
+        </div>
     </div>
     <div class="ui bottom attached tab segment" data-tab="users">
         <div class="ui basic buttons">

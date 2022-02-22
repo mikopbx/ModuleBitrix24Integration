@@ -65,6 +65,12 @@ class ModuleBitrix24Integration extends ModulesModelsBase
     public $interception_call_duration;
 
     /**
+     *
+     * @Column(type="string", nullable=true)
+     */
+    public $crmCreateLead = '1';
+
+    /**
      * Bitrix24 region
      *
      * @Column(type="string", nullable=true)

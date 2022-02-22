@@ -11,7 +11,6 @@ require_once 'Globals.php';
 
 use MikoPBX\Core\Asterisk\AsteriskManager;
 use MikoPBX\Core\System\BeanstalkClient;
-use DateTime;
 use Exception;
 use MikoPBX\Core\System\MikoPBXConfig;
 use MikoPBX\Core\Workers\WorkerBase;
@@ -35,6 +34,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     private bool $export_records = false;
     private bool $export_cdr = false;
     private array $external_lines = [];
+    private string $crmCreateLead = '0';
     private BeanstalkClient $client;
 
     private array $channelCounter = [];
@@ -155,6 +155,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         if ($settings !== null) {
             $this->export_records = ($settings->export_records === '1');
             $this->export_cdr     = ($settings->export_cdr === '1');
+            $this->crmCreateLead  = ($settings->crmCreateLead !== '0')?'1':'0';
         }
 
         $this->updateExternalLines();
@@ -310,7 +311,8 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'CALL_START_DATE'  => date(\DateTimeInterface::ATOM, strtotime($data['start'])),
                     'USER_ID'          => $this->inner_numbers[$data['src_num']]['ID'],
                     'USER_PHONE_INNER' => $data['src_num'],
-                    'DST_USER_CHANNEL'     => '',
+                    'CRM_CREATE'       => $this->crmCreateLead,
+                    'DST_USER_CHANNEL' => '',
                     'PHONE_NUMBER'     => $data['dst_num'],
                     'TYPE'             => '1',
                     'UNIQUEID'         => $data['UNIQUEID'],
@@ -333,6 +335,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'DST_USER_CHANNEL' => $data['dst_chan']??'',
                     'PHONE_NUMBER'     => $general_src_num,
                     'TYPE'             => '3',
+                    'CRM_CREATE'       => $this->crmCreateLead,
                     'LINE_NUMBER'      => $LINE_NUMBER,
                     'action'           => 'telephonyExternalCallRegister',
                 ];
@@ -347,6 +350,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'USER_PHONE_INNER' => $data['dst_num'],
                     'PHONE_NUMBER'     => $data['src_num'],
                     'DST_USER_CHANNEL' => $data['dst_chan']??'',
+                    'CRM_CREATE'       => $this->crmCreateLead,
                     'TYPE'             => '2',
                     'LINE_NUMBER'      => $LINE_NUMBER,
                     'action'           => 'telephonyExternalCallRegister',

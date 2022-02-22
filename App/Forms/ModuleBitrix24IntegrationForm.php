@@ -33,8 +33,13 @@ class ModuleBitrix24IntegrationForm extends Form
         if ($entity->export_cdr) {
             $cheskarr = ['checked' => 'checked', 'value' => null];
         }
+        $crmCreateLead = ['value' => null];
+        if ($entity->crmCreateLead !== '0') {
+            $crmCreateLead = ['checked' => 'checked', 'value' => null];
+        }
 
         $this->add(new Check('export_cdr', $cheskarr));
+        $this->add(new Check('crmCreateLead', $crmCreateLead));
 
         // Export records
         $cheskarr = ['value' => null];
