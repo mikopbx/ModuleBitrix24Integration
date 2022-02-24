@@ -448,7 +448,6 @@ class Bitrix24Integration extends PbxExtensionBase
         foreach ($binds as $bind) {
             $events[] = $bind['event'];
         }
-
         $arg = [];
         if ( ! in_array('ONEXTERNALCALLSTART', $events, true)) {
             $paramsCall                 = [
@@ -467,7 +466,7 @@ class Bitrix24Integration extends PbxExtensionBase
             $arg["OnExternalCallBackStart"] = 'event.bind?' . http_build_query($paramsCallBack);
         }
 
-        if (count($arg) > 0) {
+        if (!empty($arg)) {
             $this->logger->writeInfo('Update event binding...');
             $arg      = array_merge($arg, $this->eventOfflineGet());
             $response = $this->sendBatch($arg);
@@ -506,13 +505,12 @@ class Bitrix24Integration extends PbxExtensionBase
         if (count($cmd) === 0) {
             return [];
         }
-        $url    = 'https://' . $this->portal . '/rest/batch';
+        $url    = "https://{$this->portal}/rest/batch";
         $params = [
             "auth" => $this->getAccessToken(),
             "halt" => 0,
             "cmd"  => $cmd,
         ];
-
         return $this->query($url, $params);
     }
 
