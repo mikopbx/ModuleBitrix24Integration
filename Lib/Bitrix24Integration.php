@@ -43,6 +43,8 @@ class Bitrix24Integration extends PbxExtensionBase
     private string $b24_region;
     private string $client_id;
     private string $client_secret;
+    private string $queueExtension = '';
+    private string $queueUid = '';
     private Logger $requestLogger;
 
     public function __construct()
@@ -63,11 +65,55 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->b24_region       = $data->b24_region;
         $this->client_id        = $data->client_id;
         $this->client_secret    = $data->client_secret;
-        $this->disabled_numbers = $this->getDisabledNumbers();
         $this->initialized      = true;
 
         $this->requestLogger =  new Logger('requests', $this->moduleUniqueId);
+        $this->updateSettings($data);
         unset($data);
+    }
+
+    public function updateSettings($settings=null):void
+    {
+        $this->disabled_numbers = $this->getDisabledNumbers();
+
+        if($settings === null){
+            /** @var ModuleBitrix24Integration $settings */
+            $settings = ModuleBitrix24Integration::findFirst();
+        }
+        if($settings === null){
+            return;
+        }
+        $this->disabled_numbers = $this->getDisabledNumbers();
+
+
+        $default_action = IncomingRoutingTable::findFirst('priority = 9999');
+        if(!empty($settings->callbackQueue)){
+            $filter =  [
+                'conditions' => 'id = :id:',
+                'columns'    => ['extension,uniqid'],
+                'bind'       => [
+                    'id' => $settings->callbackQueue,
+                ]
+            ];
+        }elseif ($default_action !== null) {
+            $data        = $default_action->toArray();
+            unset($default_action);
+            $filter =  [
+                'conditions' => 'extension = :extension:',
+                'columns'    => ['extension,uniqid'],
+                'bind'       => [
+                    'extension' => $data['extension'],
+                ]
+            ];
+        }
+        if(!empty($filter)){
+            $extData = CallQueues::findFirst($filter);
+            if($extData){
+                $this->queueExtension = $extData->extension;
+                $this->queueUid       = $extData->uniqid;
+            }
+            unset($extData);
+        }
     }
 
     /**
@@ -542,28 +588,14 @@ class Bitrix24Integration extends PbxExtensionBase
             $pre_call_key = "tmp5_ONEXTERNALCALLBACKSTART_" . $this->getPhoneIndex($PHONE_NUMBER);
             $this->saveCache($pre_call_key, $data, 5);
 
-            $default_action = IncomingRoutingTable::findFirst('priority = 9999');
-            if ($default_action !== null) {
-                $data        = $default_action->toArray();
-                unset($default_action);
-                $filter =  [
-                    'conditions' => 'extension = :extension:',
-                    'bind'       => [
-                        'extension' => $data['extension'],
-                    ]
-                ];
-                $extData = CallQueues::findFirst($filter);
-                if(!$extData){
-                    $this->logger->writeInfo("ONEXTERNALCALLBACKSTART: default action for incoming rout is not queue)");
-                }else{
-                    $queueData      = $extData->toArray();
-                    $channel        = "Local/{$data['extension']}@internal-originate";
-                    $variable       = "pt1c_cid={$PHONE_NUMBER},SRC_QUEUE={$queueData['uniqid']}";
-
-                    $am       = Util::getAstManager('off');
-                    $am->Originate($channel, $PHONE_NUMBER, 'all_peers', '1', null, null, null, null, $variable, null, true);
-                    $this->logger->writeInfo("ONEXTERNALCALLBACKSTART: originate from queue {$data['extension']} to {$PHONE_NUMBER})");
-                }
+            if(empty($this->queueUid)){
+                $this->logger->writeInfo("ONEXTERNALCALLBACKSTART: default action for incoming rout is not queue)");
+            }else{
+                $channel        = "Local/{$this->queueExtension}@internal-originate";
+                $variable       = "pt1c_cid={$PHONE_NUMBER},SRC_QUEUE={$this->queueUid}";
+                $am       = Util::getAstManager('off');
+                $am->Originate($channel, $PHONE_NUMBER, 'all_peers', '1', null, null, null, null, $variable, null, true);
+                $this->logger->writeInfo("ONEXTERNALCALLBACKSTART: originate from queue {$data['extension']} to {$PHONE_NUMBER})");
             }
         }
 

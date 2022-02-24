@@ -11,11 +11,10 @@
         <a class="item" data-tab="other">{{ t._('mod_b24_i_Other') }}</a>
     </div>
     <div class="ui bottom attached tab segment" data-tab="other">
-<!--         <div class="ten wide field"> -->
-<!--             <label >{{ t._('mod_b24_i_callbackQueue') }}</label> -->
-<!--             {{ form.render('callbackQueue') }} -->
-<!--         </div> -->
-
+        <div class="ten wide field">
+            <label >{{ t._('mod_b24_i_callbackQueue') }}</label>
+            {{ form.render('callbackQueue') }}
+        </div>
         <div class="ten wide field">
             <label >{{ t._('mod_b24_i_responsibleMissedCalls') }}</label>
             {{ form.render('responsibleMissedCalls') }}

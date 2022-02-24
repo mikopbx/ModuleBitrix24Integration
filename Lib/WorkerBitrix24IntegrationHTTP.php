@@ -124,6 +124,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         if($delta > 10){
             // Обновляем список внутренних номеров. Обновляем кэш внутренних номеров.
             $this->b24->b24GetPhones();
+            $this->b24->updateSettings();
             $this->last_update_inner_num = time();
         }
 
