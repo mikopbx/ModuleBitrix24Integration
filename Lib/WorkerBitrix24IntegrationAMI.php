@@ -38,6 +38,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     private BeanstalkClient $client;
 
     private array $channelCounter = [];
+    private string $responsibleMissedCalls = '';
 
     /**
      * Старт работы листнера.
@@ -153,9 +154,12 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         /** @var ModuleBitrix24Integration $settings */
         $settings = ModuleBitrix24Integration::findFirst();
         if ($settings !== null) {
-            $this->export_records = ($settings->export_records === '1');
-            $this->export_cdr     = ($settings->export_cdr === '1');
-            $this->crmCreateLead  = ($settings->crmCreateLead !== '0')?'1':'0';
+            $this->export_records         = ($settings->export_records === '1');
+            $this->export_cdr             = ($settings->export_cdr === '1');
+            $this->crmCreateLead          = ($settings->crmCreateLead !== '0')?'1':'0';
+
+            $responsibleMissedCalls       = $this->b24->inner_numbers[$settings->responsibleMissedCalls]??[];
+            $this->responsibleMissedCalls = empty($responsibleMissedCalls)?'':$responsibleMissedCalls['ID'];
         }
 
         $this->updateExternalLines();
@@ -403,17 +407,39 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         } else {
             return;
         }
-        $data = [
-            'UNIQUEID'       => $data['UNIQUEID'],
-            'USER_ID'        => $USER_ID,
-            'DURATION'       => $data['billsec'],
-            'FILE'           => $data['recordingfile'],
-            'GLOBAL_STATUS'  => $data['GLOBAL_STATUS'],
-            'disposition'    => $data['disposition'],
-            'action'         => 'telephonyExternalCallFinish',
-            "export_records" => $this->export_records,
-        ];
-        $this->Action_SendToBeanstalk($data);
+
+        $responsible = '';
+        $isMissed = true;
+        if($data['GLOBAL_STATUS'] === 'ANSWERED'){
+            if($data['disposition'] === 'ANSWERED'){
+                // Вызов был отвечен в рамках этой CDR.
+                $responsible = $USER_ID;
+            }
+            $isMissed = false;
+        }elseif (!empty($this->responsibleMissedCalls)){
+            // Назначаем пропвущенный на ответственного.
+            $responsible = $this->responsibleMissedCalls;
+        }else{
+            // Работаем в OLD режиме, рандомный ответственный.
+            $responsible = $USER_ID;
+        }
+        if(!empty($responsible)
+           && !$this->b24->getCache('missed-cdr-'.$data['linkedid'])){
+            $params = [
+                'UNIQUEID'       => $data['UNIQUEID'],
+                'USER_ID'        => $responsible,
+                'DURATION'       => $data['billsec'],
+                'FILE'           => $data['recordingfile'],
+                'GLOBAL_STATUS'  => $data['GLOBAL_STATUS'],
+                'disposition'    => $data['disposition'],
+                'action'         => 'telephonyExternalCallFinish',
+                "export_records" => $this->export_records,
+            ];
+            $this->Action_SendToBeanstalk($params);
+            if($isMissed){
+                $this->b24->saveCache('missed-cdr-'.$data['linkedid'], true, 60);
+            }
+        }
     }
 
     /**

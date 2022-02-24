@@ -9,6 +9,7 @@
 namespace Modules\ModuleBitrix24Integration\App\Controllers;
 
 use MikoPBX\AdminCabinet\Controllers\BaseController;
+use MikoPBX\Common\Models\CallQueues;
 use MikoPBX\Common\Models\Users;
 use MikoPBX\Modules\PbxExtensionUtils;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
@@ -138,11 +139,15 @@ class ModuleBitrix24IntegrationController extends BaseController
                 default:
             }
         }
-        $this->view->extensions = $extensionTable;
+        $this->view->extensions     = $extensionTable;
 
-        $this->view->externalLines = ModuleBitrix24ExternalLines::find();
+        $this->view->externalLines  = ModuleBitrix24ExternalLines::find();
 
-        $this->view->form = new ModuleBitrix24IntegrationForm($settings);
+        $options = [
+            'queues' => CallQueues::find(['columns' => ['id', 'name']]),
+            'users'  => Extensions::find(["type = 'SIP'", 'columns' => ['number', 'callerid']]),
+        ];
+        $this->view->form = new ModuleBitrix24IntegrationForm($settings, $options);
         $this->view->pick("{$this->moduleDir}/App/Views/index");
     }
 

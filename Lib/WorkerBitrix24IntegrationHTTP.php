@@ -168,9 +168,18 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                         $tmpArr[] = $this->b24->telephonyExternalCallHide($data);
                     }
                 } elseif ('action_dial_answer' === $data['action']) {
+                    $userId = ''; $dealId = ''; $leadId = '';
                     /** @var ModuleBitrix24CDR $cdr */
                     $cdr = ModuleBitrix24CDR::findFirst("uniq_id='{$data['UNIQUEID']}'");
                     if ($cdr) {
+                        if(!empty($cdr->dealId)){
+                            $dealId = max($dealId, $cdr->dealId);
+                        }
+                        if(!empty($cdr->lead_id)){
+                            $leadId = max($leadId, $cdr->lead_id);
+                        }
+                        // Определяем, кто ответил на вызов.
+                        $userId = $cdr->user_id;
                         // Отмечаем вызов как отвеченный.
                         $cdr->answer = 1;
                         $cdr->save();
@@ -179,6 +188,12 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                     /** @var ModuleBitrix24CDR $row */
                     $result = ModuleBitrix24CDR::find("linkedid='{$data['linkedid']}' AND answer IS NULL");
                     foreach ($result as $row) {
+                        if(!empty($row->dealId)){
+                            $dealId = max($dealId, $row->dealId);
+                        }
+                        if(!empty($row->lead_id)){
+                            $leadId = max($leadId, $row->lead_id);
+                        }
                         if($cdr && $row->user_id === $cdr->user_id){
                             continue;
                         }
@@ -186,6 +201,13 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                         $data['CALL_ID'] = $row->call_id;
                         $data['USER_ID'] = $row->user_id;
                         $tmpArr[] = $this->b24->telephonyExternalCallHide($data);
+                    }
+
+                    if(!empty($leadId) && !empty($userId)){
+                        $tmpArr[] = $this->b24->crmLeadUpdate($dealId, $userId);
+                    }
+                    if(!empty($dealId) && !empty($userId)){
+                        $tmpArr[] = $this->b24->crmDealUpdate($dealId, $userId);
                     }
                 } elseif ('telephonyExternalCallFinish' === $data['action']) {
                     $tmpArr[] = $this->b24->telephonyExternalCallFinish($data);

@@ -71,6 +71,18 @@ class ModuleBitrix24Integration extends ModulesModelsBase
     public $crmCreateLead = '1';
 
     /**
+     *
+     * @Column(type="integer", nullable=true)
+     */
+    public $responsibleMissedCalls = '';
+
+    /**
+     *
+     * @Column(type="integer", nullable=true)
+     */
+    public $callbackQueue = '';
+
+    /**
      * Bitrix24 region
      *
      * @Column(type="string", nullable=true)

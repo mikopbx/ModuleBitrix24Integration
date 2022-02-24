@@ -55,4 +55,7 @@ return [
     'mod_b24_i_CheckPermissions'          => 'У приложения на портале не хватает следующих прав:',
     'mod_b24_i_useInterception'           => 'Использовать перехват на ответственного',
     'mod_b24_i_interceptionCallDuration'  => 'Длительность попытки звонка на ответственного',
+    'mod_b24_i_Other'                     => 'Прочее',
+    'mod_b24_i_callbackQueue'             => 'Очередь для обработки обратного звонка',
+    'mod_b24_i_responsibleMissedCalls'    => 'Ответственный за пропущенные звонки',
 ];

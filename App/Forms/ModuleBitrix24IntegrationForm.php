@@ -62,20 +62,31 @@ class ModuleBitrix24IntegrationForm extends Form
             $regionsForSelect[$region]=$this->translation->_('mod_b24_i_region_'.$region);
         }
 
-        $regions = new Select(
-            'b24_region',
-            $regionsForSelect
-            , [
-                'using'    => [
-                    'id',
-                    'name',
-                ],
-                'value'    => $entity->b24_region,
-                'useEmpty' => false,
-                'class'    => 'ui selection dropdown b24_regions-select',
-            ]
-        );
-        $this->add($regions);
-
+        $this->add(new Select('b24_region', $regionsForSelect, [
+                 'using'    => [
+                     'id',
+                     'name',
+                 ],
+                 'value'    => $entity->b24_region,
+                 'useEmpty' => false,
+                 'class'    => 'ui selection dropdown b24_regions-select',
+             ]
+        ));
+        $this->add(new Select('callbackQueue', $options['queues'], [
+            'using'    => [
+                'id',
+                'name',
+            ],
+            'useEmpty' => true,
+            'class'    => 'ui selection dropdown',
+        ]));
+        $this->add(new Select('responsibleMissedCalls', $options['users'], [
+            'using'    => [
+                'number',
+                'callerid',
+            ],
+            'useEmpty' => true,
+            'class'    => 'ui selection dropdown',
+        ]));
     }
 }
