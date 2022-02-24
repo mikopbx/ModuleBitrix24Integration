@@ -1022,7 +1022,7 @@ class Bitrix24Integration extends PbxExtensionBase
             $cacheData = $this->getMemCache("{$finishKey}-missed");
         }
         if(isset($cacheData['contact_id'])){
-            $queryArray[] = $this->crmContactUpdate($cacheData['contact_id'], $response['PORTAL_USER_ID'], $response['PHONE_NUMBER']);
+            $queryArray[] = $this->crmContactUpdate($cacheData['contact_id'], $response['PORTAL_USER_ID']);
         }
         if(isset($cacheData['deal_id'])){
             $queryArray[] = $this->crmDealUpdate($cacheData['deal_id'], $response['PORTAL_USER_ID']);
@@ -1061,13 +1061,12 @@ class Bitrix24Integration extends PbxExtensionBase
      * @param string $newUserId
      * @return array
      */
-    public function crmContactUpdate(string $id, string $newUserId, $phone): array
+    public function crmContactUpdate(string $id, string $newUserId): array
     {
         $params = [
             'id'   => $id,
             'fields' => [
                 'ASSIGNED_BY_ID' => $newUserId,
-                'NAME' => $phone
             ],
             'auth' => $this->getAccessToken(),
             'params' => [
