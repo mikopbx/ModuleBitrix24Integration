@@ -56,6 +56,12 @@ class ModuleBitrix24Integration extends ModulesModelsBase
      *
      * @Column(type="integer", nullable=true)
      */
+    public $backgroundUpload;
+
+    /**
+     *
+     * @Column(type="integer", nullable=true)
+     */
     public $use_interception;
 
     /**
@@ -102,6 +108,8 @@ class ModuleBitrix24Integration extends ModulesModelsBase
      * @Column(type="string", nullable=true)
      */
     public $client_secret;
+
+
 
     public function initialize(): void
     {

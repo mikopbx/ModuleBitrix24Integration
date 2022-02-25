@@ -19,6 +19,22 @@
             <label >{{ t._('mod_b24_i_responsibleMissedCalls') }}</label>
             {{ form.render('responsibleMissedCalls') }}
         </div>
+        <div class="field">
+            <div class="ui segment">
+                <div class="ui toggle checkbox">
+                    {{ form.render('export_records') }}
+                    <label>{{ t._('mod_b24_i_ExportRecords') }}</label>
+                </div>
+            </div>
+        </div>
+        <div class="field">
+            <div class="ui segment">
+                <div class="ui toggle checkbox ">
+                    {{ form.render('backgroundUpload') }}
+                    <label>{{ t._('mod_b24_i_backgroundUpload') }}</label>
+                </div>
+            </div>
+        </div>
     </div>
     <div class="ui bottom attached tab segment active" data-tab="general">
         <div class="field">
@@ -59,14 +75,6 @@
                 <div class="ui toggle checkbox ">
                     {{ form.render('crmCreateLead') }}
                     <label>{{ t._('mod_b24_i_CrmCreate') }}</label>
-                </div>
-            </div>
-        </div>
-        <div class="field">
-            <div class="ui segment">
-                <div class="ui toggle checkbox">
-                    {{ form.render('export_records') }}
-                    <label>{{ t._('mod_b24_i_ExportRecords') }}</label>
                 </div>
             </div>
         </div>

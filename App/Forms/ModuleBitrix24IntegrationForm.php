@@ -20,7 +20,7 @@ use Phalcon\Forms\Form;
 class ModuleBitrix24IntegrationForm extends Form
 {
 
-    public function initialize($entity = null, $options = null)
+    public function initialize($entity = null, $options = null):void
     {
         $this->add(new Text('portal'));
         $this->add(new Text('refresh_token'));
@@ -37,9 +37,13 @@ class ModuleBitrix24IntegrationForm extends Form
         if ($entity->crmCreateLead !== '0') {
             $crmCreateLead = ['checked' => 'checked', 'value' => null];
         }
-
+        $backgroundUpload = ['value' => null];
+        if ($entity->backgroundUpload === '1') {
+            $backgroundUpload = ['checked' => 'checked', 'value' => null];
+        }
         $this->add(new Check('export_cdr', $cheskarr));
         $this->add(new Check('crmCreateLead', $crmCreateLead));
+        $this->add(new Check('backgroundUpload', $backgroundUpload));
 
         // Export records
         $cheskarr = ['value' => null];

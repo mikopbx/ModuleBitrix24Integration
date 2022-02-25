@@ -29,6 +29,12 @@ use Phalcon\Mvc\Model\Resultset;
 
 class Bitrix24Integration extends PbxExtensionBase
 {
+    public const API_ATTACH_RECORD   = 'telephony.externalCall.attachRecord';
+    public const API_SEARCH_ENTITIES = 'telephony.externalCall.searchCrmEntities';
+    public const API_CALL_FINISH     = 'telephony.externalcall.finish';
+    public const API_CALL_HIDE       = 'telephony.externalcall.hide';
+    public const API_CALL_REGISTER   = 'telephony.externalcall.register';
+
     public const B24_INTEGRATION_CHANNEL = 'b24_integration_channel';
     public const B24_SEARCH_CHANNEL = 'b24_search_channel';
 
@@ -45,6 +51,7 @@ class Bitrix24Integration extends PbxExtensionBase
     private string $client_secret;
     private string $queueExtension = '';
     private string $queueUid = '';
+    private bool $backgroundUpload = false;
     private Logger $requestLogger;
 
     public function __construct()
@@ -82,7 +89,7 @@ class Bitrix24Integration extends PbxExtensionBase
             return;
         }
         $this->disabled_numbers = $this->getDisabledNumbers();
-
+        $this->backgroundUpload = ($settings->backgroundUpload === '1');
         $default_action = IncomingRoutingTable::findFirst('priority = 9999');
         if(!empty($settings->callbackQueue)){
             $filter =  [
@@ -228,7 +235,7 @@ class Bitrix24Integration extends PbxExtensionBase
      *
      * @return array
      */
-    private function query(string $url, array $data): array
+    private function query(string $url, array $data, $needBuildQuery = true): array
     {
         if (parse_url($url) === false) {
             return [];
@@ -237,7 +244,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $startTime                           = microtime(true);
         $curlOptions                         = [];
         $curlOptions[CURLOPT_POST]           = true;
-        $curlOptions[CURLOPT_POSTFIELDS]     = http_build_query($data);
+        $curlOptions[CURLOPT_POSTFIELDS]     = ($needBuildQuery)?http_build_query($data):$data;
         $curlOptions[CURLOPT_RETURNTRANSFER] = true;
 
         $status          = 0;
@@ -488,6 +495,21 @@ class Bitrix24Integration extends PbxExtensionBase
         $arg["event.get"] = 'event.get?' . http_build_query($params);
 
         return $this->sendBatch($arg);
+    }
+
+    /**
+     * Отправка файла по ссылке в b24 POST запросом.
+     * @param $targetUrl
+     * @param $filename
+     * @return array
+     */
+    public function uploadRecord($targetUrl, $filename): array
+    {
+        if (!file_exists($filename)) {
+            return [];
+        }
+        $post = ['file'=> curl_file_create($filename)];
+        return $this->query($targetUrl, $post, false);
     }
 
     /**
@@ -914,8 +936,8 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->fillPropertyValues($options, $params);
 
         $arg       = [];
-        $key       = 'register_' . uniqid('', true);
-        $arg[$key] = 'telephony.externalcall.register?' . http_build_query($params);
+        $key       = self::API_CALL_REGISTER.'_' . uniqid('', true);
+        $arg[$key] = self::API_CALL_REGISTER.'?' . http_build_query($params);
 
         $options['time']       = time();
         $this->mem_cache[$key] = $options;
@@ -1010,13 +1032,10 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->fillPropertyValues($options, $params);
 
         $arg              = [];
-        $finishKey       = 'finish_' . uniqid('', true);
-        $arg[$finishKey] = 'telephony.externalcall.finish?' . http_build_query($params);
+        $finishKey       = self::API_CALL_FINISH.'_' . uniqid('', true);
+        $arg[$finishKey] = self::API_CALL_FINISH.'?' . http_build_query($params);
         if ($options['export_records']) {
-            $cmd = $this->telephonyExternalCallAttachRecord($options['FILE'], $CALL_ID);
-            if ($cmd !== '') {
-                $arg[uniqid('', true)] = $cmd;
-            }
+            $this->telephonyExternalCallAttachRecord($options['FILE'], $CALL_ID, $arg);
         }
 
         if ($options['GLOBAL_STATUS'] === 'ANSWERED' && $options['disposition'] !== 'ANSWERED') {
@@ -1190,26 +1209,49 @@ class Bitrix24Integration extends PbxExtensionBase
     }
 
     /**
+     * Обработка ответа запроса загрузки файла.
+     * @param $key
+     * @param $uploadUrl
+     * @return array
+     */
+    public function telephonyPostAttachRecord($key, $uploadUrl): array
+    {
+        $data = $this->getMemCache($key);
+        if(empty($uploadUrl) || empty($data)){
+            return [];
+        }
+        $data['uploadUrl'] = $uploadUrl;
+        return $data;
+    }
+
+    /**
      * Прикрепление записи разговора к звонку в b24.
      * @param $filename
      * @param $callId
-     * @return string
+     * @param $arg
+     * @return void
      */
-    private function telephonyExternalCallAttachRecord($filename, $callId): string
+    private function telephonyExternalCallAttachRecord($filename, $callId, &$arg): void
     {
-        if ( ! file_exists($filename)) {
-            return '';
+        if (!file_exists($filename)) {
+            return;
         }
         $FILENAME     = basename($filename);
-        $FILE_CONTENT = base64_encode(file_get_contents($filename));
         $params = [
             'CALL_ID'      => $callId,
             'FILENAME'     => $FILENAME,
-            'FILE_CONTENT' => $FILE_CONTENT,
             'auth'         => $this->getAccessToken(),
         ];
-
-        return 'telephony.externalCall.attachRecord?' . http_build_query($params);
+        if(!$this->backgroundUpload){
+            $params['FILE_CONTENT'] = base64_encode(file_get_contents($filename));
+        }
+        $cmd = self::API_ATTACH_RECORD.'?'.http_build_query($params);
+        $key = self::API_ATTACH_RECORD.'_'.uniqid('', true);
+        $arg[$key] = $cmd;
+        $this->mem_cache[$key] = [
+            'CALL_ID'      => $callId,
+            'FILENAME'     => $filename,
+        ];
     }
 
     /**
@@ -1229,7 +1271,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->fillPropertyValues($options, $params);
 
         $arg                   = [];
-        $arg['telephony.externalcall.hide'.uniqid('', true)] = 'telephony.externalcall.hide?' . http_build_query($params);
+        $arg[self::API_CALL_HIDE.uniqid('', true)] = self::API_CALL_HIDE.'?' . http_build_query($params);
 
         return $arg;
     }
@@ -1287,7 +1329,7 @@ class Bitrix24Integration extends PbxExtensionBase
             'auth' => $this->getAccessToken(),
         ];
         $arg                                    = [];
-        $arg['searchCrmEntities_' . uniqid('', true)] = 'telephony.externalCall.searchCrmEntities?' . http_build_query($params);
+        $arg[self::API_SEARCH_ENTITIES.'_' . uniqid('', true)] = self::API_SEARCH_ENTITIES.'?' . http_build_query($params);
 
         return $arg;
     }

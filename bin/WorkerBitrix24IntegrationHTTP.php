@@ -1,17 +1,29 @@
 <?php
 /*
- * Copyright © MIKO LLC - All Rights Reserved
- * Unauthorized copying of this file, via any medium is strictly prohibited
- * Proprietary and confidential
- * Written by Alexey Portnov, 10 2020
+ * MikoPBX - free phone system for small business
+ * Copyright © 2017-2022 Alexey Portnov and Nikolay Beketov
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with this program.
+ * If not, see <https://www.gnu.org/licenses/>.
  */
 
-namespace Modules\ModuleBitrix24Integration\Lib;
+namespace Modules\ModuleBitrix24Integration\bin;
 require_once 'Globals.php';
 
 use MikoPBX\Core\System\BeanstalkClient;
 use Exception;
 use MikoPBX\Core\Workers\WorkerBase;
+use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24CDR;
 
 class WorkerBitrix24IntegrationHTTP extends WorkerBase
@@ -230,11 +242,17 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $tmpArr = [];
         foreach ($result as $key => $partResponse){
             $actionName = explode('_', $key)[0]??'';
-            if($actionName === 'register'){
+            if($actionName === Bitrix24Integration::API_CALL_REGISTER){
                 $this->b24->telephonyExternalCallPostRegister($key, $partResponse);
-            }elseif ($actionName === 'searchCrmEntities'){
+            }elseif ($actionName === Bitrix24Integration::API_SEARCH_ENTITIES){
                 $this->postSearchCrmEntities($key, $partResponse);
-            }elseif ($actionName === 'finish'){
+            }elseif ($actionName === Bitrix24Integration::API_ATTACH_RECORD){
+                $uploadUrl = $partResponse["uploadUrl"]??'';
+                $data = $this->b24->telephonyPostAttachRecord($key, $uploadUrl);
+                if(!empty($data)){
+                    $this->queueAgent->publish(json_encode($data, JSON_UNESCAPED_SLASHES), 'b24-uploader');
+                }
+            }elseif ($actionName === Bitrix24Integration::API_CALL_FINISH){
                 $this->b24->telephonyExternalCallPostFinish($key, $partResponse, $tmpArr);
             }
         }

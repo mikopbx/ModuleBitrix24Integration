@@ -6,7 +6,7 @@
  * Written by Alexey Portnov, 10 2020
  */
 
-namespace Modules\ModuleBitrix24Integration\Lib;
+namespace Modules\ModuleBitrix24Integration\bin;
 require_once 'Globals.php';
 
 use MikoPBX\Core\Asterisk\AsteriskManager;
@@ -16,6 +16,7 @@ use MikoPBX\Core\System\MikoPBXConfig;
 use MikoPBX\Core\Workers\WorkerBase;
 use MikoPBX\Common\Models\Extensions;
 use MikoPBX\Core\Workers\WorkerCdr;
+use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24ExternalLines;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use MikoPBX\Core\System\Util;
@@ -43,9 +44,9 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     /**
      * Старт работы листнера.
      *
-     * @param $argv
+     * @param $params
      */
-    public function start($argv):void
+    public function start($params):void
     {
         $this->client = new BeanstalkClient(Bitrix24Integration::B24_INTEGRATION_CHANNEL);
         $this->am     = Util::getAstManager();
@@ -158,8 +159,8 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             $this->export_cdr             = ($settings->export_cdr === '1');
             $this->crmCreateLead          = ($settings->crmCreateLead !== '0')?'1':'0';
 
-            $responsibleMissedCalls       = $this->b24->inner_numbers[$settings->responsibleMissedCalls]??[];
-            $this->responsibleMissedCalls = empty($responsibleMissedCalls)?'':$responsibleMissedCalls['ID'];
+            $responsible       = $this->b24->inner_numbers[$settings->responsibleMissedCalls]??[];
+            $this->responsibleMissedCalls = empty($responsible)?'':$responsible['ID'];
         }
 
         $this->updateExternalLines();
@@ -190,15 +191,14 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     /**
      * Установка фильтра
      *
-     * @return array
      */
-    private function setFilter():array
+    private function setFilter():void
     {
         $pingTube = $this->makePingTubeName(self::class);
         $params = ['Operation' => 'Add', 'Filter' => 'UserEvent: '.$pingTube];
         $this->am->sendRequestTimeout('Filter', $params);
         $params = ['Operation' => 'Add', 'Filter' => 'UserEvent: CdrConnector'];
-        return $this->am->sendRequestTimeout('Filter', $params);
+        $this->am->sendRequestTimeout('Filter', $params);
     }
 
     /**
@@ -247,6 +247,8 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             case 'hangup_update_cdr':
                 $this->actionCompleteCdr($data);
                 break;
+            default:
+                break;
         }
 
     }
@@ -271,15 +273,13 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             $filter['miko_result_in_file'] = true;
             $filter['miko_tmp_db']         = true;
 
-            $client  = new BeanstalkClient(WorkerCdr::SELECT_CDR_TUBE);
-            $message = $client->request(json_encode($filter), 2);
+            $clientBeanstalk  = new BeanstalkClient(WorkerCdr::SELECT_CDR_TUBE);
+            $message = $clientBeanstalk->request(json_encode($filter), 2);
             if ($message !== false) {
                 $filename = json_decode($message, false);
                 if (file_exists($filename)) {
                     $history = json_decode(file_get_contents($filename), false);
-
-                    // file_put_contents('/tmp/test.txt', json_encode($history, JSON_PRETTY_PRINT) . "\n", FILE_APPEND);
-                    if (count($history) > 0) {
+                    if (!empty($history)) {
                         // Определим номер того, кого переадресуют.
                         if ($data['src_num'] === $history[0]->src_num) {
                             $general_src_num = $history[0]->dst_num;

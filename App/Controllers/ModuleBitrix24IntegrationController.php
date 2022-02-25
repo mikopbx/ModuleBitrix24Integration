@@ -196,6 +196,7 @@ class ModuleBitrix24IntegrationController extends BaseController
                 case 'export_cdr':
                 case 'use_interception':
                 case 'crmCreateLead':
+                case 'backgroundUpload':
                 case 'export_records':
                     if (array_key_exists($key, $data)) {
                         $record->$key = ($data[$key] === 'on') ? '1' : '0';
