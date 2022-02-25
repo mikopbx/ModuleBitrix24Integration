@@ -78,7 +78,7 @@ class ModuleBitrix24IntegrationForm extends Form
                 'name',
             ],
             'useEmpty' => true,
-            'class'    => 'ui selection dropdown',
+            'class'    => 'ui search dropdown',
         ]));
         $this->add(new Select('responsibleMissedCalls', $options['users'], [
             'using'    => [
@@ -86,7 +86,7 @@ class ModuleBitrix24IntegrationForm extends Form
                 'callerid',
             ],
             'useEmpty' => true,
-            'class'    => 'ui selection dropdown',
+            'class'    => 'ui search dropdown',
         ]));
     }
 }

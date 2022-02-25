@@ -144,9 +144,23 @@ class ModuleBitrix24IntegrationController extends BaseController
         $this->view->externalLines  = ModuleBitrix24ExternalLines::find();
 
         $options = [
-            'queues' => CallQueues::find(['columns' => ['id', 'name']]),
-            'users'  => Extensions::find(["type = 'SIP'", 'columns' => ['number', 'callerid']]),
+            'queues' => [ '' => $this->translation->_('ex_SelectNumber') ],
+            'users'  => [ '' => $this->translation->_('ex_SelectNumber') ],
         ];
+        $parameters               = [
+            'conditions' => 'type IN ({types:array})',
+            'bind'       => [
+                'types' => [Extensions::TYPE_QUEUE, Extensions::TYPE_SIP],
+            ],
+        ];
+        $extensions               = Extensions::find($parameters);
+        foreach ($extensions as $record) {
+            if($record->type === Extensions::TYPE_QUEUE){
+                $options['queues'][$record->number] = $record ? $record->getRepresent() ." <$record->number>": '';
+            }else{
+                $options['users'][$record->number] = $record ? $record->getRepresent() : '';
+            }
+        }
         $this->view->form = new ModuleBitrix24IntegrationForm($settings, $options);
         $this->view->pick("{$this->moduleDir}/App/Views/index");
     }
