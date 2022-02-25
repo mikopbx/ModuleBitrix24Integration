@@ -74,8 +74,6 @@ class Bitrix24Integration extends PbxExtensionBase
 
     public function updateSettings($settings=null):void
     {
-        $this->disabled_numbers = $this->getDisabledNumbers();
-
         if($settings === null){
             /** @var ModuleBitrix24Integration $settings */
             $settings = ModuleBitrix24Integration::findFirst();
@@ -84,7 +82,6 @@ class Bitrix24Integration extends PbxExtensionBase
             return;
         }
         $this->disabled_numbers = $this->getDisabledNumbers();
-
 
         $default_action = IncomingRoutingTable::findFirst('priority = 9999');
         if(!empty($settings->callbackQueue)){
