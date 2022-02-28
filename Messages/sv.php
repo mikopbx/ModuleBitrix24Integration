@@ -45,4 +45,12 @@ return [
     'mod_b24_i_region_UKRAINE' => 'Ukraina',
     'mod_b24_i_region_BELARUS' => 'Vitryssland',
     'mod_b24_i_region_RUSSIA' => 'Ryssland',
+    'mod_b24_i_interceptionCallDuration' => 'Varaktigheten av försöket att ringa den ansvariga personen',
+    'mod_b24_i_useInterception' => 'Använd avlyssning på den ansvarige',
+    'mod_b24_i_CheckPermissions' => 'Ansökan på portalen saknar följande rättigheter:',
+    'mod_b24_i_AuthError' => 'Portauktoriseringsfel, ogiltig portaladress, token eller region.',
+    'mod_b24_i_ValidateRefreshTokenEmpty' => 'Uppdateringstoken är tom',
+    'mod_b24_i_client_secret' => 'Programnyckel (client_secret)',
+    'mod_b24_i_client_id' => 'Applikationskod (client_id)',
+    'mod_b24_i_region_REST_API' => 'REST API',
 ];

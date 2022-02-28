@@ -9,6 +9,7 @@
 namespace Modules\ModuleBitrix24Integration\App\Controllers;
 
 use MikoPBX\AdminCabinet\Controllers\BaseController;
+use MikoPBX\Common\Models\CallQueues;
 use MikoPBX\Common\Models\Users;
 use MikoPBX\Modules\PbxExtensionUtils;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
@@ -138,11 +139,29 @@ class ModuleBitrix24IntegrationController extends BaseController
                 default:
             }
         }
-        $this->view->extensions = $extensionTable;
+        $this->view->extensions     = $extensionTable;
 
-        $this->view->externalLines = ModuleBitrix24ExternalLines::find();
+        $this->view->externalLines  = ModuleBitrix24ExternalLines::find();
 
-        $this->view->form = new ModuleBitrix24IntegrationForm($settings);
+        $options = [
+            'queues' => [ '' => $this->translation->_('ex_SelectNumber') ],
+            'users'  => [ '' => $this->translation->_('ex_SelectNumber') ],
+        ];
+        $parameters               = [
+            'conditions' => 'type IN ({types:array})',
+            'bind'       => [
+                'types' => [Extensions::TYPE_QUEUE, Extensions::TYPE_SIP],
+            ],
+        ];
+        $extensions               = Extensions::find($parameters);
+        foreach ($extensions as $record) {
+            if($record->type === Extensions::TYPE_QUEUE){
+                $options['queues'][$record->number] = $record ? $record->getRepresent() ." <$record->number>": '';
+            }else{
+                $options['users'][$record->number] = $record ? $record->getRepresent() : '';
+            }
+        }
+        $this->view->form = new ModuleBitrix24IntegrationForm($settings, $options);
         $this->view->pick("{$this->moduleDir}/App/Views/index");
     }
 
@@ -176,6 +195,8 @@ class ModuleBitrix24IntegrationController extends BaseController
                     break;
                 case 'export_cdr':
                 case 'use_interception':
+                case 'crmCreateLead':
+                case 'backgroundUpload':
                 case 'export_records':
                     if (array_key_exists($key, $data)) {
                         $record->$key = ($data[$key] === 'on') ? '1' : '0';

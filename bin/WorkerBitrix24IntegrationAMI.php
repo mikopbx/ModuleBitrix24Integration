@@ -6,17 +6,17 @@
  * Written by Alexey Portnov, 10 2020
  */
 
-namespace Modules\ModuleBitrix24Integration\Lib;
+namespace Modules\ModuleBitrix24Integration\bin;
 require_once 'Globals.php';
 
 use MikoPBX\Core\Asterisk\AsteriskManager;
 use MikoPBX\Core\System\BeanstalkClient;
-use DateTime;
 use Exception;
 use MikoPBX\Core\System\MikoPBXConfig;
 use MikoPBX\Core\Workers\WorkerBase;
 use MikoPBX\Common\Models\Extensions;
 use MikoPBX\Core\Workers\WorkerCdr;
+use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24ExternalLines;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use MikoPBX\Core\System\Util;
@@ -35,16 +35,18 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     private bool $export_records = false;
     private bool $export_cdr = false;
     private array $external_lines = [];
+    private string $crmCreateLead = '0';
     private BeanstalkClient $client;
 
     private array $channelCounter = [];
+    private string $responsibleMissedCalls = '';
 
     /**
      * Старт работы листнера.
      *
-     * @param $argv
+     * @param $params
      */
-    public function start($argv):void
+    public function start($params):void
     {
         $this->client = new BeanstalkClient(Bitrix24Integration::B24_INTEGRATION_CHANNEL);
         $this->am     = Util::getAstManager();
@@ -153,8 +155,12 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         /** @var ModuleBitrix24Integration $settings */
         $settings = ModuleBitrix24Integration::findFirst();
         if ($settings !== null) {
-            $this->export_records = ($settings->export_records === '1');
-            $this->export_cdr     = ($settings->export_cdr === '1');
+            $this->export_records         = ($settings->export_records === '1');
+            $this->export_cdr             = ($settings->export_cdr === '1');
+            $this->crmCreateLead          = ($settings->crmCreateLead !== '0')?'1':'0';
+
+            $responsible       = $this->b24->inner_numbers[$settings->responsibleMissedCalls]??[];
+            $this->responsibleMissedCalls = empty($responsible)?'':$responsible['ID'];
         }
 
         $this->updateExternalLines();
@@ -185,15 +191,14 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     /**
      * Установка фильтра
      *
-     * @return array
      */
-    private function setFilter():array
+    private function setFilter():void
     {
         $pingTube = $this->makePingTubeName(self::class);
         $params = ['Operation' => 'Add', 'Filter' => 'UserEvent: '.$pingTube];
         $this->am->sendRequestTimeout('Filter', $params);
         $params = ['Operation' => 'Add', 'Filter' => 'UserEvent: CdrConnector'];
-        return $this->am->sendRequestTimeout('Filter', $params);
+        $this->am->sendRequestTimeout('Filter', $params);
     }
 
     /**
@@ -242,6 +247,8 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             case 'hangup_update_cdr':
                 $this->actionCompleteCdr($data);
                 break;
+            default:
+                break;
         }
 
     }
@@ -266,15 +273,13 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             $filter['miko_result_in_file'] = true;
             $filter['miko_tmp_db']         = true;
 
-            $client  = new BeanstalkClient(WorkerCdr::SELECT_CDR_TUBE);
-            $message = $client->request(json_encode($filter), 2);
+            $clientBeanstalk  = new BeanstalkClient(WorkerCdr::SELECT_CDR_TUBE);
+            $message = $clientBeanstalk->request(json_encode($filter), 2);
             if ($message !== false) {
                 $filename = json_decode($message, false);
                 if (file_exists($filename)) {
                     $history = json_decode(file_get_contents($filename), false);
-
-                    // file_put_contents('/tmp/test.txt', json_encode($history, JSON_PRETTY_PRINT) . "\n", FILE_APPEND);
-                    if (count($history) > 0) {
+                    if (!empty($history)) {
                         // Определим номер того, кого переадресуют.
                         if ($data['src_num'] === $history[0]->src_num) {
                             $general_src_num = $history[0]->dst_num;
@@ -310,7 +315,8 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'CALL_START_DATE'  => date(\DateTimeInterface::ATOM, strtotime($data['start'])),
                     'USER_ID'          => $this->inner_numbers[$data['src_num']]['ID'],
                     'USER_PHONE_INNER' => $data['src_num'],
-                    'DST_USER_CHANNEL'     => '',
+                    'CRM_CREATE'       => $this->crmCreateLead,
+                    'DST_USER_CHANNEL' => '',
                     'PHONE_NUMBER'     => $data['dst_num'],
                     'TYPE'             => '1',
                     'UNIQUEID'         => $data['UNIQUEID'],
@@ -333,6 +339,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'DST_USER_CHANNEL' => $data['dst_chan']??'',
                     'PHONE_NUMBER'     => $general_src_num,
                     'TYPE'             => '3',
+                    'CRM_CREATE'       => $this->crmCreateLead,
                     'LINE_NUMBER'      => $LINE_NUMBER,
                     'action'           => 'telephonyExternalCallRegister',
                 ];
@@ -347,6 +354,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'USER_PHONE_INNER' => $data['dst_num'],
                     'PHONE_NUMBER'     => $data['src_num'],
                     'DST_USER_CHANNEL' => $data['dst_chan']??'',
+                    'CRM_CREATE'       => $this->crmCreateLead,
                     'TYPE'             => '2',
                     'LINE_NUMBER'      => $LINE_NUMBER,
                     'action'           => 'telephonyExternalCallRegister',
@@ -399,17 +407,39 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         } else {
             return;
         }
-        $data = [
-            'UNIQUEID'       => $data['UNIQUEID'],
-            'USER_ID'        => $USER_ID,
-            'DURATION'       => $data['billsec'],
-            'FILE'           => $data['recordingfile'],
-            'GLOBAL_STATUS'  => $data['GLOBAL_STATUS'],
-            'disposition'    => $data['disposition'],
-            'action'         => 'telephonyExternalCallFinish',
-            "export_records" => $this->export_records,
-        ];
-        $this->Action_SendToBeanstalk($data);
+
+        $responsible = '';
+        $isMissed = true;
+        if($data['GLOBAL_STATUS'] === 'ANSWERED'){
+            if($data['disposition'] === 'ANSWERED'){
+                // Вызов был отвечен в рамках этой CDR.
+                $responsible = $USER_ID;
+            }
+            $isMissed = false;
+        }elseif (!empty($this->responsibleMissedCalls)){
+            // Назначаем пропвущенный на ответственного.
+            $responsible = $this->responsibleMissedCalls;
+        }else{
+            // Работаем в OLD режиме, рандомный ответственный.
+            $responsible = $USER_ID;
+        }
+        if(!empty($responsible)
+           && !$this->b24->getCache('missed-cdr-'.$data['linkedid'])){
+            $params = [
+                'UNIQUEID'       => $data['UNIQUEID'],
+                'USER_ID'        => $responsible,
+                'DURATION'       => $data['billsec'],
+                'FILE'           => $data['recordingfile'],
+                'GLOBAL_STATUS'  => $data['GLOBAL_STATUS'],
+                'disposition'    => $data['disposition'],
+                'action'         => 'telephonyExternalCallFinish',
+                "export_records" => $this->export_records,
+            ];
+            $this->Action_SendToBeanstalk($params);
+            if($isMissed){
+                $this->b24->saveCache('missed-cdr-'.$data['linkedid'], true, 60);
+            }
+        }
     }
 
     /**

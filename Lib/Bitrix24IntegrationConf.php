@@ -13,6 +13,9 @@ use MikoPBX\Core\System\Util;
 use MikoPBX\Modules\Config\ConfigClass;
 use MikoPBX\Core\Workers\Cron\WorkerSafeScriptsCore;
 use MikoPBX\PBXCoreREST\Lib\PBXApiResult;
+use Modules\ModuleBitrix24Integration\bin\UploaderB24;
+use Modules\ModuleBitrix24Integration\bin\WorkerBitrix24IntegrationAMI;
+use Modules\ModuleBitrix24Integration\bin\WorkerBitrix24IntegrationHTTP;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24ExternalLines;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Users;
@@ -46,6 +49,10 @@ class Bitrix24IntegrationConf extends ConfigClass
             [
                 'type'           => WorkerSafeScriptsCore::CHECK_BY_BEANSTALK,
                 'worker'         => WorkerBitrix24IntegrationHTTP::class,
+            ],
+            [
+                'type'           => WorkerSafeScriptsCore::CHECK_BY_BEANSTALK,
+                'worker'         => UploaderB24::class,
             ],
             [
                 'type'           => WorkerSafeScriptsCore::CHECK_BY_AMI,

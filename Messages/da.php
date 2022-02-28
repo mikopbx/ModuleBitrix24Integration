@@ -38,11 +38,19 @@ return [
  * Written by Alexey Portnov, 5 2020
  */
     'repModuleBitrix24Integration' => 'Integrationsmodul med CRM Bitrix24 -% repesent%',
-    'mod_b24_i_EnterSearch' => 'Søg',
+    'mod_b24_i_EnterSearch' => 'søg',
     'mod_b24_i_StatusError' => 'Fejl ved betjening af modulet',
     'mod_b24_i_Region' => 'Regionen, hvor din portal fungerer',
     'mod_b24_i_region_WORLD' => 'Resten af verden',
     'mod_b24_i_region_UKRAINE' => 'Ukraine',
     'mod_b24_i_region_BELARUS' => 'Hviderusland',
     'mod_b24_i_region_RUSSIA' => 'Rusland',
+    'mod_b24_i_interceptionCallDuration' => 'Varigheden af forsøget på at ringe til den ansvarlige person',
+    'mod_b24_i_useInterception' => 'Brug aflytning på den ansvarlige',
+    'mod_b24_i_CheckPermissions' => 'Ansøgningen på portalen mangler følgende rettigheder:',
+    'mod_b24_i_AuthError' => 'Portalgodkendelsesfejl, ugyldig portaladresse, token eller område.',
+    'mod_b24_i_ValidateRefreshTokenEmpty' => 'Opdater token er tom',
+    'mod_b24_i_client_secret' => 'Applikationsnøgle (client_secret)',
+    'mod_b24_i_client_id' => 'Applikationskode (client_id)',
+    'mod_b24_i_region_REST_API' => 'REST API',
 ];

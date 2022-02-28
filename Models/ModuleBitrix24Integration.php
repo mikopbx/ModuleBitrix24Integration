@@ -56,6 +56,12 @@ class ModuleBitrix24Integration extends ModulesModelsBase
      *
      * @Column(type="integer", nullable=true)
      */
+    public $backgroundUpload;
+
+    /**
+     *
+     * @Column(type="integer", nullable=true)
+     */
     public $use_interception;
 
     /**
@@ -63,6 +69,24 @@ class ModuleBitrix24Integration extends ModulesModelsBase
      * @Column(type="integer", nullable=true)
      */
     public $interception_call_duration;
+
+    /**
+     *
+     * @Column(type="string", nullable=true)
+     */
+    public $crmCreateLead = '1';
+
+    /**
+     *
+     * @Column(type="integer", nullable=true)
+     */
+    public $responsibleMissedCalls = '';
+
+    /**
+     *
+     * @Column(type="integer", nullable=true)
+     */
+    public $callbackQueue = '';
 
     /**
      * Bitrix24 region
@@ -84,6 +108,8 @@ class ModuleBitrix24Integration extends ModulesModelsBase
      * @Column(type="string", nullable=true)
      */
     public $client_secret;
+
+
 
     public function initialize(): void
     {

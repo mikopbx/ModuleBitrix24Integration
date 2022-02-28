@@ -45,4 +45,12 @@ return [
     'mod_b24_i_region_UKRAINE' => '乌克兰',
     'mod_b24_i_region_BELARUS' => '白俄罗斯',
     'mod_b24_i_region_RUSSIA' => '俄罗斯',
+    'mod_b24_i_interceptionCallDuration' => '尝试呼叫负责人的持续时间',
+    'mod_b24_i_useInterception' => '对责任人使用拦截',
+    'mod_b24_i_ValidateRefreshTokenEmpty' => '刷新令牌为空',
+    'mod_b24_i_CheckPermissions' => '门户上的应用程序缺少以下权限：',
+    'mod_b24_i_AuthError' => '门户授权错误、无效的门户地址、令牌或区域。',
+    'mod_b24_i_client_secret' => '应用程序密钥 (client_secret)',
+    'mod_b24_i_client_id' => '应用程序代码（client_id）',
+    'mod_b24_i_region_REST_API' => 'REST API',
 ];

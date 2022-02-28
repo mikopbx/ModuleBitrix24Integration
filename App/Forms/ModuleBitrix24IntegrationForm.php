@@ -20,7 +20,7 @@ use Phalcon\Forms\Form;
 class ModuleBitrix24IntegrationForm extends Form
 {
 
-    public function initialize($entity = null, $options = null)
+    public function initialize($entity = null, $options = null):void
     {
         $this->add(new Text('portal'));
         $this->add(new Text('refresh_token'));
@@ -33,8 +33,17 @@ class ModuleBitrix24IntegrationForm extends Form
         if ($entity->export_cdr) {
             $cheskarr = ['checked' => 'checked', 'value' => null];
         }
-
+        $crmCreateLead = ['value' => null];
+        if ($entity->crmCreateLead !== '0') {
+            $crmCreateLead = ['checked' => 'checked', 'value' => null];
+        }
+        $backgroundUpload = ['value' => null];
+        if ($entity->backgroundUpload === '1') {
+            $backgroundUpload = ['checked' => 'checked', 'value' => null];
+        }
         $this->add(new Check('export_cdr', $cheskarr));
+        $this->add(new Check('crmCreateLead', $crmCreateLead));
+        $this->add(new Check('backgroundUpload', $backgroundUpload));
 
         // Export records
         $cheskarr = ['value' => null];
@@ -57,20 +66,31 @@ class ModuleBitrix24IntegrationForm extends Form
             $regionsForSelect[$region]=$this->translation->_('mod_b24_i_region_'.$region);
         }
 
-        $regions = new Select(
-            'b24_region',
-            $regionsForSelect
-            , [
-                'using'    => [
-                    'id',
-                    'name',
-                ],
-                'value'    => $entity->b24_region,
-                'useEmpty' => false,
-                'class'    => 'ui selection dropdown b24_regions-select',
-            ]
-        );
-        $this->add($regions);
-
+        $this->add(new Select('b24_region', $regionsForSelect, [
+                 'using'    => [
+                     'id',
+                     'name',
+                 ],
+                 'value'    => $entity->b24_region,
+                 'useEmpty' => false,
+                 'class'    => 'ui selection dropdown b24_regions-select',
+             ]
+        ));
+        $this->add(new Select('callbackQueue', $options['queues'], [
+            'using'    => [
+                'id',
+                'name',
+            ],
+            'useEmpty' => true,
+            'class'    => 'ui search dropdown',
+        ]));
+        $this->add(new Select('responsibleMissedCalls', $options['users'], [
+            'using'    => [
+                'number',
+                'callerid',
+            ],
+            'useEmpty' => true,
+            'class'    => 'ui search dropdown',
+        ]));
     }
 }

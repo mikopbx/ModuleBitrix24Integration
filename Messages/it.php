@@ -45,4 +45,12 @@ return [
     'mod_b24_i_region_UKRAINE' => 'Ucraina',
     'mod_b24_i_region_BELARUS' => 'Bielorussia',
     'mod_b24_i_region_RUSSIA' => 'Russia',
+    'mod_b24_i_interceptionCallDuration' => 'La durata del tentativo di chiamare la persona responsabile',
+    'mod_b24_i_useInterception' => 'Utilizzare l\'intercettazione sul responsabile',
+    'mod_b24_i_CheckPermissions' => 'L\'applicazione sul portale è priva dei seguenti diritti:',
+    'mod_b24_i_AuthError' => 'Errore di autorizzazione del portale, indirizzo del portale, token o regione non validi.',
+    'mod_b24_i_ValidateRefreshTokenEmpty' => 'Il token di aggiornamento è vuoto',
+    'mod_b24_i_client_secret' => 'Chiave dell\'applicazione (client_secret)',
+    'mod_b24_i_client_id' => 'Codice dell\'applicazione (id_cliente)',
+    'mod_b24_i_region_REST_API' => 'API REST',
 ];

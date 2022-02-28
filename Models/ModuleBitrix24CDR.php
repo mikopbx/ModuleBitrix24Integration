@@ -63,6 +63,18 @@ class ModuleBitrix24CDR extends ModulesModelsBase
      */
     public $lead_id;
 
+    /**
+     *
+     * @Column(type="string", nullable=true)
+     */
+    public $contactId;
+
+    /**
+     *
+     * @Column(type="string", nullable=true)
+     */
+    public $dealId;
+
     public function initialize(): void
     {
         $this->setSource('b24_cdr_data');

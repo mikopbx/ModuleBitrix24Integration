@@ -79,7 +79,7 @@ const ModuleBitrix24Integration = {
 		ModuleBitrix24Integration.checkStatusToggle();
 		window.addEventListener('ModuleStatusChanged', ModuleBitrix24Integration.checkStatusToggle);
 		ModuleBitrix24Integration.initializeForm();
-		$('.b24_regions-select').dropdown();
+		$('.dropdown').dropdown();
 
 		ModuleBitrix24Integration.onChangeRegion();
 		ModuleBitrix24Integration.$elRegion.change(ModuleBitrix24Integration.onChangeRegion);
