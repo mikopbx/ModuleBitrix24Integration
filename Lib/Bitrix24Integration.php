@@ -873,21 +873,39 @@ class Bitrix24Integration extends PbxExtensionBase
             $res->messages = $res_data;
             $res->success  = false;
         } else {
-            $result  = $res_data['result'] ?? [];
-            $needles = ['user', 'telephony', 'crm'];
-            foreach ($needles as $needle) {
-                if (in_array($needle, $result)) {
-                    continue;
-                }
-                $res->success    = false;
-                $res->messages[] = Util::translate('mod_b24_i_CheckPermissions').' ' . implode(
-                        ',',
-                        $needles
-                    );
-                break;
-            }
+            $res = $this->checkScope($res_data);
         }
 
+        return $res;
+    }
+
+    private function checkScope($res_data):PBXApiResult
+    {
+        $result  = $res_data['result'] ?? [];
+        $res            = new PBXApiResult();
+        $needles = [['user','user_basic'], 'telephony', 'crm'];
+        foreach ($needles as $needle) {
+            if(is_array($needle)){
+                $found = false;
+                foreach ($needle as $value){
+                    if(in_array($value, $result, true)) {
+                        $found = true;
+                        break;
+                    }
+                }
+                if($found !== false){
+                    continue;
+                }
+            }elseif(in_array($needle, $result, true)) {
+                continue;
+            }
+            $res->success    = false;
+            $res->messages[] = Util::translate('mod_b24_i_CheckPermissions').' ' . implode(
+                    ',',
+                    $result
+                );
+            break;
+        }
         return $res;
     }
 
