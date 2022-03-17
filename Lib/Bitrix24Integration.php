@@ -883,6 +883,7 @@ class Bitrix24Integration extends PbxExtensionBase
     {
         $result  = $res_data['result'] ?? [];
         $res            = new PBXApiResult();
+        $res->success   = true;
         $needles = [['user','user_basic'], 'telephony', 'crm'];
         foreach ($needles as $needle) {
             if(is_array($needle)){
