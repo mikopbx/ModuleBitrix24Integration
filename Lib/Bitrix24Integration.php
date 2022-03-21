@@ -67,11 +67,11 @@ class Bitrix24Integration extends PbxExtensionBase
             return;
         }
         $this->SESSION          = empty($data->session) ? null : json_decode($data->session, true);
-        $this->portal           = $data->portal;
-        $this->refresh_token    = $data->refresh_token;
-        $this->b24_region       = $data->b24_region;
-        $this->client_id        = $data->client_id;
-        $this->client_secret    = $data->client_secret;
+        $this->portal           = ''.$data->portal;
+        $this->refresh_token    = ''.$data->refresh_token;
+        $this->b24_region       = ''.$data->b24_region;
+        $this->client_id        = ''.$data->client_id;
+        $this->client_secret    = ''.$data->client_secret;
         $this->initialized      = true;
 
         $this->requestLogger =  new Logger('requests', $this->moduleUniqueId);
