@@ -67,11 +67,11 @@ class Bitrix24Integration extends PbxExtensionBase
             return;
         }
         $this->SESSION          = empty($data->session) ? null : json_decode($data->session, true);
-        $this->portal           = $data->portal;
-        $this->refresh_token    = $data->refresh_token;
-        $this->b24_region       = $data->b24_region;
-        $this->client_id        = $data->client_id;
-        $this->client_secret    = $data->client_secret;
+        $this->portal           = ''.$data->portal;
+        $this->refresh_token    = ''.$data->refresh_token;
+        $this->b24_region       = ''.$data->b24_region;
+        $this->client_id        = ''.$data->client_id;
+        $this->client_secret    = ''.$data->client_secret;
         $this->initialized      = true;
 
         $this->requestLogger =  new Logger('requests', $this->moduleUniqueId);
@@ -93,7 +93,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $default_action = IncomingRoutingTable::findFirst('priority = 9999');
         if(!empty($settings->callbackQueue)){
             $filter =  [
-                'conditions' => 'id = :id:',
+                'conditions' => 'extension = :id:',
                 'columns'    => ['extension,uniqid'],
                 'bind'       => [
                     'id' => $settings->callbackQueue,
