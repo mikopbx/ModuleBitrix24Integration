@@ -200,7 +200,7 @@ class Bitrix24Integration extends PbxExtensionBase
     public function updateToken($refresh_token = null): bool
     {
         $result = false;
-        if(!$this->mainProcess){
+        if(!$this->mainProcess && !$refresh_token){
             // Только один процесс может обновлять информацию по токену.
             $data = ModuleBitrix24Integration::findFirst();
             if($data){
@@ -230,12 +230,21 @@ class Bitrix24Integration extends PbxExtensionBase
             "refresh_token" => $this->SESSION["refresh_token"],
         ];
         $query_data = $this->query("https://oauth.bitrix.info/oauth/token/", $params);
+        if( ($query_data['error']??'') === 'invalid_grant' ){
+            // Не корректно выбран регион.
+            $oAuthToken = ModuleBitrix24Integration::getAvailableRegions()['WORLD'];
+            $params['client_id']     = $oAuthToken['CLIENT_ID'];
+            $params['client_secret'] = $oAuthToken['CLIENT_SECRET'];
+            $query_data = $this->query("https://oauth.bitrix.info/oauth/token/", $params);
+        }
+
         if (isset($query_data["access_token"])) {
             $result = true;
             $this->updateSessionData($query_data);
         } else {
             $this->logger->writeError('Refresh token: '.json_encode($query_data));
         }
+
         return $result;
     }
 
@@ -1403,6 +1412,10 @@ class Bitrix24Integration extends PbxExtensionBase
                 }
             }
         }
+    }
+
+    public function testUpdateToken($token){
+        $this->updateToken($token);
     }
 
 }
