@@ -23,8 +23,7 @@ use Modules\ModuleBitrix24Integration\Models\{ModuleBitrix24ExternalLines,
     ModuleBitrix24Users
 };
 use MikoPBX\Core\System\Util;
-use Phalcon\Mvc\Model;
-use Phalcon\Mvc\Model\Resultset;
+use Modules\ModuleBitrix24Integration\bin\WorkerBitrix24IntegrationHTTP;
 
 
 class Bitrix24Integration extends PbxExtensionBase
@@ -53,10 +52,15 @@ class Bitrix24Integration extends PbxExtensionBase
     private string $queueUid = '';
     private bool $backgroundUpload = false;
     private Logger $requestLogger;
+    private bool $mainProcess;
+    private int $updateTokenTime;
 
     public function __construct()
     {
         parent::__construct();
+        $this->mainProcess     = cli_get_process_title() === WorkerBitrix24IntegrationHTTP::class;
+        $this->updateTokenTime = $this->mainProcess?300:150;
+
         $this->mem_cache = [];
         $data            = ModuleBitrix24Integration::findFirst();
         if ($data === null
@@ -196,21 +200,29 @@ class Bitrix24Integration extends PbxExtensionBase
     public function updateToken($refresh_token = null): bool
     {
         $result = false;
+        if(!$this->mainProcess && !$refresh_token){
+            // Только один процесс может обновлять информацию по токену.
+            $data = ModuleBitrix24Integration::findFirst();
+            if($data){
+                $this->SESSION          = empty($data->session) ? null : json_decode($data->session, true);
+                $this->refresh_token    = ''.$data->refresh_token;
+                $result = true;
+            }
+            unset($data);
+            return $result;
+        }
         if ($refresh_token) {
             $this->SESSION                  = [];
             $this->SESSION["refresh_token"] = $refresh_token;
         }
-
         if ( ! isset($this->SESSION["refresh_token"])) {
-            return $result;
+            return false;
         }
-
         $oAuthToken = ModuleBitrix24Integration::getAvailableRegions()[$this->b24_region];
         if(empty($oAuthToken['CLIENT_ID'])){
             $oAuthToken['CLIENT_ID']     = $this->client_id;
             $oAuthToken['CLIENT_SECRET'] = $this->client_secret;
         }
-
         $params     = [
             "grant_type"    => "refresh_token",
             "client_id"     => $oAuthToken['CLIENT_ID'],
@@ -218,25 +230,41 @@ class Bitrix24Integration extends PbxExtensionBase
             "refresh_token" => $this->SESSION["refresh_token"],
         ];
         $query_data = $this->query("https://oauth.bitrix.info/oauth/token/", $params);
+        if( ($query_data['error']??'') === 'invalid_grant' ){
+            // Не корректно выбран регион.
+            $oAuthToken = ModuleBitrix24Integration::getAvailableRegions()['WORLD'];
+            $params['client_id']     = $oAuthToken['CLIENT_ID'];
+            $params['client_secret'] = $oAuthToken['CLIENT_SECRET'];
+            $query_data = $this->query("https://oauth.bitrix.info/oauth/token/", $params);
+        }
+
         if (isset($query_data["access_token"])) {
             $result = true;
             $this->updateSessionData($query_data);
         } else {
             $this->logger->writeError('Refresh token: '.json_encode($query_data));
         }
+
         return $result;
     }
 
     /**
      * Совершает запрос с заданными данными по заданному адресу. В ответ ожидается JSON
-     *
-     * @param string $url  адрес
-     * @param array  $data POST-данные
-     *
+     * @param string $url
+     * @param array  $data
+     * @param        $needBuildQuery
      * @return array
      */
     private function query(string $url, array $data, $needBuildQuery = true): array
     {
+        if(($data['grant_type']??'') !== 'refresh_token'){
+            $expires = $this->SESSION["expires"]??false;
+            if($expires && $expires - time() < $this->updateTokenTime){
+                // Запрос обновленного token.
+                $this->updateToken();
+                // Только главный процесс может обновлять токен.
+            }
+        }
         if (parse_url($url) === false) {
             return [];
         }
@@ -1384,6 +1412,10 @@ class Bitrix24Integration extends PbxExtensionBase
                 }
             }
         }
+    }
+
+    public function testUpdateToken($token){
+        $this->updateToken($token);
     }
 
 }

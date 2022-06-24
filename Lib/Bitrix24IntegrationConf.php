@@ -72,7 +72,6 @@ class Bitrix24IntegrationConf extends ConfigClass
         }
     }
 
-
     /**
      *  Process CoreAPI requests under root rights
      *
@@ -138,5 +137,4 @@ class Bitrix24IntegrationConf extends ConfigClass
         $scriptFile = "$this->moduleDir/agi-bin/b24CheckResponsible.php";
         return "\t".'same => n,AGI('.$scriptFile.')' . "\n\t";
     }
-
 }
