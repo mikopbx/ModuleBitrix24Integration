@@ -29,11 +29,11 @@ use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24CDR;
 class WorkerBitrix24IntegrationHTTP extends WorkerBase
 {
     private Bitrix24Integration $b24;
-    private array $q_req      = [];
-    private array $q_pre_req  = [];
-    private bool $need_get_events = false;
-    private int $last_update_inner_num = 0;
-    private array $channelSearchCashe = [];
+    private array   $q_req      = [];
+    private array   $q_pre_req  = [];
+    private bool    $need_get_events = false;
+    private int     $last_update_inner_num = 0;
+    private array   $channelSearchCache = [];
     private BeanstalkClient $queueAgent;
 
     /**
@@ -83,7 +83,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
 
         // Сохраняем ID, куда вернуть ответ.
         $taskId = array_keys($arg)[0]??'';
-        $this->channelSearchCashe[$taskId] = $data['inbox_tube']??'';
+        $this->channelSearchCache[$taskId] = $data['inbox_tube']??'';
     }
     /**
      * @param BeanstalkClient $client
@@ -181,41 +181,47 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                         $tmpArr[] = $this->b24->telephonyExternalCallHide($data);
                     }
                 } elseif ('action_dial_answer' === $data['action']) {
-                    $userId = ''; $dealId = ''; $leadId = '';
-                    /** @var ModuleBitrix24CDR $cdr */
-                    $cdr = ModuleBitrix24CDR::findFirst("uniq_id='{$data['UNIQUEID']}'");
-                    if ($cdr) {
-                        if(!empty($cdr->dealId)){
-                            $dealId = max($dealId, $cdr->dealId);
+                    $cdr = null; $userId = ''; $dealId = ''; $leadId = '';
+                    $filter = [
+                        "linkedid='{$data['linkedid']}'",
+                        'order' => 'uniq_id'
+                    ];
+                    $b24CdrRows = ModuleBitrix24CDR::find($filter);
+                    foreach ($b24CdrRows as $row){
+                        if($row->uniq_id === $data['UNIQUEID']){
+                            $cdr = $row;
+                            if(!empty($cdr->dealId)){
+                                $dealId = max($dealId, $cdr->dealId);
+                            }
+                            if(!empty($cdr->lead_id)){
+                                $leadId = max($leadId, $cdr->lead_id);
+                            }
+                            // Определяем, кто ответил на вызов.
+                            $userId = $cdr->user_id;
+                            // Отмечаем вызов как отвеченный.
+                            $cdr->answer = 1;
+                            $cdr->save();
                         }
-                        if(!empty($cdr->lead_id)){
-                            $leadId = max($leadId, $cdr->lead_id);
+                        if($cdr->answer !== '1'){
+                            if(!empty($row->dealId)){
+                                $dealId = max($dealId, $row->dealId);
+                            }
+                            if(!empty($row->lead_id)){
+                                $leadId = max($leadId, $row->lead_id);
+                            }
+                            if($cdr && $row->user_id === $cdr->user_id){
+                                continue;
+                            }
+                            // Для всех CDR, где вызов НЕ отвечен определяем сотрудника и закрываем карточку звонка.
+                            $data['CALL_ID'] = $row->call_id;
+                            $data['USER_ID'] = $row->user_id;
+                            $tmpArr[] = $this->b24->telephonyExternalCallHide($data);
                         }
-                        // Определяем, кто ответил на вызов.
-                        $userId = $cdr->user_id;
-                        // Отмечаем вызов как отвеченный.
-                        $cdr->answer = 1;
-                        $cdr->save();
+                        if($row->answer === '1'){
+                            // Меняем ответственного, на последнего, кто ответил.
+                            $userId = $row->user_id;
+                        }
                     }
-                    /** @var ModuleBitrix24CDR $result */
-                    /** @var ModuleBitrix24CDR $row */
-                    $result = ModuleBitrix24CDR::find("linkedid='{$data['linkedid']}' AND answer IS NULL");
-                    foreach ($result as $row) {
-                        if(!empty($row->dealId)){
-                            $dealId = max($dealId, $row->dealId);
-                        }
-                        if(!empty($row->lead_id)){
-                            $leadId = max($leadId, $row->lead_id);
-                        }
-                        if($cdr && $row->user_id === $cdr->user_id){
-                            continue;
-                        }
-                        // Для всех CDR, где вызов НЕ отвечен определяем сотрудника и закрываем карточку звонка.
-                        $data['CALL_ID'] = $row->call_id;
-                        $data['USER_ID'] = $row->user_id;
-                        $tmpArr[] = $this->b24->telephonyExternalCallHide($data);
-                    }
-
                     if(!empty($leadId) && !empty($userId)){
                         $tmpArr[] = $this->b24->crmLeadUpdate($dealId, $userId);
                     }
@@ -231,7 +237,6 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             // Обработали все пердварительные данные.
             $this->q_pre_req = [];
         }
-
     }
 
     /**
@@ -269,7 +274,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
      */
     public function postSearchCrmEntities(string $key, array $response): void
     {
-        $tube = $this->channelSearchCashe[$key]??'';
+        $tube = $this->channelSearchCache[$key]??'';
         if(!empty($tube)){
             $this->queueAgent->publish(json_encode($response), $tube);
         }

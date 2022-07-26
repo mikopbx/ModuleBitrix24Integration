@@ -237,6 +237,9 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             case 'dial_answer':
                 $this->actionDialAnswer($data['id'], $data['linkedid']);
                 break;
+            case 'transfer_dial_answer':
+                $this->actionDialAnswer($data['transfer_UNIQUEID'], $data['linkedid']);
+                break;
             case 'dial':
             case 'transfer_dial':
             case 'sip_transfer':
@@ -419,7 +422,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             }
             $isMissed = false;
         }elseif ($isOutgoing === false && !empty($this->responsibleMissedCalls)){
-            // Назначаем пропвущенный на ответственного.
+            // Назначаем пропущенный на ответственного.
             $responsible = $this->responsibleMissedCalls;
         }else{
             // Работаем в OLD режиме, рандомный ответственный.
