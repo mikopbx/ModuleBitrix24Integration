@@ -398,9 +398,11 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             return;
         }
 
+        $isOutgoing = false;
         if (isset($this->inner_numbers[$data['src_num']])) {
             // Это исходящий вызов.
-            $USER_ID = $this->inner_numbers[$data['src_num']]['ID'];
+            $USER_ID     = $this->inner_numbers[$data['src_num']]['ID'];
+            $isOutgoing  = true;
         } elseif (isset($this->inner_numbers[$data['dst_num']])) {
             // Это входящие вызов.
             $USER_ID = $this->inner_numbers[$data['dst_num']]['ID'];
@@ -416,7 +418,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 $responsible = $USER_ID;
             }
             $isMissed = false;
-        }elseif (!empty($this->responsibleMissedCalls)){
+        }elseif ($isOutgoing === false && !empty($this->responsibleMissedCalls)){
             // Назначаем пропвущенный на ответственного.
             $responsible = $this->responsibleMissedCalls;
         }else{
