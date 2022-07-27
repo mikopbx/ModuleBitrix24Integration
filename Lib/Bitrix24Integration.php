@@ -730,7 +730,7 @@ class Bitrix24Integration extends PbxExtensionBase
             $res_data = $this->getCache(__FUNCTION__);
         }
         if ($res_data === null) {
-            // Кэш не существует / истекло время жизни.
+            // Кэш не =уществует / истекло время жизни.
             $res_data = [];
             $url      = 'https://' . $this->portal . '/rest/user.get';
 
