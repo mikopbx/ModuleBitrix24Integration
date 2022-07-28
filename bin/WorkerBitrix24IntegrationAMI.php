@@ -310,6 +310,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         if ( ! $this->export_cdr) {
             return;
         }
+        $dstNum = $this->b24->getPhoneIndex($data['dst_num']);
         $LINE_NUMBER = $this->external_lines[$data['did']]??'';
         if (isset($this->inner_numbers[$data['src_num']]) && strlen($general_src_num) <= $this->extensionLength) {
             // Это исходящий вызов с внутреннего номера.
@@ -329,7 +330,14 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 ];
                 $this->Action_SendToBeanstalk($req_data);
             }
-        } elseif (isset($this->inner_numbers[$data['dst_num']])) {
+        } elseif (isset($this->inner_numbers[$data['dst_num']]) || isset($this->b24->mobile_numbers[$dstNum])) {
+            if(isset($this->b24->mobile_numbers[$dstNum])){
+                $userId = $this->b24->mobile_numbers[$dstNum]['ID'];
+                $inner  = $data['dst_num']; // $this->b24->mobile_numbers[$dstNum]['UF_PHONE_INNER'];
+            }else{
+                $userId = $this->inner_numbers[$data['dst_num']]['ID'];
+                $inner  = $data['dst_num'];
+            }
             // Это входящий вызов на внутренний номер сотрудника.
             if (strlen($general_src_num) > $this->extensionLength && ! in_array($general_src_num, $this->extensions, true)) {
                 // Это переадресация от с.
@@ -337,8 +345,8 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'UNIQUEID'         => $data['UNIQUEID'],
                     'linkedid'         => $data['linkedid'],
                     'CALL_START_DATE'  => date(\DateTimeInterface::ATOM, strtotime($data['start'])),
-                    'USER_ID'          => $this->inner_numbers[$data['dst_num']]['ID'],
-                    'USER_PHONE_INNER' => $data['dst_num'],
+                    'USER_ID'          => $userId,
+                    'USER_PHONE_INNER' => $inner,
                     'DST_USER_CHANNEL' => $data['dst_chan']??'',
                     'PHONE_NUMBER'     => $general_src_num,
                     'TYPE'             => '3',
@@ -353,8 +361,8 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'UNIQUEID'         => $data['UNIQUEID'],
                     'linkedid'         => $data['linkedid'],
                     'CALL_START_DATE'  => date(\DateTimeInterface::ATOM, strtotime($data['start'])),
-                    'USER_ID'          => $this->inner_numbers[$data['dst_num']]['ID'],
-                    'USER_PHONE_INNER' => $data['dst_num'],
+                    'USER_ID'          => $userId,
+                    'USER_PHONE_INNER' => $inner,
                     'PHONE_NUMBER'     => $data['src_num'],
                     'DST_USER_CHANNEL' => $data['dst_chan']??'',
                     'CRM_CREATE'       => $this->crmCreateLead,
@@ -401,6 +409,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             return;
         }
 
+        $dstNum = $this->b24->getPhoneIndex($data['dst_num']);
         $isOutgoing = false;
         if (isset($this->inner_numbers[$data['src_num']])) {
             // Это исходящий вызов.
@@ -409,6 +418,9 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         } elseif (isset($this->inner_numbers[$data['dst_num']])) {
             // Это входящие вызов.
             $USER_ID = $this->inner_numbers[$data['dst_num']]['ID'];
+        } elseif (isset($this->b24->mobile_numbers[$dstNum])) {
+            // Переадресация на мобильный номер сотрудника.
+            $USER_ID = $this->b24->mobile_numbers[$dstNum]['ID'];
         } else {
             return;
         }

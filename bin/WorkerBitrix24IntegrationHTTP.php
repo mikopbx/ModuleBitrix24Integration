@@ -94,7 +94,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $data = json_decode($client->getBody(), true);
 
         if ('telephonyExternalCallRegister' === $data['action']) {
-            $cache_key    = 'tmp10'.__FUNCTION__.$data['UNIQUEID'];
+            $cache_key    = 'tmp10'.__FUNCTION__.$data['UNIQUEID'].'_'.$data['USER_PHONE_INNER'];
             $res_data     = $this->b24->getCache($cache_key);
             if ($res_data === null) {
                 $this->b24->saveCache($cache_key, $data);

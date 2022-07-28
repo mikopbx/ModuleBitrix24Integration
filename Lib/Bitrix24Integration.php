@@ -8,6 +8,7 @@
 
 namespace Modules\ModuleBitrix24Integration\Lib;
 
+use Phalcon\Mvc\Model\Manager;
 use MikoPBX\Common\Models\CallQueues;
 use MikoPBX\Common\Models\IncomingRoutingTable;
 use MikoPBX\Common\Models\Extensions;
@@ -690,6 +691,7 @@ class Bitrix24Integration extends PbxExtensionBase
                 }
             }
         } else {
+            $pbx_numbers = $this->getPbxNumbers();
             $this->inner_numbers  = [];
             $this->mobile_numbers = [];
             foreach ($users_list['result'] as $value) {
@@ -700,11 +702,18 @@ class Bitrix24Integration extends PbxExtensionBase
                 $user['EMAIL']           = $value['EMAIL'];
                 $user['UF_PHONE_INNER']  = preg_replace('/(\D)/', '', $value['UF_PHONE_INNER']);
 
-                if ( ! empty($user['PERSONAL_MOBILE'])) {
+                if (!empty($user['PERSONAL_MOBILE'])) {
                     $mobile_key                        = $this->getPhoneIndex($user['PERSONAL_MOBILE']);
                     $this->mobile_numbers[$mobile_key] = $user;
                 }
-
+                if (!empty($value['WORK_PHONE'])) {
+                    $mobile_key                        = $this->getPhoneIndex($user['WORK_PHONE']);
+                    $this->mobile_numbers[$mobile_key] = $user;
+                }
+                if(isset($pbx_numbers[$user['UF_PHONE_INNER']])){
+                    $mobile_key                        = $this->getPhoneIndex($pbx_numbers[$user['UF_PHONE_INNER']]);
+                    $this->mobile_numbers[$mobile_key] = $user;
+                }
                 $this->inner_numbers[$user['UF_PHONE_INNER']] = $user;
             }
 
@@ -715,6 +724,46 @@ class Bitrix24Integration extends PbxExtensionBase
         }
 
         return $data;
+    }
+
+    private function getPbxNumbers():array
+    {
+        $pbx_numbers = $this->getCache('pbx_numbers');
+
+        if($pbx_numbers){
+            return $pbx_numbers;
+        }
+        $pbx_numbers = [];
+        /** @var Manager $manager */
+        $manager = $this->di->get('modelsManager');
+        $parameters = [
+            'models'     => [
+                'ExtensionsSip' => Extensions::class,
+            ],
+            'conditions' => 'ExtensionsSip.type = :typeSip:',
+            'bind'                => ['typeSip' => Extensions::TYPE_SIP,'typeExternal' => Extensions::TYPE_EXTERNAL],
+            'columns'    => [
+                'number'         => 'ExtensionsSip.number',
+                'mobile'         => 'ExtensionsExternal.number',
+                'userid'         => 'ExtensionsSip.userid',
+            ],
+            'order'      => 'number',
+            'joins'      => [
+                'ExtensionsExternal' => [
+                    0 => Extensions::class,
+                    1 => 'ExtensionsSip.userid = ExtensionsExternal.userid AND ExtensionsExternal.type = :typeExternal:',
+                    2 => 'ExtensionsExternal',
+                    3 => 'INNER',
+                ],
+            ],
+        ];
+        $query  = $manager->createBuilder($parameters)->getQuery();
+        $result = $query->execute()->toArray();
+        foreach ($result as $data){
+            $pbx_numbers[$data['number']] = $data['mobile'];
+        }
+        $this->saveCache('pbx_numbers', $pbx_numbers, 60);
+        return $pbx_numbers;
     }
 
     /**
@@ -950,7 +999,8 @@ class Bitrix24Integration extends PbxExtensionBase
         // Сформируем кэш, чтобы исключить дублирующие события.
         $cache_key = "tmp180_call_register_{$options['USER_ID']}_" .
             strtotime($options['CALL_START_DATE']) . "_" .
-            $this->getPhoneIndex($options['PHONE_NUMBER']);
+            $this->getPhoneIndex($options['PHONE_NUMBER']). "_" .
+            $this->getPhoneIndex($options['USER_PHONE_INNER']);
 
         $res_data = $this->getCache($cache_key);
         if ($res_data) {
