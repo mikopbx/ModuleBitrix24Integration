@@ -46,7 +46,7 @@ return [
     'mod_b24_i_region_RUSSIA'             => 'Россия',
     'mod_b24_i_region_BELARUS'            => 'Беларусь',
     'mod_b24_i_region_UKRAINE'            => 'Украина',
-    'mod_b24_i_region_WORLD'              => 'Весь остальной мир',
+    'mod_b24_i_region_WORLD'              => 'Весь мир',
     'mod_b24_i_region_REST_API'           => 'REST API',
     'mod_b24_i_client_id'                 => 'Код приложения (client_id)',
     'mod_b24_i_client_secret'             => 'Ключ приложения (client_secret)',

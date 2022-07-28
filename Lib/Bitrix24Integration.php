@@ -53,25 +53,36 @@ class Bitrix24Integration extends PbxExtensionBase
     private string $queueUid = '';
     private bool $backgroundUpload = false;
     private Logger $requestLogger;
-    private bool $mainProcess;
+    private bool $mainProcess = false;
     private int $updateTokenTime;
 
     public function __construct()
     {
         parent::__construct();
-        $this->mainProcess     = cli_get_process_title() === WorkerBitrix24IntegrationHTTP::class;
+        if(php_sapi_name() === "cli"){
+            $this->mainProcess     = cli_get_process_title() === WorkerBitrix24IntegrationHTTP::class;
+        }
         $this->updateTokenTime = $this->mainProcess?300:150;
 
         $this->mem_cache = [];
         $data            = ModuleBitrix24Integration::findFirst();
         if ($data === null
             || empty($data->portal)
-            || empty($data->refresh_token)
             || empty($data->b24_region)) {
             $this->logger->writeError('Settings not set...');
             return;
         }
+
         $this->SESSION          = empty($data->session) ? null : json_decode($data->session, true);
+        if(empty($data->refresh_token) && $this->SESSION ){
+            $data->refresh_token = $this->SESSION['refresh_token']??'';
+        }
+
+        if(empty($data->refresh_token)){
+            $this->logger->writeError('refresh_token not set...');
+            return;
+        }
+
         $this->portal           = ''.$data->portal;
         $this->refresh_token    = ''.$data->refresh_token;
         $this->b24_region       = ''.$data->b24_region;
@@ -229,6 +240,40 @@ class Bitrix24Integration extends PbxExtensionBase
             "client_id"     => $oAuthToken['CLIENT_ID'],
             "client_secret" => $oAuthToken['CLIENT_SECRET'],
             "refresh_token" => $this->SESSION["refresh_token"],
+        ];
+        $query_data = $this->query("https://oauth.bitrix.info/oauth/token/", $params);
+        if( ($query_data['error']??'') === 'invalid_grant' ){
+            // Не корректно выбран регион.
+            $oAuthToken = ModuleBitrix24Integration::getAvailableRegions()['WORLD'];
+            $params['client_id']     = $oAuthToken['CLIENT_ID'];
+            $params['client_secret'] = $oAuthToken['CLIENT_SECRET'];
+            $query_data = $this->query("https://oauth.bitrix.info/oauth/token/", $params);
+        }
+
+        if (isset($query_data["access_token"])) {
+            $result = true;
+            $this->updateSessionData($query_data);
+        } else {
+            $this->logger->writeError('Refresh token: '.json_encode($query_data));
+        }
+
+        return $result;
+    }
+
+    /**
+     * oAuth2 аутентификация по code.
+     * @param $code
+     * @return bool
+     */
+    public function authByCode($code, $region): bool
+    {
+        $result = false;
+        $oAuthToken = ModuleBitrix24Integration::getAvailableRegions()[$region];
+        $params     = [
+            "grant_type"    => "authorization_code",
+            "client_id"     => $oAuthToken['CLIENT_ID'],
+            "client_secret" => $oAuthToken['CLIENT_SECRET'],
+            "code"          => $code,
         ];
         $query_data = $this->query("https://oauth.bitrix.info/oauth/token/", $params);
         if( ($query_data['error']??'') === 'invalid_grant' ){

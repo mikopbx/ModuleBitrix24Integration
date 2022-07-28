@@ -9,15 +9,15 @@
 namespace Modules\ModuleBitrix24Integration\App\Controllers;
 
 use MikoPBX\AdminCabinet\Controllers\BaseController;
-use MikoPBX\Common\Models\CallQueues;
 use MikoPBX\Common\Models\Users;
+use MikoPBX\Core\System\BeanstalkClient;
 use MikoPBX\Modules\PbxExtensionUtils;
+use MikoPBX\PBXCoreREST\Workers\WorkerApiCommands;
+use Modules\ModuleBitrix24Integration\App\Forms\ModuleBitrix24IntegrationForm;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Users;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24ExternalLines;
 use MikoPBX\Common\Models\Extensions;
-use Modules\ModuleBitrix24Integration\App\Forms\ModuleBitrix24IntegrationForm;
-
 use function MikoPBX\Common\Config\appPath;
 
 class ModuleBitrix24IntegrationController extends BaseController
@@ -37,7 +37,6 @@ class ModuleBitrix24IntegrationController extends BaseController
         }
         parent::initialize();
     }
-
 
     /**
      * Форма настроек модуля
@@ -163,6 +162,48 @@ class ModuleBitrix24IntegrationController extends BaseController
         }
         $this->view->form = new ModuleBitrix24IntegrationForm($settings, $options);
         $this->view->pick("{$this->moduleDir}/App/Views/index");
+    }
+
+    /**
+     * Аутентификация, активация code, получение token.
+     * @return void
+     */
+    public function activateCodeAction(): void
+    {
+        if (!$this->request->isPost()) {
+            return;
+        }
+        $data   = $this->request->getPost();
+        $input              = file_get_contents('php://input');
+        $request            = json_encode([
+                                              'data' => $data,
+                                              'module' => 'ModuleBitrix24Integration',
+                                              'input' => $input,     // Параметры запроса.
+                                              'action' => 'ACTIVATE-CODE',
+                                              'REQUEST_METHOD' => $_SERVER['REQUEST_METHOD'],
+                                              'processor' => 'modules',
+                                          ], JSON_THROW_ON_ERROR);
+
+        $client = new BeanstalkClient(WorkerApiCommands::class);
+        $response   = $client->request($request, 30, 0);
+        if ($response !== false) {
+            $this->view->data = json_decode($response, true);
+        }
+    }
+
+    /**
+     * Аутентификация, активация code, получение token.
+     * @return void
+     */
+    public function getAppIdAction(): void
+    {
+        if (!$this->request->isPost()) {
+            return;
+        }
+        $data   = $this->request->getPost();
+        $oAuthToken = ModuleBitrix24Integration::getAvailableRegions()[$data['region']];
+        $this->view->client_id = $oAuthToken['CLIENT_ID']??'';
+        $this->view->success = !empty($this->view->client_id);
     }
 
     /**

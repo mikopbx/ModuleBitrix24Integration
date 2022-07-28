@@ -37,27 +37,34 @@
         </div>
     </div>
     <div class="ui bottom attached tab segment active" data-tab="general">
-        <div class="field">
-            <label>{{ t._('mod_b24_i_PortalUrl') }}</label>
-            {{ form.render('portal') }}
-        </div>
-        <div class="field">
-            <label>{{ t._('mod_b24_i_RefreshToken') }}</label>
-            {{ form.render('refresh_token') }}
-        </div>
-        <div class="field">
-                <label>{{ t._('mod_b24_i_Region') }}</label>
-                {{ form.render('b24_region') }}
+        <div class="ten wide field disability">
+            <label >{{ t._('mod_b24_i_PortalUrl') }}</label>
+            <div class="disability ui fluid action input">
+                {{ form.render('portal') }}
+                <button class="ui positive basic button" id="login-button">{{ t._("mod_b24_i_Auth") }}</button>
+            </div>
         </div>
 
+        <div class="field">
+            <label>{{ t._('mod_b24_i_Region') }}</label>
+            {{ form.render('b24_region') }}
+        </div>
+        <div class="ui message" id="RU-INFO">
+            <i class="close icon"></i>
+            <div class="header">
+                Внимание:
+            </div>
+            <p>Если на вашем портале bitrix24 установлено приложение типом цены "<b>подписка</b>", то регион выбран верно.</p>
+            <p>Если тип цены "<b>бесплатно</b>", укажите регион "<b>Весь мир</b>".</p>
+        </div>
         <div id="b24-app-data">
             <div class="field">
-                    <label>{{ t._('mod_b24_i_client_id') }}</label>
-                    {{ form.render('client_id') }}
+                <label>{{ t._('mod_b24_i_client_id') }}</label>
+                {{ form.render('client_id') }}
             </div>
             <div class="field">
-                    <label>{{ t._('mod_b24_i_client_secret') }}</label>
-                    {{ form.render('client_secret') }}
+                <label>{{ t._('mod_b24_i_client_secret') }}</label>
+                {{ form.render('client_secret') }}
             </div>
             <br>
         </div>
