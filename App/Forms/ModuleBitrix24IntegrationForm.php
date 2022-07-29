@@ -7,6 +7,7 @@
  */
 namespace Modules\ModuleBitrix24Integration\App\Forms;
 
+use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use Phalcon\Forms\Element\AbstractElement;
 use Phalcon\Forms\Element\Check;
@@ -23,7 +24,6 @@ class ModuleBitrix24IntegrationForm extends Form
     public function initialize($entity = null, $options = null):void
     {
         $this->add(new Text('portal'));
-        $this->add(new Text('refresh_token'));
 
         $this->add(new Text('client_id'));
         $this->add(new Password('client_secret'));
@@ -92,5 +92,25 @@ class ModuleBitrix24IntegrationForm extends Form
             'useEmpty' => true,
             'class'    => 'ui search dropdown',
         ]));
+
+
+
+        $leadType = [
+            Bitrix24Integration::API_LEAD_TYPE_ALL => $this->translation->_('mod_b24_i_lead_type_'.Bitrix24Integration::API_LEAD_TYPE_ALL),
+            Bitrix24Integration::API_LEAD_TYPE_IN => $this->translation->_('mod_b24_i_lead_type_'.Bitrix24Integration::API_LEAD_TYPE_IN),
+            Bitrix24Integration::API_LEAD_TYPE_OUT => $this->translation->_('mod_b24_i_lead_type_'.Bitrix24Integration::API_LEAD_TYPE_OUT)
+        ];
+
+        $this->add(new Select('leadType', $leadType, [
+                                  'using'    => [
+                                      'id',
+                                      'name',
+                                  ],
+                                  'value'    => empty($entity->leadType)?Bitrix24Integration::API_LEAD_TYPE_ALL:$entity->leadType,
+                                  'useEmpty' => false,
+                                  'class'    => 'ui selection dropdown b24_regions-select',
+                              ]
+       ));
+
     }
 }

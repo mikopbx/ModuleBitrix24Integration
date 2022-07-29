@@ -8,6 +8,7 @@
 
 namespace Modules\ModuleBitrix24Integration\Lib;
 
+use Phalcon\Mvc\Model\Manager;
 use MikoPBX\Common\Models\CallQueues;
 use MikoPBX\Common\Models\IncomingRoutingTable;
 use MikoPBX\Common\Models\Extensions;
@@ -28,6 +29,10 @@ use Modules\ModuleBitrix24Integration\bin\WorkerBitrix24IntegrationHTTP;
 
 class Bitrix24Integration extends PbxExtensionBase
 {
+    public const API_LEAD_TYPE_ALL   = 'all';
+    public const API_LEAD_TYPE_IN    = 'incoming';
+    public const API_LEAD_TYPE_OUT   = 'outgoing';
+
     public const API_ATTACH_RECORD   = 'telephony.externalCall.attachRecord';
     public const API_SEARCH_ENTITIES = 'telephony.externalCall.searchCrmEntities';
     public const API_CALL_FINISH     = 'telephony.externalcall.finish';
@@ -52,25 +57,36 @@ class Bitrix24Integration extends PbxExtensionBase
     private string $queueUid = '';
     private bool $backgroundUpload = false;
     private Logger $requestLogger;
-    private bool $mainProcess;
+    private bool $mainProcess = false;
     private int $updateTokenTime;
 
     public function __construct()
     {
         parent::__construct();
-        $this->mainProcess     = cli_get_process_title() === WorkerBitrix24IntegrationHTTP::class;
+        if(php_sapi_name() === "cli"){
+            $this->mainProcess     = cli_get_process_title() === WorkerBitrix24IntegrationHTTP::class;
+        }
         $this->updateTokenTime = $this->mainProcess?300:150;
 
         $this->mem_cache = [];
         $data            = ModuleBitrix24Integration::findFirst();
         if ($data === null
             || empty($data->portal)
-            || empty($data->refresh_token)
             || empty($data->b24_region)) {
             $this->logger->writeError('Settings not set...');
             return;
         }
+
         $this->SESSION          = empty($data->session) ? null : json_decode($data->session, true);
+        if(empty($data->refresh_token) && $this->SESSION ){
+            $data->refresh_token = $this->SESSION['refresh_token']??'';
+        }
+
+        if(empty($data->refresh_token)){
+            $this->logger->writeError('refresh_token not set...');
+            return;
+        }
+
         $this->portal           = ''.$data->portal;
         $this->refresh_token    = ''.$data->refresh_token;
         $this->b24_region       = ''.$data->b24_region;
@@ -228,6 +244,40 @@ class Bitrix24Integration extends PbxExtensionBase
             "client_id"     => $oAuthToken['CLIENT_ID'],
             "client_secret" => $oAuthToken['CLIENT_SECRET'],
             "refresh_token" => $this->SESSION["refresh_token"],
+        ];
+        $query_data = $this->query("https://oauth.bitrix.info/oauth/token/", $params);
+        if( ($query_data['error']??'') === 'invalid_grant' ){
+            // Не корректно выбран регион.
+            $oAuthToken = ModuleBitrix24Integration::getAvailableRegions()['WORLD'];
+            $params['client_id']     = $oAuthToken['CLIENT_ID'];
+            $params['client_secret'] = $oAuthToken['CLIENT_SECRET'];
+            $query_data = $this->query("https://oauth.bitrix.info/oauth/token/", $params);
+        }
+
+        if (isset($query_data["access_token"])) {
+            $result = true;
+            $this->updateSessionData($query_data);
+        } else {
+            $this->logger->writeError('Refresh token: '.json_encode($query_data));
+        }
+
+        return $result;
+    }
+
+    /**
+     * oAuth2 аутентификация по code.
+     * @param $code
+     * @return bool
+     */
+    public function authByCode($code, $region): bool
+    {
+        $result = false;
+        $oAuthToken = ModuleBitrix24Integration::getAvailableRegions()[$region];
+        $params     = [
+            "grant_type"    => "authorization_code",
+            "client_id"     => $oAuthToken['CLIENT_ID'],
+            "client_secret" => $oAuthToken['CLIENT_SECRET'],
+            "code"          => $code,
         ];
         $query_data = $this->query("https://oauth.bitrix.info/oauth/token/", $params);
         if( ($query_data['error']??'') === 'invalid_grant' ){
@@ -690,6 +740,7 @@ class Bitrix24Integration extends PbxExtensionBase
                 }
             }
         } else {
+            $pbx_numbers = $this->getPbxNumbers();
             $this->inner_numbers  = [];
             $this->mobile_numbers = [];
             foreach ($users_list['result'] as $value) {
@@ -700,11 +751,18 @@ class Bitrix24Integration extends PbxExtensionBase
                 $user['EMAIL']           = $value['EMAIL'];
                 $user['UF_PHONE_INNER']  = preg_replace('/(\D)/', '', $value['UF_PHONE_INNER']);
 
-                if ( ! empty($user['PERSONAL_MOBILE'])) {
+                if (!empty($user['PERSONAL_MOBILE'])) {
                     $mobile_key                        = $this->getPhoneIndex($user['PERSONAL_MOBILE']);
                     $this->mobile_numbers[$mobile_key] = $user;
                 }
-
+                if (!empty($value['WORK_PHONE'])) {
+                    $mobile_key                        = $this->getPhoneIndex($user['WORK_PHONE']);
+                    $this->mobile_numbers[$mobile_key] = $user;
+                }
+                if(isset($pbx_numbers[$user['UF_PHONE_INNER']])){
+                    $mobile_key                        = $this->getPhoneIndex($pbx_numbers[$user['UF_PHONE_INNER']]);
+                    $this->mobile_numbers[$mobile_key] = $user;
+                }
                 $this->inner_numbers[$user['UF_PHONE_INNER']] = $user;
             }
 
@@ -715,6 +773,46 @@ class Bitrix24Integration extends PbxExtensionBase
         }
 
         return $data;
+    }
+
+    private function getPbxNumbers():array
+    {
+        $pbx_numbers = $this->getCache('pbx_numbers');
+
+        if($pbx_numbers){
+            return $pbx_numbers;
+        }
+        $pbx_numbers = [];
+        /** @var Manager $manager */
+        $manager = $this->di->get('modelsManager');
+        $parameters = [
+            'models'     => [
+                'ExtensionsSip' => Extensions::class,
+            ],
+            'conditions' => 'ExtensionsSip.type = :typeSip:',
+            'bind'                => ['typeSip' => Extensions::TYPE_SIP,'typeExternal' => Extensions::TYPE_EXTERNAL],
+            'columns'    => [
+                'number'         => 'ExtensionsSip.number',
+                'mobile'         => 'ExtensionsExternal.number',
+                'userid'         => 'ExtensionsSip.userid',
+            ],
+            'order'      => 'number',
+            'joins'      => [
+                'ExtensionsExternal' => [
+                    0 => Extensions::class,
+                    1 => 'ExtensionsSip.userid = ExtensionsExternal.userid AND ExtensionsExternal.type = :typeExternal:',
+                    2 => 'ExtensionsExternal',
+                    3 => 'INNER',
+                ],
+            ],
+        ];
+        $query  = $manager->createBuilder($parameters)->getQuery();
+        $result = $query->execute()->toArray();
+        foreach ($result as $data){
+            $pbx_numbers[$data['number']] = $data['mobile'];
+        }
+        $this->saveCache('pbx_numbers', $pbx_numbers, 60);
+        return $pbx_numbers;
     }
 
     /**
@@ -730,7 +828,7 @@ class Bitrix24Integration extends PbxExtensionBase
             $res_data = $this->getCache(__FUNCTION__);
         }
         if ($res_data === null) {
-            // Кэш не существует / истекло время жизни.
+            // Кэш не =уществует / истекло время жизни.
             $res_data = [];
             $url      = 'https://' . $this->portal . '/rest/user.get';
 
@@ -950,7 +1048,8 @@ class Bitrix24Integration extends PbxExtensionBase
         // Сформируем кэш, чтобы исключить дублирующие события.
         $cache_key = "tmp180_call_register_{$options['USER_ID']}_" .
             strtotime($options['CALL_START_DATE']) . "_" .
-            $this->getPhoneIndex($options['PHONE_NUMBER']);
+            $this->getPhoneIndex($options['PHONE_NUMBER']). "_" .
+            $this->getPhoneIndex($options['USER_PHONE_INNER']);
 
         $res_data = $this->getCache($cache_key);
         if ($res_data) {

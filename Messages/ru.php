@@ -46,7 +46,7 @@ return [
     'mod_b24_i_region_RUSSIA'             => 'Россия',
     'mod_b24_i_region_BELARUS'            => 'Беларусь',
     'mod_b24_i_region_UKRAINE'            => 'Украина',
-    'mod_b24_i_region_WORLD'              => 'Весь остальной мир',
+    'mod_b24_i_region_WORLD'              => 'Весь мир',
     'mod_b24_i_region_REST_API'           => 'REST API',
     'mod_b24_i_client_id'                 => 'Код приложения (client_id)',
     'mod_b24_i_client_secret'             => 'Ключ приложения (client_secret)',
@@ -59,4 +59,8 @@ return [
     'mod_b24_i_callbackQueue'             => 'Очередь для обработки обратного звонка',
     'mod_b24_i_responsibleMissedCalls'    => 'Ответственный за пропущенные звонки',
     'mod_b24_i_backgroundUpload'          => 'Загружать файлы записей разговоров на портал в фоновом процессе',
+    'mod_b24_i_leadType'                  => 'Для каких звонков создавать лид',
+    'mod_b24_i_lead_type_all'             => 'Все звонки',
+    'mod_b24_i_lead_type_incoming'        => 'Только входящие',
+    'mod_b24_i_lead_type_outgoing'        => 'Только исходящие',
 ];

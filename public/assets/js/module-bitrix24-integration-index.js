@@ -31,13 +31,6 @@ var ModuleBitrix24Integration = {
         prompt: globalTranslate.mod_b24_i_ValidatePortalEmpty
       }]
     },
-    refresh_token: {
-      identifier: 'refresh_token',
-      rules: [{
-        type: 'empty',
-        prompt: globalTranslate.mod_b24_i_ValidateRefreshTokenEmpty
-      }]
-    },
     client_id: {
       identifier: 'client_id',
       depends: 'isREST',
@@ -65,6 +58,29 @@ var ModuleBitrix24Integration = {
       ModuleBitrix24Integration.$formObj.form('set value', 'isREST', '');
       ModuleBitrix24Integration.$elAppData.hide();
     }
+
+    ModuleBitrix24Integration.onChangeField();
+  },
+  updateAuthInfo: function updateAuthInfo(e) {
+    var data = e.originalEvent.data;
+    data.region = ModuleBitrix24Integration.$elRegion.val();
+    $.post("".concat(Config.pbxUrl, "/admin-cabinet/module-bitrix24-integration/activateCode"), e.originalEvent.data, function (result) {
+      console.log(result);
+    });
+    ModuleBitrix24Integration.popup.close();
+  },
+  onChangeField: function onChangeField() {
+    if ('RUSSIA' === ModuleBitrix24Integration.$elRegion.val()) {
+      $('#RU-INFO').show();
+    } else {
+      $('#RU-INFO').hide();
+    }
+
+    if ($('#create-lead').checkbox('is checked')) {
+      $('#lead-type').show();
+    } else {
+      $('#lead-type').hide();
+    }
   },
   initialize: function initialize() {
     var _this = this;
@@ -74,6 +90,7 @@ var ModuleBitrix24Integration = {
     ModuleBitrix24Integration.initializeForm();
     $('.dropdown').dropdown();
     ModuleBitrix24Integration.onChangeRegion();
+    ModuleBitrix24Integration.onChangeField();
     ModuleBitrix24Integration.$elRegion.change(ModuleBitrix24Integration.onChangeRegion);
     $('.avatar').each(function () {
       if ($(_this).attr('src') === '') {
@@ -91,10 +108,26 @@ var ModuleBitrix24Integration = {
       order: [1, 'asc'],
       language: SemanticLocalization.dataTableLocalisation
     });
+    $(window).bind('message', ModuleBitrix24Integration.updateAuthInfo);
+    $("#login-button").on('click', function (e) {
+      var portal = $('#portal').val();
+      $.post("".concat(Config.pbxUrl, "/admin-cabinet/module-bitrix24-integration/getAppId"), {
+        'region': $('#b24_region').val()
+      }, function (data) {
+        var url = "https://".concat(portal, "/oauth/authorize/?client_id=").concat(data.client_id, "&");
+        ModuleBitrix24Integration.popup = window.open(url, 'Auth', 'scrollbars, status, resizable, width=750, height=580');
+      });
+    });
+    $('#create-lead').checkbox({
+      onChange: function onChange() {
+        ModuleBitrix24Integration.onChangeField();
+      }
+    });
     ModuleBitrix24Integration.$usersCheckBoxes.checkbox({
       onChange: function onChange() {
         ModuleBitrix24Integration.$dirrtyField.val(Math.random());
         ModuleBitrix24Integration.$dirrtyField.trigger('change');
+        ModuleBitrix24Integration.onChangeField();
       },
       onChecked: function onChecked() {
         var number = $(this).attr('data-value');

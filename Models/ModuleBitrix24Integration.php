@@ -96,6 +96,13 @@ class ModuleBitrix24Integration extends ModulesModelsBase
     public $b24_region;
 
     /**
+     * Bitrix24 leadType
+     *
+     * @Column(type="string", nullable=true)
+     */
+    public $leadType;
+
+    /**
      * Bitrix24 region
      *
      * @Column(type="string", nullable=true)

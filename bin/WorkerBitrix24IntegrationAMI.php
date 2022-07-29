@@ -34,6 +34,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     private array $extensions = [];
     private bool $export_records = false;
     private bool $export_cdr = false;
+    private string $leadType = Bitrix24Integration::API_LEAD_TYPE_ALL;
     private array $external_lines = [];
     private string $crmCreateLead = '0';
     private BeanstalkClient $client;
@@ -158,6 +159,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             $this->export_records         = ($settings->export_records === '1');
             $this->export_cdr             = ($settings->export_cdr === '1');
             $this->crmCreateLead          = ($settings->crmCreateLead !== '0')?'1':'0';
+            $this->leadType               = (empty($settings->leadType))?Bitrix24Integration::API_LEAD_TYPE_ALL:$settings->leadType;
 
             $responsible       = $this->b24->inner_numbers[$settings->responsibleMissedCalls]??[];
             $this->responsibleMissedCalls = empty($responsible)?'':$responsible['ID'];
@@ -237,6 +239,9 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             case 'dial_answer':
                 $this->actionDialAnswer($data['id'], $data['linkedid']);
                 break;
+            case 'transfer_dial_answer':
+                $this->actionDialAnswer($data['transfer_UNIQUEID'], $data['linkedid']);
+                break;
             case 'dial':
             case 'transfer_dial':
             case 'sip_transfer':
@@ -307,15 +312,17 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         if ( ! $this->export_cdr) {
             return;
         }
+        $dstNum = $this->b24->getPhoneIndex($data['dst_num']);
         $LINE_NUMBER = $this->external_lines[$data['did']]??'';
         if (isset($this->inner_numbers[$data['src_num']]) && strlen($general_src_num) <= $this->extensionLength) {
             // Это исходящий вызов с внутреннего номера.
             if (strlen($data['dst_num']) > $this->extensionLength && ! in_array($data['dst_num'], $this->extensions, true)) {
+                $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_IN && $this->crmCreateLead === '1')?'1':"0";
                 $req_data = [
                     'CALL_START_DATE'  => date(\DateTimeInterface::ATOM, strtotime($data['start'])),
                     'USER_ID'          => $this->inner_numbers[$data['src_num']]['ID'],
                     'USER_PHONE_INNER' => $data['src_num'],
-                    'CRM_CREATE'       => $this->crmCreateLead,
+                    'CRM_CREATE'       => $createLead,
                     'DST_USER_CHANNEL' => '',
                     'PHONE_NUMBER'     => $data['dst_num'],
                     'TYPE'             => '1',
@@ -326,20 +333,28 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 ];
                 $this->Action_SendToBeanstalk($req_data);
             }
-        } elseif (isset($this->inner_numbers[$data['dst_num']])) {
+        } elseif (isset($this->inner_numbers[$data['dst_num']]) || isset($this->b24->mobile_numbers[$dstNum])) {
+            if(isset($this->b24->mobile_numbers[$dstNum])){
+                $userId = $this->b24->mobile_numbers[$dstNum]['ID'];
+                $inner  = $data['dst_num'];
+            }else{
+                $userId = $this->inner_numbers[$data['dst_num']]['ID'];
+                $inner  = $data['dst_num'];
+            }
             // Это входящий вызов на внутренний номер сотрудника.
+            $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_OUT && $this->crmCreateLead === '1')?'1':'0';
             if (strlen($general_src_num) > $this->extensionLength && ! in_array($general_src_num, $this->extensions, true)) {
                 // Это переадресация от с.
                 $req_data = [
                     'UNIQUEID'         => $data['UNIQUEID'],
                     'linkedid'         => $data['linkedid'],
                     'CALL_START_DATE'  => date(\DateTimeInterface::ATOM, strtotime($data['start'])),
-                    'USER_ID'          => $this->inner_numbers[$data['dst_num']]['ID'],
-                    'USER_PHONE_INNER' => $data['dst_num'],
+                    'USER_ID'          => $userId,
+                    'USER_PHONE_INNER' => $inner,
                     'DST_USER_CHANNEL' => $data['dst_chan']??'',
                     'PHONE_NUMBER'     => $general_src_num,
                     'TYPE'             => '3',
-                    'CRM_CREATE'       => $this->crmCreateLead,
+                    'CRM_CREATE'       => $createLead,
                     'LINE_NUMBER'      => $LINE_NUMBER,
                     'action'           => 'telephonyExternalCallRegister',
                 ];
@@ -350,11 +365,11 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'UNIQUEID'         => $data['UNIQUEID'],
                     'linkedid'         => $data['linkedid'],
                     'CALL_START_DATE'  => date(\DateTimeInterface::ATOM, strtotime($data['start'])),
-                    'USER_ID'          => $this->inner_numbers[$data['dst_num']]['ID'],
-                    'USER_PHONE_INNER' => $data['dst_num'],
+                    'USER_ID'          => $userId,
+                    'USER_PHONE_INNER' => $inner,
                     'PHONE_NUMBER'     => $data['src_num'],
                     'DST_USER_CHANNEL' => $data['dst_chan']??'',
-                    'CRM_CREATE'       => $this->crmCreateLead,
+                    'CRM_CREATE'       => $createLead,
                     'TYPE'             => '2',
                     'LINE_NUMBER'      => $LINE_NUMBER,
                     'action'           => 'telephonyExternalCallRegister',
@@ -398,12 +413,18 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             return;
         }
 
+        $dstNum = $this->b24->getPhoneIndex($data['dst_num']);
+        $isOutgoing = false;
         if (isset($this->inner_numbers[$data['src_num']])) {
             // Это исходящий вызов.
-            $USER_ID = $this->inner_numbers[$data['src_num']]['ID'];
+            $USER_ID     = $this->inner_numbers[$data['src_num']]['ID'];
+            $isOutgoing  = true;
         } elseif (isset($this->inner_numbers[$data['dst_num']])) {
             // Это входящие вызов.
             $USER_ID = $this->inner_numbers[$data['dst_num']]['ID'];
+        } elseif (isset($this->b24->mobile_numbers[$dstNum])) {
+            // Переадресация на мобильный номер сотрудника.
+            $USER_ID = $this->b24->mobile_numbers[$dstNum]['ID'];
         } else {
             return;
         }
@@ -416,8 +437,8 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 $responsible = $USER_ID;
             }
             $isMissed = false;
-        }elseif (!empty($this->responsibleMissedCalls)){
-            // Назначаем пропвущенный на ответственного.
+        }elseif ($isOutgoing === false && !empty($this->responsibleMissedCalls)){
+            // Назначаем пропущенный на ответственного.
             $responsible = $this->responsibleMissedCalls;
         }else{
             // Работаем в OLD режиме, рандомный ответственный.
