@@ -29,6 +29,10 @@ use Modules\ModuleBitrix24Integration\bin\WorkerBitrix24IntegrationHTTP;
 
 class Bitrix24Integration extends PbxExtensionBase
 {
+    public const API_LEAD_TYPE_ALL   = 'all';
+    public const API_LEAD_TYPE_IN    = 'incoming';
+    public const API_LEAD_TYPE_OUT   = 'outgoing';
+
     public const API_ATTACH_RECORD   = 'telephony.externalCall.attachRecord';
     public const API_SEARCH_ENTITIES = 'telephony.externalCall.searchCrmEntities';
     public const API_CALL_FINISH     = 'telephony.externalcall.finish';

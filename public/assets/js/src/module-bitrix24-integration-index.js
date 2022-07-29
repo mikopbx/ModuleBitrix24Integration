@@ -65,15 +65,29 @@ const ModuleBitrix24Integration = {
 			ModuleBitrix24Integration.$formObj.form('set value', 'isREST', '');
 			ModuleBitrix24Integration.$elAppData.hide();
 		}
+		ModuleBitrix24Integration.onChangeField();
 	},
 
 	updateAuthInfo(e) {
 		let data = e.originalEvent.data;
-		data.region = $('#b24_region').val();
+		data.region = ModuleBitrix24Integration.$elRegion.val();
 		$.post(`${Config.pbxUrl}/admin-cabinet/module-bitrix24-integration/activateCode`, e.originalEvent.data, function( result ) {
 			console.log(result);
 		});
 		ModuleBitrix24Integration.popup.close();
+	},
+
+	onChangeField(){
+		if('RUSSIA' === ModuleBitrix24Integration.$elRegion.val()){
+			$('#RU-INFO').show();
+		}else{
+			$('#RU-INFO').hide();
+		}
+		if($('#create-lead').checkbox('is checked')){
+			$('#lead-type').show()
+		}else{
+			$('#lead-type').hide()
+		}
 	},
 	initialize() {
 		ModuleBitrix24Integration.checkStatusToggle();
@@ -82,6 +96,7 @@ const ModuleBitrix24Integration = {
 		$('.dropdown').dropdown();
 
 		ModuleBitrix24Integration.onChangeRegion();
+		ModuleBitrix24Integration.onChangeField();
 		ModuleBitrix24Integration.$elRegion.change(ModuleBitrix24Integration.onChangeRegion);
 
 		$('.avatar').each(() => {
@@ -112,21 +127,16 @@ const ModuleBitrix24Integration = {
 				ModuleBitrix24Integration.popup = window.open(url, 'Auth', 'scrollbars, status, resizable, width=750, height=580');
 			});
 		});
-
-		let onChangeRegion = ()=>{
-			if('RUSSIA' === $('#b24_region').val()){
-				$('#RU-INFO').show();
-			}else{
-				$('#RU-INFO').hide();
+		$('#create-lead').checkbox({
+			onChange() {
+				ModuleBitrix24Integration.onChangeField()
 			}
-		};
-		$('#b24_region').on('change',onChangeRegion);
-		onChangeRegion();
-
+		});
 		ModuleBitrix24Integration.$usersCheckBoxes.checkbox({
 			onChange() {
 				ModuleBitrix24Integration.$dirrtyField.val(Math.random());
 				ModuleBitrix24Integration.$dirrtyField.trigger('change');
+				ModuleBitrix24Integration.onChangeField()
 			},
 			onChecked() {
 				const number = $(this).attr('data-value');

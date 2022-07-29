@@ -44,7 +44,6 @@
                 <button class="ui positive basic button" id="login-button">{{ t._("mod_b24_i_Auth") }}</button>
             </div>
         </div>
-
         <div class="field">
             <label>{{ t._('mod_b24_i_Region') }}</label>
             {{ form.render('b24_region') }}
@@ -54,7 +53,7 @@
             <div class="header">
                 Внимание:
             </div>
-            <p>Если на вашем портале bitrix24 установлено приложение типом цены "<b>подписка</b>", то регион выбран верно.</p>
+            <p>Если на вашем портале bitrix24 установлено приложение c типом цены "<b>подписка</b>", то регион выбран верно.</p>
             <p>Если тип цены "<b>бесплатно</b>", укажите регион "<b>Весь мир</b>".</p>
         </div>
         <div id="b24-app-data">
@@ -79,9 +78,14 @@
         </div>
         <div class="field">
             <div class="ui segment">
-                <div class="ui toggle checkbox ">
+                <div class="ui toggle checkbox" id='create-lead'>
                     {{ form.render('crmCreateLead') }}
                     <label>{{ t._('mod_b24_i_CrmCreate') }}</label>
+                </div>
+                <div class="field" id='lead-type'>
+                    <br>
+                    <label>{{ t._('mod_b24_i_leadType') }}</label>
+                    {{ form.render('leadType') }}
                 </div>
             </div>
         </div>

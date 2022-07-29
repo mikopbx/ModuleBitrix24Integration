@@ -58,14 +58,29 @@ var ModuleBitrix24Integration = {
       ModuleBitrix24Integration.$formObj.form('set value', 'isREST', '');
       ModuleBitrix24Integration.$elAppData.hide();
     }
+
+    ModuleBitrix24Integration.onChangeField();
   },
   updateAuthInfo: function updateAuthInfo(e) {
     var data = e.originalEvent.data;
-    data.region = $('#b24_region').val();
+    data.region = ModuleBitrix24Integration.$elRegion.val();
     $.post("".concat(Config.pbxUrl, "/admin-cabinet/module-bitrix24-integration/activateCode"), e.originalEvent.data, function (result) {
       console.log(result);
     });
     ModuleBitrix24Integration.popup.close();
+  },
+  onChangeField: function onChangeField() {
+    if ('RUSSIA' === ModuleBitrix24Integration.$elRegion.val()) {
+      $('#RU-INFO').show();
+    } else {
+      $('#RU-INFO').hide();
+    }
+
+    if ($('#create-lead').checkbox('is checked')) {
+      $('#lead-type').show();
+    } else {
+      $('#lead-type').hide();
+    }
   },
   initialize: function initialize() {
     var _this = this;
@@ -75,6 +90,7 @@ var ModuleBitrix24Integration = {
     ModuleBitrix24Integration.initializeForm();
     $('.dropdown').dropdown();
     ModuleBitrix24Integration.onChangeRegion();
+    ModuleBitrix24Integration.onChangeField();
     ModuleBitrix24Integration.$elRegion.change(ModuleBitrix24Integration.onChangeRegion);
     $('.avatar').each(function () {
       if ($(_this).attr('src') === '') {
@@ -102,21 +118,16 @@ var ModuleBitrix24Integration = {
         ModuleBitrix24Integration.popup = window.open(url, 'Auth', 'scrollbars, status, resizable, width=750, height=580');
       });
     });
-
-    var onChangeRegion = function onChangeRegion() {
-      if ('RUSSIA' === $('#b24_region').val()) {
-        $('#RU-INFO').show();
-      } else {
-        $('#RU-INFO').hide();
+    $('#create-lead').checkbox({
+      onChange: function onChange() {
+        ModuleBitrix24Integration.onChangeField();
       }
-    };
-
-    $('#b24_region').on('change', onChangeRegion);
-    onChangeRegion();
+    });
     ModuleBitrix24Integration.$usersCheckBoxes.checkbox({
       onChange: function onChange() {
         ModuleBitrix24Integration.$dirrtyField.val(Math.random());
         ModuleBitrix24Integration.$dirrtyField.trigger('change');
+        ModuleBitrix24Integration.onChangeField();
       },
       onChecked: function onChecked() {
         var number = $(this).attr('data-value');
