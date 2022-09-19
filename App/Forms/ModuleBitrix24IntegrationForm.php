@@ -24,7 +24,7 @@ class ModuleBitrix24IntegrationForm extends Form
     public function initialize($entity = null, $options = null):void
     {
         $this->add(new Text('portal'));
-
+        $this->add(new Text('refresh_token'));
         $this->add(new Text('client_id'));
         $this->add(new Password('client_secret'));
 
