@@ -65,6 +65,10 @@
                 <label>{{ t._('mod_b24_i_client_secret') }}</label>
                 {{ form.render('client_secret') }}
             </div>
+            <div class="field">
+                <label>{{ t._('mod_b24_i_RefreshToken') }}</label>
+                {{ form.render('refresh_token') }}
+            </div>
             <br>
         </div>
 
