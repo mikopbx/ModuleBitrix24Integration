@@ -17,6 +17,16 @@ namespace Modules\ModuleBitrix24Integration\Models;
 
 use MikoPBX\Modules\Models\ModulesModelsBase;
 
+/**
+ * Class ModuleCdrTextData
+ *
+ * @package Modules\ModuleCdrTextData\Models
+ * @Indexes(
+ *     [name='call_id', columns=['call_id'], type=''],
+ *     [name='uniq_id', columns=['uniq_id'], type=''],
+ *     [name='linkedid', columns=['linkedid'], type='']
+ * )
+ */
 class ModuleBitrix24CDR extends ModulesModelsBase
 {
     /**
