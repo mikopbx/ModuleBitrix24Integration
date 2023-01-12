@@ -63,11 +63,14 @@ var ModuleBitrix24Integration = {
   },
   updateAuthInfo: function updateAuthInfo(e) {
     var data = e.originalEvent.data;
-    data.region = ModuleBitrix24Integration.$elRegion.val();
-    $.post("".concat(Config.pbxUrl, "/admin-cabinet/module-bitrix24-integration/activateCode"), e.originalEvent.data, function (result) {
-      console.log(result);
-    });
-    ModuleBitrix24Integration.popup.close();
+
+    if (typeof data !== 'string' && data.code !== undefined) {
+      data.region = ModuleBitrix24Integration.$elRegion.val();
+      $.post("".concat(Config.pbxUrl, "/admin-cabinet/module-bitrix24-integration/activateCode"), data, function (result) {
+        console.log(result);
+      });
+      ModuleBitrix24Integration.popup.close();
+    }
   },
   onChangeField: function onChangeField() {
     if ('RUSSIA' === ModuleBitrix24Integration.$elRegion.val()) {
