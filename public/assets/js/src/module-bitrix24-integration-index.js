@@ -70,11 +70,13 @@ const ModuleBitrix24Integration = {
 
 	updateAuthInfo(e) {
 		let data = e.originalEvent.data;
-		data.region = ModuleBitrix24Integration.$elRegion.val();
-		$.post(`${Config.pbxUrl}/admin-cabinet/module-bitrix24-integration/activateCode`, e.originalEvent.data, function( result ) {
-			console.log(result);
-		});
-		ModuleBitrix24Integration.popup.close();
+		if(typeof data !== 'string' && data.code !== undefined){
+			data.region = ModuleBitrix24Integration.$elRegion.val();
+			$.post(`${Config.pbxUrl}/admin-cabinet/module-bitrix24-integration/activateCode`, data, function( result ) {
+				console.log(result);
+			});
+			ModuleBitrix24Integration.popup.close();
+		}
 	},
 
 	onChangeField(){
