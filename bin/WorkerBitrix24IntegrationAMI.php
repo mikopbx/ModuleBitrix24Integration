@@ -330,6 +330,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'linkedid'         => $data['linkedid'],
                     'LINE_NUMBER'      => $LINE_NUMBER,
                     'action'           => 'telephonyExternalCallRegister',
+                    'did'              => $data['did']
                 ];
                 $this->Action_SendToBeanstalk($req_data);
             }
@@ -357,6 +358,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'CRM_CREATE'       => $createLead,
                     'LINE_NUMBER'      => $LINE_NUMBER,
                     'action'           => 'telephonyExternalCallRegister',
+                    'did'              => $data['did']
                 ];
                 $this->Action_SendToBeanstalk($req_data);
             } elseif (strlen($data['src_num']) > $this->extensionLength && ! in_array($data['src_num'], $this->extensions, true)) {
@@ -373,6 +375,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'TYPE'             => '2',
                     'LINE_NUMBER'      => $LINE_NUMBER,
                     'action'           => 'telephonyExternalCallRegister',
+                    'did'              => $data['did']
                 ];
                 $this->Action_SendToBeanstalk($req_data);
             }
@@ -394,6 +397,38 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             'linkedid' => $linkedid,
         ];
         $this->Action_SendToBeanstalk($data);
+    }
+
+    /**
+     * Обработка завершения звонка.
+     * @param $data
+     */
+    public function actionHangupChan($data):void
+    {
+        // Считаем каналы с одинаковым UID
+        $countChannel = $this->channelCounter[$data['UNIQUEID']]??0;
+        $countChannel--;
+        if($countChannel>0){
+            $this->channelCounter[$data['UNIQUEID']] = $countChannel;
+        }else{
+            unset($this->channelCounter[$data['UNIQUEID']]);
+        }
+        // end
+        if(isset($this->channelCounter[$data['UNIQUEID']])){
+            // Не все каналы с этим ID были завершены.
+            // Вероятно это множественная регистрация.
+            return;
+        }
+
+        $not_local = (stripos($data['agi_channel'], 'local/') === false);
+        if ($not_local) {
+            $data = [
+                'UNIQUEID' => $data['UNIQUEID'],
+                'linkedid' => $data['linkedid'],
+                'action'   => 'action_hangup_chan',
+            ];
+            $this->Action_SendToBeanstalk($data);
+        }
     }
 
     /**
@@ -453,44 +488,14 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 'FILE'           => $data['recordingfile'],
                 'GLOBAL_STATUS'  => $data['GLOBAL_STATUS'],
                 'disposition'    => $data['disposition'],
-                'action'         => 'telephonyExternalCallFinish',
                 "export_records" => $this->export_records,
+                'linkedid'       => $data['linkedid'],
+                'action'         => 'telephonyExternalCallFinish',
             ];
             $this->Action_SendToBeanstalk($params);
             if($isMissed){
                 $this->b24->saveCache('missed-cdr-'.$data['linkedid'], true, 60);
             }
-        }
-    }
-
-    /**
-     * Обработка завершения звонка.
-     * @param $data
-     */
-    public function actionHangupChan($data):void
-    {
-        // Считаем каналы с одинаковым UID
-        $countChannel = $this->channelCounter[$data['UNIQUEID']]??0;
-        $countChannel--;
-        if($countChannel>0){
-            $this->channelCounter[$data['UNIQUEID']] = $countChannel;
-        }else{
-            unset($this->channelCounter[$data['UNIQUEID']]);
-        }
-        // end
-        if(isset($this->channelCounter[$data['UNIQUEID']])){
-            // Не все каналы с этим ID были завершены.
-            // Вероятно это множественная регистрация.
-            return;
-        }
-
-        $not_local = (stripos($data['agi_channel'], 'local/') === false);
-        if ($not_local) {
-            $data = [
-                'UNIQUEID' => $data['UNIQUEID'],
-                'action'   => 'action_hangup_chan',
-            ];
-            $this->Action_SendToBeanstalk($data);
         }
     }
     public function actionDialCreateChan($data):void{

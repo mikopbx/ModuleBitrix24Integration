@@ -38,6 +38,9 @@ class Bitrix24Integration extends PbxExtensionBase
     public const API_CALL_FINISH     = 'telephony.externalcall.finish';
     public const API_CALL_HIDE       = 'telephony.externalcall.hide';
     public const API_CALL_REGISTER   = 'telephony.externalcall.register';
+    public const API_CRM_ADD_LEAD    = 'crm.lead.add';
+    public const API_CRM_ADD_CONTACT = 'crm.contact.add';
+    public const API_CRM_LIST_LEAD   = 'crm.lead.list';
 
     public const B24_INTEGRATION_CHANNEL = 'b24_integration_channel';
     public const B24_SEARCH_CHANNEL = 'b24_search_channel';
@@ -898,7 +901,7 @@ class Bitrix24Integration extends PbxExtensionBase
     /**
      * Синхронизация внешних линий.
      */
-    public function syncExternalLines(): void
+    public function syncExternalLines(): array
     {
         $external_lines_keys = [];
         $local_lines_keys    = [];
@@ -939,6 +942,8 @@ class Bitrix24Integration extends PbxExtensionBase
             $this->sendBatch($arg);
             usleep(500000);
         }
+
+        return $db_data;
     }
 
     /**
@@ -1249,6 +1254,94 @@ class Bitrix24Integration extends PbxExtensionBase
 
     /**
      * Обновление пользователя для Lead,
+     * @param string $phone
+     * @param string $id
+     * @param string $user
+     * @return array
+     */
+    public function crmAddLead(string $phone, string $id = '', string  $user = ''): array
+    {
+        $params = [
+            'fields' => [
+                'TITLE' => $phone.' - Входящий звонок',
+                'OPENED' => "Y",
+                "STATUS_ID" => "NEW",
+                "ASSIGNED_BY_ID" => $user,
+                "PHONE"=> [ [ "VALUE"=> $phone, "VALUE_TYPE"=> "WORK" ] ]
+            ],
+            'auth' => $this->getAccessToken(),
+            'params' => [
+                'REGISTER_SONET_EVENT' => 'N'
+            ]
+        ];
+        $arg = [];
+        if(empty($id)){
+            $id = 'crm.lead.add_' . uniqid('', true);
+        }else{
+            $id = 'crm.lead.add_' . $id;
+        }
+        $arg[$id] = 'crm.lead.add?' . http_build_query($params);
+        return $arg;
+    }
+
+    /**
+     * Обновление пользователя для Lead,
+     * @param string $phone
+     * @param string $id
+     * @param string $user
+     * @return array
+     */
+    public function crmAddContact(string $phone, string $id = '', string  $user = ''): array
+    {
+        $params = [
+            'fields' => [
+                'NAME' => $phone,
+                'OPENED' => "Y",
+                "SOURCE_ID" => "SELF",
+                "TYPE_ID" => "CLIENT",
+                "ASSIGNED_BY_ID" => $user,
+                "PHONE"=> [ [ "VALUE"=> $phone, "VALUE_TYPE"=> "WORK" ] ]
+            ],
+            'auth' => $this->getAccessToken(),
+            'params' => [
+                'REGISTER_SONET_EVENT' => 'N'
+            ]
+        ];
+        $arg = [];
+        if(empty($id)){
+            $id = 'crm.contact.add_' . uniqid('', true);
+        }else{
+            $id = 'crm.contact.add_' . $id;
+        }
+        $arg[$id] = 'crm.contact.add?' . http_build_query($params);
+        return $arg;
+    }
+
+    public function crmLeadListByPhone(string $phone, $id): array
+    {
+        $params = [
+            'order'=> [
+                "DATE_CREATE" =>  "DESC"
+            ],
+            'filter' => [
+                "PHONE"=> $phone,
+                "STATUS_SEMANTIC_ID" => 'P'
+            ],
+            'select'=> [ "ID", "TITLE", "ASSIGNED_BY_ID", "STATUS_SEMANTIC_ID"],
+            'auth' => $this->getAccessToken(),
+        ];
+        $arg = [];
+        if(empty($id)){
+            $id = 'crm.lead.list_' . uniqid('', true);
+        }else{
+            $id = 'crm.lead.list_' . $id;
+        }
+        $arg[$id] = 'crm.lead.list?' . http_build_query($params);
+        return $arg;
+    }
+
+    /**
+     * Обновление пользователя для Lead,
      * @param string $id
      * @param string $newUserId
      * @return array
@@ -1465,18 +1558,23 @@ class Bitrix24Integration extends PbxExtensionBase
      * Удаление Дела по ID
      *
      * @param  string $phone
+     * @param  string $id
      *
      * @return array
      */
-    public function searchCrmEntities(string $phone): array
+    public function searchCrmEntities(string $phone, string $id = ''): array
     {
         $params                                 = [
             'PHONE_NUMBER'   => $phone,
             'auth' => $this->getAccessToken(),
         ];
         $arg                                    = [];
-        $arg[self::API_SEARCH_ENTITIES.'_' . uniqid('', true)] = self::API_SEARCH_ENTITIES.'?' . http_build_query($params);
-
+        if(empty($id)){
+            $id = self::API_SEARCH_ENTITIES.'_' . uniqid('', true);
+        }else{
+            $id = self::API_SEARCH_ENTITIES.'_' . $id;
+        }
+        $arg[$id] = self::API_SEARCH_ENTITIES.'?' . http_build_query($params);
         return $arg;
     }
 

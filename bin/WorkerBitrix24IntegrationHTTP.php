@@ -22,6 +22,7 @@ require_once 'Globals.php';
 
 use MikoPBX\Core\System\BeanstalkClient;
 use Exception;
+use MikoPBX\Core\System\Util;
 use MikoPBX\Core\Workers\WorkerBase;
 use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24CDR;
@@ -29,28 +30,41 @@ use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24CDR;
 class WorkerBitrix24IntegrationHTTP extends WorkerBase
 {
     private Bitrix24Integration $b24;
-    private array   $q_req      = [];
-    private array   $q_pre_req  = [];
-    private bool    $need_get_events = false;
-    private int     $last_update_inner_num = 0;
-    private array   $channelSearchCache = [];
+    private array $q_req = [];
+    private array $q_pre_req = [];
+    private array $q_pre_req2 = [];
+    private bool $need_get_events = false;
+    private int $last_update_inner_num = 0;
+    private array $channelSearchCache = [];
     private BeanstalkClient $queueAgent;
+
+    private bool  $searchEntities = false;
+    private array $tmpCallsData = [];
+    private array $didUsers = [];
 
     /**
      * Начало работы демона.
      *
      * @param $argv
      */
-    public function start($argv):void
+    public function start($argv): void
     {
-        $this->b24       = new Bitrix24Integration();
+        $this->b24 = new Bitrix24Integration();
         if (!$this->b24->initialized) {
             die('Settings not set...');
         }
         $this->b24->checkNeedUpdateToken();
         // При старте синхронизируем внешние линии.
-        $this->b24->syncExternalLines();
+        $externalLines = $this->b24->syncExternalLines();
+        foreach ($externalLines as $line){
+            $nums = $this->parseInnerNumbers($line['name']);
+            if(empty($nums)){
+                continue;
+            }
+            $this->didUsers[$line['alias']] = $nums;
+        }
 
+        $this->searchEntities = !empty($this->didUsers);
         /** Основной цикл демона. */
         $this->initBeanstalk();
         while (true) {
@@ -66,25 +80,27 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     /**
      * Инициализация BeanstalkClient.
      */
-    private function initBeanstalk():void{
+    private function initBeanstalk(): void
+    {
         $this->queueAgent = new BeanstalkClient(Bitrix24Integration::B24_INTEGRATION_CHANNEL);
         $this->queueAgent->subscribe($this->makePingTubeName(self::class), [$this, 'pingCallBack']);
-        $this->queueAgent->subscribe(Bitrix24Integration::B24_INTEGRATION_CHANNEL,  [$this, 'b24ChannelCallBack']);
-        $this->queueAgent->subscribe(Bitrix24Integration::B24_SEARCH_CHANNEL,       [$this, 'b24ChannelSearch']);
+        $this->queueAgent->subscribe(Bitrix24Integration::B24_INTEGRATION_CHANNEL, [$this, 'b24ChannelCallBack']);
+        $this->queueAgent->subscribe(Bitrix24Integration::B24_SEARCH_CHANNEL, [$this, 'b24ChannelSearch']);
         $this->queueAgent->setTimeoutHandler([$this, 'executeTasks']);
     }
 
-    public function b24ChannelSearch($client):void
+    public function b24ChannelSearch($client): void
     {
         $data = json_decode($client->getBody(), true);
         // Добавляем запрос в очередь
-        $arg    = $this->b24->searchCrmEntities($data['phone']??'');
+        $arg = $this->b24->searchCrmEntities($data['phone'] ?? '');
         $this->q_req = array_merge($arg, $this->q_req);
 
         // Сохраняем ID, куда вернуть ответ.
-        $taskId = array_keys($arg)[0]??'';
-        $this->channelSearchCache[$taskId] = $data['inbox_tube']??'';
+        $taskId = array_keys($arg)[0] ?? '';
+        $this->channelSearchCache[$taskId] = $data['inbox_tube'] ?? '';
     }
+
     /**
      * @param BeanstalkClient $client
      */
@@ -92,86 +108,133 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     {
         /** @var array $data */
         $data = json_decode($client->getBody(), true);
+        if ($this->checkPreAction($data)) {
+            // Получение сведений об организации по номеру телефона
+            // Формирование лида.
+            // Предварительные действия перед обработкой звонков.
+            // Отрабатывает только если заполенн "$didUsers"
+            return;
+        }
+        $this->addDataToQueue($data);
+    }
 
+    private function addDataToQueue(array $data):void
+    {
         if ('telephonyExternalCallRegister' === $data['action']) {
-            $cache_key    = 'tmp10'.__FUNCTION__.$data['UNIQUEID'].'_'.$data['USER_PHONE_INNER'];
-            $res_data     = $this->b24->getCache($cache_key);
+            $cache_key = 'tmp10' . __FUNCTION__ . $data['UNIQUEID'] . '_' . $data['USER_PHONE_INNER'];
+            $res_data = $this->b24->getCache($cache_key);
             if ($res_data === null) {
                 $this->b24->saveCache($cache_key, $data);
 
-                $pre_call_key = "tmp5_{$data['USER_PHONE_INNER']}_".$this->b24->getPhoneIndex($data['PHONE_NUMBER']);
-                $cache_data   = $this->b24->getCache($pre_call_key);
-                if($cache_data !== null){
-                    $data['PHONE_NUMBER'] = $cache_data['PHONE_NUMBER']??$data['PHONE_NUMBER'];
+                $pre_call_key = "tmp5_{$data['USER_PHONE_INNER']}_" . $this->b24->getPhoneIndex($data['PHONE_NUMBER']);
+                $cache_data = $this->b24->getCache($pre_call_key);
+                if ($cache_data !== null) {
+                    $data['PHONE_NUMBER'] = $cache_data['PHONE_NUMBER'] ?? $data['PHONE_NUMBER'];
                 }
-                $pre_call_key = "tmp5_ONEXTERNALCALLBACKSTART_".$this->b24->getPhoneIndex($data['PHONE_NUMBER']);
-                $cache_data   = $this->b24->getCache($pre_call_key);
-                if($cache_data !== null){
-                    $data['PHONE_NUMBER']    = $cache_data['PHONE_NUMBER']??$data['PHONE_NUMBER'];
-                    $data['CRM_ENTITY_ID']   = $cache_data['CRM_ENTITY_ID']??'';
-                    $data['CRM_ENTITY_TYPE'] = $cache_data['CRM_ENTITY_TYPE']??'';
+                $pre_call_key = "tmp5_ONEXTERNALCALLBACKSTART_" . $this->b24->getPhoneIndex($data['PHONE_NUMBER']);
+                $cache_data = $this->b24->getCache($pre_call_key);
+                if ($cache_data !== null) {
+                    $data['PHONE_NUMBER'] = $cache_data['PHONE_NUMBER'] ?? $data['PHONE_NUMBER'];
+                    $data['CRM_ENTITY_ID'] = $cache_data['CRM_ENTITY_ID'] ?? '';
+                    $data['CRM_ENTITY_TYPE'] = $cache_data['CRM_ENTITY_TYPE'] ?? '';
                 }
                 $arg = $this->b24->telephonyExternalCallRegister($data);
-                if(count($arg)>0){
+                if (count($arg) > 0) {
                     // Основная очередь запросов.
                     $this->q_req = array_merge($arg, $this->q_req);
                 }
             }
-        }else{
+        } else {
             // Дополнительная очередь ожидания.
             // Будет обработана после поулчения результата telephonyExternalCallRegister.
             $this->q_pre_req[uniqid('', true)] = $data;
         }
-        if(count($this->q_req) >= 49){
+        if (count($this->q_req) >= 49) {
             $this->executeTasks();
         }
+    }
+
+    public function checkPreAction($data): bool
+    {
+        $needActions = true;
+        if ($this->searchEntities) {
+            if (!isset($this->tmpCallsData[$data['linkedid']])) {
+                $this->tmpCallsData[$data['linkedid']] = [
+                    'wait'      => true,
+                    'events'    => [],
+                    'search'    => -1, // -1 - запрос не отправлен, 0 - запрос отправлен, 1 ответ получен
+                    'lead'      => -1,
+                    'list-lead' => -1,
+                    'data'      => $data,
+                    'crm-data'  => []
+                ];
+                if ($data['action'] === 'telephonyExternalCallRegister' && $this->tmpCallsData[$data['linkedid']]['search'] === -1) {
+                    $arg = $this->b24->searchCrmEntities($data['PHONE_NUMBER'] ?? '', $data['linkedid']);
+                    $this->q_req = array_merge($arg, $this->q_req);
+                    $arg = $this->b24->crmLeadListByPhone($data['PHONE_NUMBER'] ?? '', $data['linkedid']);
+                    $this->q_req = array_merge($arg, $this->q_req);
+                    $this->tmpCallsData[$data['linkedid']]['search'] = 0;
+                }
+            }
+            if ($this->tmpCallsData[$data['linkedid']]['wait'] === false) {
+                return false;
+            }
+            $this->tmpCallsData[$data['linkedid']]['events'][] = $data;
+        } else {
+            $needActions = false;
+        }
+        return $needActions;
     }
 
     /**
      *
      */
-    public function executeTasks():void
+    public function executeTasks(): void
     {
         $delta = time() - $this->last_update_inner_num;
-        if($delta > 10){
+        if ($delta > 10) {
             // Обновляем список внутренних номеров. Обновляем кэш внутренних номеров.
             $this->b24->b24GetPhones();
             $this->b24->updateSettings();
             $this->last_update_inner_num = time();
+            // Очистка $this->tmpCallsData
+            $this->checkActiveChannels();
         }
 
         // Получать новые события будем каждое 2ое обращение к этой функции ~ 1.2 секунды.
         $this->need_get_events = !$this->need_get_events;
 
-        if($this->need_get_events){
+        if ($this->need_get_events) {
             // Запрос на полуение offline событий.
-            $arg         = $this->b24->eventOfflineGet();
+            $arg = $this->b24->eventOfflineGet();
             $this->q_req = array_merge($arg, $this->q_req);
         }
-        if(count($this->q_req)>0){
+        if (count($this->q_req) > 0) {
             $response = $this->b24->sendBatch($this->q_req);
-            $result   = $response['result']['result']??[];
+            $result = $response['result']['result'] ?? [];
             // Чистим очередь запросов.
             $this->q_req = [];
             $this->postReceivingResponseProcessing($result);
-            $events = $response['result']['result']['event.offline.get']['events']??[];
-            foreach ($events as $event){
-                $delta = time()-strtotime($event['TIMESTAMP_X']);
-                if($delta > 15 ){
-                    $this->b24->logger->writeInfo("An outdated response was received {$delta}s: ". json_encode($event));
+            $events = $response['result']['result']['event.offline.get']['events'] ?? [];
+            foreach ($events as $event) {
+                $delta = time() - strtotime($event['TIMESTAMP_X']);
+                if ($delta > 15) {
+                    $this->b24->logger->writeInfo(
+                        "An outdated response was received {$delta}s: " . json_encode($event)
+                    );
                     continue;
                 }
                 $req_data = [
                     'event' => $event['EVENT_NAME'],
-                    'data'  => $event['EVENT_DATA'],
+                    'data' => $event['EVENT_DATA'],
                 ];
                 $this->b24->handleEvent($req_data);
             }
         }
 
-        if(count($this->q_pre_req) > 0){
+        if (count($this->q_pre_req) > 0) {
             $tmpArr = [$this->q_req];
-            foreach ($this->q_pre_req as $data){
+            foreach ($this->q_pre_req as $data) {
                 if ('action_hangup_chan' === $data['action']) {
                     /** @var ModuleBitrix24CDR $cdr */
                     $cdr = ModuleBitrix24CDR::findFirst("uniq_id='{$data['UNIQUEID']}'");
@@ -181,19 +244,22 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                         $tmpArr[] = $this->b24->telephonyExternalCallHide($data);
                     }
                 } elseif ('action_dial_answer' === $data['action']) {
-                    $cdr = null; $userId = ''; $dealId = ''; $leadId = '';
+                    $cdr = null;
+                    $userId = '';
+                    $dealId = '';
+                    $leadId = '';
                     $filter = [
                         "linkedid='{$data['linkedid']}'",
                         'order' => 'uniq_id'
                     ];
                     $b24CdrRows = ModuleBitrix24CDR::find($filter);
-                    foreach ($b24CdrRows as $row){
-                        if($row->uniq_id === $data['UNIQUEID']){
+                    foreach ($b24CdrRows as $row) {
+                        if ($row->uniq_id === $data['UNIQUEID']) {
                             $cdr = $row;
-                            if(!empty($cdr->dealId)){
+                            if (!empty($cdr->dealId)) {
                                 $dealId = max($dealId, $cdr->dealId);
                             }
-                            if(!empty($cdr->lead_id)){
+                            if (!empty($cdr->lead_id)) {
                                 $leadId = max($leadId, $cdr->lead_id);
                             }
                             // Определяем, кто ответил на вызов.
@@ -202,14 +268,14 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                             $cdr->answer = 1;
                             $cdr->save();
                         }
-                        if($cdr->answer !== '1'){
-                            if(!empty($row->dealId)){
+                        if ($cdr->answer !== '1') {
+                            if (!empty($row->dealId)) {
                                 $dealId = max($dealId, $row->dealId);
                             }
-                            if(!empty($row->lead_id)){
+                            if (!empty($row->lead_id)) {
                                 $leadId = max($leadId, $row->lead_id);
                             }
-                            if($cdr && $row->user_id === $cdr->user_id){
+                            if ($cdr && $row->user_id === $cdr->user_id) {
                                 continue;
                             }
                             // Для всех CDR, где вызов НЕ отвечен определяем сотрудника и закрываем карточку звонка.
@@ -217,15 +283,15 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                             $data['USER_ID'] = $row->user_id;
                             $tmpArr[] = $this->b24->telephonyExternalCallHide($data);
                         }
-                        if($row->answer === '1'){
+                        if ($row->answer === '1') {
                             // Меняем ответственного, на последнего, кто ответил.
                             $userId = $row->user_id;
                         }
                     }
-                    if(!empty($leadId) && !empty($userId)){
+                    if (!empty($leadId) && !empty($userId)) {
                         $tmpArr[] = $this->b24->crmLeadUpdate($dealId, $userId);
                     }
-                    if(!empty($dealId) && !empty($userId)){
+                    if (!empty($dealId) && !empty($userId)) {
                         $tmpArr[] = $this->b24->crmDealUpdate($dealId, $userId);
                     }
                 } elseif ('telephonyExternalCallFinish' === $data['action']) {
@@ -237,47 +303,201 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             // Обработали все пердварительные данные.
             $this->q_pre_req = [];
         }
+        foreach ($this->q_pre_req2 as $event){
+            $this->addDataToQueue($event);
+        }
     }
 
     /**
      * Дополнительные действия после получения овета на запрос к API.
      * @param array $result
      */
-    public function postReceivingResponseProcessing(array $result):void{
+    public function postReceivingResponseProcessing(array $result): void
+    {
         $tmpArr = [];
-        foreach ($result as $key => $partResponse){
-            $actionName = explode('_', $key)[0]??'';
-            if($actionName === Bitrix24Integration::API_CALL_REGISTER){
+        foreach ($result as $key => $partResponse) {
+            $actionName = explode('_', $key)[0] ?? '';
+            if ($actionName === Bitrix24Integration::API_CALL_REGISTER) {
                 $this->b24->telephonyExternalCallPostRegister($key, $partResponse);
-            }elseif ($actionName === Bitrix24Integration::API_SEARCH_ENTITIES){
-                $this->postSearchCrmEntities($key, $partResponse);
-            }elseif ($actionName === Bitrix24Integration::API_ATTACH_RECORD){
-                $uploadUrl = $partResponse["uploadUrl"]??'';
+            } elseif ($actionName === Bitrix24Integration::API_CRM_LIST_LEAD) {
+                $tmpArr[] = $this->postCrmLeadListByPhone($key, $partResponse);
+            } elseif ($actionName === Bitrix24Integration::API_SEARCH_ENTITIES) {
+                $tmpArr[] = $this->postSearchCrmEntities($key, $partResponse);
+            } elseif ($actionName === Bitrix24Integration::API_ATTACH_RECORD) {
+                $uploadUrl = $partResponse["uploadUrl"] ?? '';
                 $data = $this->b24->telephonyPostAttachRecord($key, $uploadUrl);
-                if(!empty($data)){
+                if (!empty($data)) {
                     $this->queueAgent->publish(json_encode($data, JSON_UNESCAPED_SLASHES), 'b24-uploader');
                 }
-            }elseif ($actionName === Bitrix24Integration::API_CALL_FINISH){
+            } elseif ($actionName === Bitrix24Integration::API_CRM_ADD_LEAD) {
+                $this->postCrmAddLead($key, $partResponse);
+            } elseif ($actionName === Bitrix24Integration::API_CRM_ADD_CONTACT) {
+                $this->postCrmAddContact($key, $partResponse);
+            } elseif ($actionName === Bitrix24Integration::API_CALL_FINISH) {
                 $this->b24->telephonyExternalCallPostFinish($key, $partResponse, $tmpArr);
             }
         }
-        $this->q_req = array_merge(...$tmpArr);
-        unset($tmpArr);
+        $tmpArr = array_merge(...$tmpArr);
+        $this->q_req = array_merge($tmpArr, $this->q_req);
+    }
+
+    public function postCrmLeadListByPhone(string $key, array $response): array
+    {
+        $tmpArr = [];
+        $key = explode('_', $key)[1]??'';
+        if (isset($this->tmpCallsData[$key])) {
+            $this->tmpCallsData[$key]['list-lead'] = 1;
+            foreach ($response as &$row){
+                foreach ($this->b24->inner_numbers as $inner){
+                    if($row['ASSIGNED_BY_ID'] === $inner['ID']){
+                        $row['USER_PHONE_INNER'] = $inner['UF_PHONE_INNER'];
+                        break;
+                    }
+                }
+            }
+            unset($row);
+            $this->tmpCallsData[$key]['leads'] = $response;
+            if($this->tmpCallsData[$key]['search']  === 1){
+                $tmpArr = $this->postEndSearchCrm($key);
+            }
+        }
+        return $tmpArr;
     }
 
     /**
-     * Удаление Дела по ID
      *
-     * @param  string $key
-     * @param  array $response
+     * @param string $key
+     * @param array  $response
      *
      */
-    public function postSearchCrmEntities(string $key, array $response): void
+    public function postSearchCrmEntities(string $key, array $response): array
     {
-        $tube = $this->channelSearchCache[$key]??'';
-        if(!empty($tube)){
+        $tmpArr = [];
+        $tube = $this->channelSearchCache[$key] ?? '';
+        if (!empty($tube)) {
             $this->queueAgent->publish(json_encode($response), $tube);
         }
+        $key = explode('_', $key)[1]??'';
+        if (isset($this->tmpCallsData[$key])) {
+            $this->tmpCallsData[$key]['search'] = 1;
+            $this->tmpCallsData[$key]['entities'] = $response;
+            if($this->tmpCallsData[$key]['list-lead'] === 1){
+                $tmpArr = $this->postEndSearchCrm($key);
+            }
+        }
+        return $tmpArr;
+    }
+
+    private function postEndSearchCrm($key):array
+    {
+        $tmpArr = [];
+        $entities = $this->tmpCallsData[$key]['entities'];
+        $leads    = $this->tmpCallsData[$key]['leads'];
+        if (empty($entities) && empty($leads)) {
+            // Это новый лид. Пользователь сам сопоставит его с компанией.
+            $this->tmpCallsData[$key]['wait'] = false;
+            foreach ($this->tmpCallsData[$key]['events'] as $event){
+                $this->addDataToQueue($event);
+            }
+        } else {
+            $users = [];
+            $chooseFirst = !isset($this->didUsers[$this->tmpCallsData[$key]['data']['did']]);
+            if($chooseFirst === false){
+                // Пользователи, закрепленные за DID.
+                $users = $this->didUsers[$this->tmpCallsData[$key]['data']['did']];
+                foreach ($leads as $lead){
+                    // Сперва ищем среди лидов.
+                    if (in_array($lead['USER_PHONE_INNER'], $users, true)) {
+                        $this->tmpCallsData[$key]['crm-data'] = $lead;
+                        $this->tmpCallsData[$key]['wait'] = false;
+                        $this->addEventsToMainQueue($key, 'LEAD', $lead['ID']);
+                        break;
+                    }
+                }
+            }
+            if (empty($this->tmpCallsData[$key]['crm-data'])) {
+                // Если не нашли среди лидов, ищем среди контактов / компаний.
+                foreach ($entities as $entity) {
+                    if ($chooseFirst || in_array($entity['ASSIGNED_BY']['USER_PHONE_INNER'], $users, true)) {
+                        $this->tmpCallsData[$key]['crm-data'] = $entity;
+                        $this->tmpCallsData[$key]['wait'] = false;
+                        $this->addEventsToMainQueue($key, $entity['CRM_ENTITY_TYPE'], $entity['CRM_ENTITY_ID']);
+                        break;
+                    }
+                }
+            }
+            if (empty($this->tmpCallsData[$key]['crm-data'])) {
+                $userNum = $this->didUsers[$this->tmpCallsData[$key]['data']['did']][0]??'';
+                $arg = $this->b24->crmAddLead(
+                    $this->tmpCallsData[$key]['data']['PHONE_NUMBER'] ?? '',
+                    $this->tmpCallsData[$key]['data']['linkedid'],
+                    $this->b24->inner_numbers[$userNum]['ID']??''
+                );
+                $tmpArr = array_merge($arg, $this->q_req);
+            }
+        }
+
+        return $tmpArr;
+    }
+
+    public function postCrmAddLead(string $key, $response): void
+    {
+        $key = explode('_', $key)[1]??'';
+        if (!isset($this->tmpCallsData[$key])) {
+            return;
+        }
+        $this->tmpCallsData[$key]['lead'] = 1;
+        $this->tmpCallsData[$key]['wait'] = false;
+        $this->addEventsToMainQueue($key, 'LEAD', $response);
+    }
+
+    public function postCrmAddContact(string $key, $response): void
+    {
+        $key = explode('_', $key)[1]??'';
+        if (!isset($this->tmpCallsData[$key])) {
+            return;
+        }
+        $this->tmpCallsData[$key]['lead'] = 1;
+        $this->tmpCallsData[$key]['wait'] = false;
+        $this->addEventsToMainQueue($key, 'CONTACT', $response);
+    }
+
+    private function addEventsToMainQueue($linkedID, $eType = '', $eID = ''){
+        foreach ($this->tmpCallsData[$linkedID]['events'] as $index => $event){
+            if($event['action'] === 'telephonyExternalCallRegister'){
+                $event['CRM_ENTITY_TYPE'] = $eType;
+                $event['CRM_ENTITY_ID']   = $eID;
+                $this->addDataToQueue($event);
+                unset($this->tmpCallsData[$linkedID]['events'][$index]);
+            }
+        }
+        foreach ($this->tmpCallsData[$linkedID]['events'] as $event){
+            $this->q_pre_req2[] = $event;
+        }
+    }
+
+    private function checkActiveChannels():void
+    {
+        if(!$this->searchEntities){
+            return;
+        }
+        $am = Util::getAstManager();
+        $channels = $am->GetChannels();
+        foreach ($this->tmpCallsData as $linkedid => $data){
+            if($data['wait'] === false && !isset($channels[$linkedid])){
+                unset($this->tmpCallsData[$linkedid]);
+            }
+        }
+    }
+
+    private function parseInnerNumbers(string $data):array
+    {
+        $result = [];
+        preg_match_all('/\[(\d{2,},?)+\]/m', $data, $matches, PREG_SET_ORDER);
+        if(!empty($matches)){
+            $result = explode(',', str_replace(['[',']'], ['', ''], $matches[0][0]??''));
+        }
+        return $result;
     }
 
 }
