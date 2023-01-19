@@ -32,12 +32,14 @@ if($useInterception !== '1'){
 
 $agi        = new AGI();
 $number     = $agi->request['agi_callerid'];
-$extensions = $agi->request['agi_extension'];
+$extension  = $agi->request['agi_extension'];
+$linkedId   = $agi->get_variable("CHANNEL(linkedid)", true);
 
 $agent = new ModuleBitrix24GetResponsible();
-$resposibleNumber = $agent->getResposibleNumber($number);
+$resposibleNumber = $agent->getResposibleNumber($number, $linkedId, $extension);
+$agi->verbose("getResposibleNumber($number, $linkedId, $extension)");
 if(!empty($resposibleNumber)){
     $agi->set_variable('B24_RESPONSIBLE_NUMBER', $resposibleNumber);
     $agi->set_variable('B24_RESPONSIBLE_TIMEOUT', $settings['interception_call_duration']??60);
-    $agi->exec('Gosub', "b24-interception,{$extensions},1");
+    $agi->exec('Gosub', "b24-interception,{$extension},1");
 }

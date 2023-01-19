@@ -35,7 +35,6 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     private array $q_pre_req2 = [];
     private bool $need_get_events = false;
     private int $last_update_inner_num = 0;
-    private array $channelSearchCache = [];
     private BeanstalkClient $queueAgent;
 
     private bool  $searchEntities = false;
@@ -93,12 +92,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     {
         $data = json_decode($client->getBody(), true);
         // Добавляем запрос в очередь
-        $arg = $this->b24->searchCrmEntities($data['phone'] ?? '');
-        $this->q_req = array_merge($arg, $this->q_req);
-
-        // Сохраняем ID, куда вернуть ответ.
-        $taskId = array_keys($arg)[0] ?? '';
-        $this->channelSearchCache[$taskId] = $data['inbox_tube'] ?? '';
+        $this->createTmpCallData($data);
     }
 
     /**
@@ -159,23 +153,13 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $needActions = true;
         if ($this->searchEntities) {
             if (!isset($this->tmpCallsData[$data['linkedid']])) {
-                $this->tmpCallsData[$data['linkedid']] = [
-                    'wait'      => true,
-                    'events'    => [],
-                    'search'    => -1, // -1 - запрос не отправлен, 0 - запрос отправлен, 1 ответ получен
-                    'lead'      => -1,
-                    'list-lead' => -1,
-                    'data'      => $data,
-                    'crm-data'  => []
-                ];
-                if ($data['action'] === 'telephonyExternalCallRegister' && $this->tmpCallsData[$data['linkedid']]['search'] === -1) {
-                    $arg = $this->b24->searchCrmEntities($data['PHONE_NUMBER'] ?? '', $data['linkedid']);
-                    $this->q_req = array_merge($arg, $this->q_req);
-                    $arg = $this->b24->crmLeadListByPhone($data['PHONE_NUMBER'] ?? '', $data['linkedid']);
-                    $this->q_req = array_merge($arg, $this->q_req);
-                    $this->tmpCallsData[$data['linkedid']]['search'] = 0;
-                }
+                $this->createTmpCallData($data);
             }
+            if ($data['action'] === 'telephonyExternalCallRegister'
+                && ($this->tmpCallsData[$data['linkedid']]['data']['action']??'') !== 'telephonyExternalCallRegister'){
+                $this->tmpCallsData[$data['linkedid']]['data'] = $data;
+            }
+
             if ($this->tmpCallsData[$data['linkedid']]['wait'] === false) {
                 return false;
             }
@@ -184,6 +168,28 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $needActions = false;
         }
         return $needActions;
+    }
+
+    private function createTmpCallData($data){
+
+        $this->tmpCallsData[$data['linkedid']] = [
+            'wait'      => true,
+            'events'    => [],
+            'search'    => -1, // -1 - запрос не отправлен, 0 - запрос отправлен, 1 ответ получен
+            'lead'      => -1,
+            'list-lead' => -1,
+            'data'      => $data,
+            'crm-data'  => [],
+            'inbox_tube'=> $data['inbox_tube']??'',
+            'responsible'=> ''
+        ];
+        if ($this->tmpCallsData[$data['linkedid']]['search'] === -1) {
+            $arg = $this->b24->searchCrmEntities($data['PHONE_NUMBER'] ?? '', $data['linkedid']);
+            $this->q_req = array_merge($arg, $this->q_req);
+            $arg = $this->b24->crmLeadListByPhone($data['PHONE_NUMBER'] ?? '', $data['linkedid']);
+            $this->q_req = array_merge($arg, $this->q_req);
+            $this->tmpCallsData[$data['linkedid']]['search'] = 0;
+        }
     }
 
     /**
@@ -373,10 +379,6 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     public function postSearchCrmEntities(string $key, array $response): array
     {
         $tmpArr = [];
-        $tube = $this->channelSearchCache[$key] ?? '';
-        if (!empty($tube)) {
-            $this->queueAgent->publish(json_encode($response), $tube);
-        }
         $key = explode('_', $key)[1]??'';
         if (isset($this->tmpCallsData[$key])) {
             $this->tmpCallsData[$key]['search'] = 1;
@@ -393,6 +395,8 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $tmpArr = [];
         $entities = $this->tmpCallsData[$key]['entities'];
         $leads    = $this->tmpCallsData[$key]['leads'];
+
+
         if (empty($entities) && empty($leads)) {
             // Это новый лид. Пользователь сам сопоставит его с компанией.
             $this->tmpCallsData[$key]['wait'] = false;
@@ -408,6 +412,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 if ($chooseFirst || in_array($lead['USER_PHONE_INNER'], $users, true)) {
                     $this->tmpCallsData[$key]['crm-data'] = $lead;
                     $this->tmpCallsData[$key]['wait'] = false;
+                    $this->tmpCallsData[$key]['responsible'] = $lead['USER_PHONE_INNER'];
                     $this->addEventsToMainQueue($key, 'LEAD', $lead['ID']);
                     break;
                 }
@@ -418,6 +423,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                     if ($chooseFirst || in_array($entity['ASSIGNED_BY']['USER_PHONE_INNER'], $users, true)) {
                         $this->tmpCallsData[$key]['crm-data'] = $entity;
                         $this->tmpCallsData[$key]['wait'] = false;
+                        $this->tmpCallsData[$key]['responsible'] = $entity['ASSIGNED_BY']['USER_PHONE_INNER'];
                         $this->addEventsToMainQueue($key, $entity['CRM_ENTITY_TYPE'], $entity['CRM_ENTITY_ID']);
                         break;
                     }
@@ -432,6 +438,11 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 );
                 $tmpArr = array_merge($arg, $this->q_req);
             }
+        }
+
+        if(!empty($this->tmpCallsData[$key]['inbox_tube'])){
+            $this->queueAgent->publish(json_encode($this->tmpCallsData[$key]), $this->tmpCallsData[$key]['inbox_tube']);
+            $this->tmpCallsData[$key]['inbox_tube']='';
         }
 
         return $tmpArr;
