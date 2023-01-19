@@ -334,6 +334,16 @@ class Bitrix24Integration extends PbxExtensionBase
         $totalTime = 0;
         $response  = $this->execCurl($url, $curlOptions, $status, $headersResponse, $totalTime);
 
+        $queues = $data['cmd'];
+        unset($queues['event.get'], $queues['event.offline.get']);
+        if(!empty($queues)){
+            $this->logger->writeInfo("REQUEST: ".json_encode($queues));
+            $result = $response['result']["result"];
+            unset($result['event.get'],$result['event.offline.get']);
+            $this->logger->writeInfo("RESPONSE: ".json_encode($result));
+        }
+
+
         if (is_array($response)) {
             $error_name = $response['error'] ?? '';
             if ('expired_token' === $error_name) {
@@ -352,8 +362,11 @@ class Bitrix24Integration extends PbxExtensionBase
                 sleep(1);
                 $response   = $this->execCurl($url, $curlOptions, $status, $headersResponse, $totalTime);
                 $error_name = $response['error'] ?? '';
+            }elseif(!empty($response['result_error'])){
+                $this->logger->writeInfo("RESPONSE-ERROR: ".json_encode($response['result_error']));
             }
-            if ( ! empty($error_name)) {
+
+                if ( ! empty($error_name)) {
                 $this->logger->writeError('Fail REST response ' . json_encode($response));
             }
         }
