@@ -400,19 +400,16 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 $this->addDataToQueue($event);
             }
         } else {
-            $users = [];
             $chooseFirst = !isset($this->didUsers[$this->tmpCallsData[$key]['data']['did']]);
-            if($chooseFirst === false){
-                // Пользователи, закрепленные за DID.
-                $users = $this->didUsers[$this->tmpCallsData[$key]['data']['did']];
-                foreach ($leads as $lead){
-                    // Сперва ищем среди лидов.
-                    if (in_array($lead['USER_PHONE_INNER'], $users, true)) {
-                        $this->tmpCallsData[$key]['crm-data'] = $lead;
-                        $this->tmpCallsData[$key]['wait'] = false;
-                        $this->addEventsToMainQueue($key, 'LEAD', $lead['ID']);
-                        break;
-                    }
+            // Пользователи, закрепленные за DID.
+            $users = $this->didUsers[$this->tmpCallsData[$key]['data']['did']];
+            foreach ($leads as $lead){
+                // Сперва ищем среди лидов.
+                if ($chooseFirst || in_array($lead['USER_PHONE_INNER'], $users, true)) {
+                    $this->tmpCallsData[$key]['crm-data'] = $lead;
+                    $this->tmpCallsData[$key]['wait'] = false;
+                    $this->addEventsToMainQueue($key, 'LEAD', $lead['ID']);
+                    break;
                 }
             }
             if (empty($this->tmpCallsData[$key]['crm-data'])) {
