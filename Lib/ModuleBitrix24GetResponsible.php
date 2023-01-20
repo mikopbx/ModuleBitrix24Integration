@@ -28,12 +28,14 @@ class ModuleBitrix24GetResponsible{
         $this->queueAgent = new BeanstalkClient();
     }
 
-    public function getResposibleNumber(string $number, int $timeout = 5):string
+    public function getResposibleNumber(string $number, string $linkedId, string $did, int $timeout = 5):string
     {
         $inbox_tube    = uniqid(Bitrix24Integration::B24_SEARCH_CHANNEL, true);
         $data = [
-            'phone'      => $number,
-            'inbox_tube' => $inbox_tube
+            'PHONE_NUMBER'  => $number,
+            'linkedid'      => $linkedId,
+            'inbox_tube'    => $inbox_tube,
+            'did'           => $did
         ];
 
         $this->queueAgent->subscribe($inbox_tube, [$this, 'calback']);
@@ -51,7 +53,7 @@ class ModuleBitrix24GetResponsible{
     public function calback($client):void
     {
         $data = json_decode($client->getBody(), true);
-        $this->responsibleNumber = $data[0]['ASSIGNED_BY']['USER_PHONE_INNER']??'';
+        $this->responsibleNumber = $data['responsible']??'';
     }
 
     public function timeOutCallback():void
