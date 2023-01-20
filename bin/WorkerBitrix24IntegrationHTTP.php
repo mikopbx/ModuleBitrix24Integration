@@ -417,16 +417,29 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             }
         } else {
             $chooseFirst = !isset($this->didUsers[$this->tmpCallsData[$key]['data']['did']]);
-            // Пользователи, закрепленные за DID.
             $users = $this->didUsers[$this->tmpCallsData[$key]['data']['did']];
-            foreach ($leads as $lead){
-                // Сперва ищем среди лидов.
-                if ($chooseFirst || in_array($lead['USER_PHONE_INNER'], $users, true)) {
-                    $this->tmpCallsData[$key]['crm-data'] = $lead;
+
+            // Если не нашли среди лидов, ищем среди контактов / компаний.
+            foreach ($entities as $entity) {
+                if ($entity['CRM_ENTITY_TYPE'] === 'COMPANY' && ( $chooseFirst || in_array($entity['ASSIGNED_BY']['USER_PHONE_INNER'], $users, true))) {
+                    $this->tmpCallsData[$key]['crm-data'] = $entity;
                     $this->tmpCallsData[$key]['wait'] = false;
-                    $this->tmpCallsData[$key]['responsible'] = $lead['USER_PHONE_INNER'];
-                    $this->addEventsToMainQueue($key, 'LEAD', $lead['ID']);
+                    $this->tmpCallsData[$key]['responsible'] = $entity['ASSIGNED_BY']['USER_PHONE_INNER'];
+                    $this->addEventsToMainQueue($key, $entity['CRM_ENTITY_TYPE'], $entity['CRM_ENTITY_ID']);
                     break;
+                }
+            }
+            if (empty($this->tmpCallsData[$key]['crm-data'])) {
+                // Пользователи, закрепленные за DID.
+                foreach ($leads as $lead){
+                    // Сперва ищем среди лидов.
+                    if ($chooseFirst || in_array($lead['USER_PHONE_INNER'], $users, true)) {
+                        $this->tmpCallsData[$key]['crm-data'] = $lead;
+                        $this->tmpCallsData[$key]['wait'] = false;
+                        $this->tmpCallsData[$key]['responsible'] = $lead['USER_PHONE_INNER'];
+                        $this->addEventsToMainQueue($key, 'LEAD', $lead['ID']);
+                        break;
+                    }
                 }
             }
             if (empty($this->tmpCallsData[$key]['crm-data'])) {
