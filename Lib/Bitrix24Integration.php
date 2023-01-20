@@ -334,17 +334,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $totalTime = 0;
         $response  = $this->execCurl($url, $curlOptions, $status, $headersResponse, $totalTime);
 
-        $queues = $data['cmd'];
-        unset($queues['event.get'], $queues['event.offline.get']);
-        if(!empty($queues)){
-            $this->logger->writeInfo("REQUEST: ".json_encode($queues));
-            $result = $response['result']["result"];
-            unset($result['event.get'],$result['event.offline.get']);
-            $this->logger->writeInfo("RESPONSE: ".json_encode($result));
-        }
-
-
-        if (is_array($response)) {
+         if (is_array($response)) {
             $error_name = $response['error'] ?? '';
             if ('expired_token' === $error_name) {
                 $this->updateToken();
@@ -366,9 +356,24 @@ class Bitrix24Integration extends PbxExtensionBase
                 $this->logger->writeInfo("RESPONSE-ERROR: ".json_encode($response['result_error']));
             }
 
-                if ( ! empty($error_name)) {
+            if (!empty($error_name)) {
                 $this->logger->writeError('Fail REST response ' . json_encode($response));
             }
+        }
+
+        $queues = $data['cmd'];
+        unset($queues['event.get'], $queues['event.offline.get']);
+        if(!empty($queues)){
+            foreach ($queues as $index => $queue){
+                $query = [];
+                parse_str(parse_url(rawurldecode($queue), PHP_URL_QUERY), $query);
+                unset($query['auth']);
+                $queues[$index] = $query;
+            }
+            $this->logger->writeInfo("REQUEST: ".json_encode($queues, JSON_UNESCAPED_UNICODE));
+            $result = $response['result']["result"];
+            unset($result['event.get'],$result['event.offline.get']);
+            $this->logger->writeInfo("RESPONSE: ".json_encode($result, JSON_UNESCAPED_UNICODE));
         }
 
         $this->checkErrorInResponse($response, $status);

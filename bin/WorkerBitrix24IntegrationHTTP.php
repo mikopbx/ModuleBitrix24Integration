@@ -148,7 +148,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         }
     }
 
-    public function checkPreAction($data): bool
+    public function checkPreAction(&$data): bool
     {
         $needActions = true;
         if ($this->searchEntities) {
@@ -158,6 +158,8 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             if ($data['action'] === 'telephonyExternalCallRegister'
                 && ($this->tmpCallsData[$data['linkedid']]['data']['action']??'') !== 'telephonyExternalCallRegister'){
                 $this->tmpCallsData[$data['linkedid']]['data'] = $data;
+                $data['CRM_ENTITY_TYPE'] = $this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_TYPE'];
+                $data['CRM_ENTITY_ID']   = $this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_ID'];
             }
 
             if ($this->tmpCallsData[$data['linkedid']]['wait'] === false) {
@@ -354,6 +356,8 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         if (isset($this->tmpCallsData[$key])) {
             $this->tmpCallsData[$key]['list-lead'] = 1;
             foreach ($response as &$row){
+                $row['CRM_ENTITY_TYPE'] = 'LEAD';
+                $row['CRM_ENTITY_ID']   = $row['ID'];
                 foreach ($this->b24->inner_numbers as $inner){
                     if($row['ASSIGNED_BY_ID'] === $inner['ID']){
                         $row['USER_PHONE_INNER'] = $inner['UF_PHONE_INNER'];
