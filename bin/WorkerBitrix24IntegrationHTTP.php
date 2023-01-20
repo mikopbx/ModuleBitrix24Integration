@@ -419,16 +419,14 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $chooseFirst = !isset($this->didUsers[$this->tmpCallsData[$key]['data']['did']]);
             $users = $this->didUsers[$this->tmpCallsData[$key]['data']['did']];
 
-            if (empty($this->tmpCallsData[$key]['crm-data'])) {
-                // Если не нашли среди лидов, ищем среди контактов / компаний.
-                foreach ($entities as $entity) {
-                    if ($entity['CRM_ENTITY_TYPE'] === 'COMPANY' && ( $chooseFirst || in_array($entity['ASSIGNED_BY']['USER_PHONE_INNER'], $users, true))) {
-                        $this->tmpCallsData[$key]['crm-data'] = $entity;
-                        $this->tmpCallsData[$key]['wait'] = false;
-                        $this->tmpCallsData[$key]['responsible'] = $entity['ASSIGNED_BY']['USER_PHONE_INNER'];
-                        $this->addEventsToMainQueue($key, $entity['CRM_ENTITY_TYPE'], $entity['CRM_ENTITY_ID']);
-                        break;
-                    }
+            // Если не нашли среди лидов, ищем среди контактов / компаний.
+            foreach ($entities as $entity) {
+                if ($entity['CRM_ENTITY_TYPE'] === 'COMPANY' && ( $chooseFirst || in_array($entity['ASSIGNED_BY']['USER_PHONE_INNER'], $users, true))) {
+                    $this->tmpCallsData[$key]['crm-data'] = $entity;
+                    $this->tmpCallsData[$key]['wait'] = false;
+                    $this->tmpCallsData[$key]['responsible'] = $entity['ASSIGNED_BY']['USER_PHONE_INNER'];
+                    $this->addEventsToMainQueue($key, $entity['CRM_ENTITY_TYPE'], $entity['CRM_ENTITY_ID']);
+                    break;
                 }
             }
             if (empty($this->tmpCallsData[$key]['crm-data'])) {
