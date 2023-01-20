@@ -91,8 +91,11 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     public function b24ChannelSearch($client): void
     {
         $data = json_decode($client->getBody(), true);
-        // Добавляем запрос в очередь
-        $this->createTmpCallData($data);
+        $phone = $data['PHONE_NUMBER']??'';
+        if(!empty($phone)){
+            // Добавляем запрос в очередь
+            $this->createTmpCallData($data);
+        }
     }
 
     /**
@@ -152,7 +155,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     {
         $needActions = true;
         if ($this->searchEntities) {
-            if (!isset($this->tmpCallsData[$data['linkedid']])) {
+            if (!isset($this->tmpCallsData[$data['linkedid']]) && $data['action'] === 'telephonyExternalCallRegister') {
                 $this->createTmpCallData($data);
             }
             if ($data['action'] === 'telephonyExternalCallRegister'
@@ -162,7 +165,9 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 $data['CRM_ENTITY_ID']   = $this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_ID'];
             }
 
-            if ($this->tmpCallsData[$data['linkedid']]['wait'] === false) {
+            $wait = $this->tmpCallsData[$data['linkedid']]['wait']?? false;
+            if ($wait === false) {
+                // Не требуется предварительная обработка. Выполнить сразу.
                 return false;
             }
             $this->tmpCallsData[$data['linkedid']]['events'][] = $data;
@@ -185,10 +190,13 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             'inbox_tube'=> $data['inbox_tube']??'',
             'responsible'=> ''
         ];
-        if ($this->tmpCallsData[$data['linkedid']]['search'] === -1) {
-            $arg = $this->b24->searchCrmEntities($data['PHONE_NUMBER'] ?? '', $data['linkedid']);
+        $phone = $data['PHONE_NUMBER'] ?? '';
+        if(empty($phone)){
+            $this->b24->logger->writeError('Empty phone number... '. json_encode($data, JSON_UNESCAPED_UNICODE));
+        }elseif ($this->tmpCallsData[$data['linkedid']]['search'] === -1 ) {
+            $arg = $this->b24->searchCrmEntities($phone, $data['linkedid']);
             $this->q_req = array_merge($arg, $this->q_req);
-            $arg = $this->b24->crmLeadListByPhone($data['PHONE_NUMBER'] ?? '', $data['linkedid']);
+            $arg = $this->b24->crmLeadListByPhone($phone, $data['linkedid']);
             $this->q_req = array_merge($arg, $this->q_req);
             $this->tmpCallsData[$data['linkedid']]['search'] = 0;
         }
