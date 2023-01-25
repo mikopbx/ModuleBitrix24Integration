@@ -41,6 +41,7 @@ class Bitrix24Integration extends PbxExtensionBase
     public const API_CRM_ADD_LEAD    = 'crm.lead.add';
     public const API_CRM_ADD_CONTACT = 'crm.contact.add';
     public const API_CRM_LIST_LEAD   = 'crm.lead.list';
+    public const API_CRM_LIST_COMPANY= 'crm.company.list';
 
     public const B24_INTEGRATION_CHANNEL = 'b24_integration_channel';
     public const B24_SEARCH_CHANNEL = 'b24_search_channel';
@@ -1355,6 +1356,25 @@ class Bitrix24Integration extends PbxExtensionBase
             $id = 'crm.lead.list_' . $id;
         }
         $arg[$id] = 'crm.lead.list?' . http_build_query($params);
+        return $arg;
+    }
+
+    public function crmCompanyListByPhone(string $phone, $id): array
+    {
+        $params = [
+            'filter' => [
+                "PHONE"=> $phone,
+            ],
+            'select'=> [ "ID", "TITLE", "ASSIGNED_BY_ID"],
+            'auth' => $this->getAccessToken(),
+        ];
+        $arg = [];
+        if(empty($id)){
+            $id = 'crm.company.list_' . uniqid('', true);
+        }else{
+            $id = 'crm.company.list_' . $id;
+        }
+        $arg[$id] = 'crm.company.list?' . http_build_query($params);
         return $arg;
     }
 

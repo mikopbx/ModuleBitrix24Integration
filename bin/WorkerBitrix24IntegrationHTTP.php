@@ -185,6 +185,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             'search'    => -1, // -1 - запрос не отправлен, 0 - запрос отправлен, 1 ответ получен
             'lead'      => -1,
             'list-lead' => -1,
+            'company'   => -1,
             'data'      => $data,
             'crm-data'  => [],
             'inbox_tube'=> $data['inbox_tube']??'',
@@ -197,6 +198,8 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $arg = $this->b24->searchCrmEntities($phone, $data['linkedid']);
             $this->q_req = array_merge($arg, $this->q_req);
             $arg = $this->b24->crmLeadListByPhone($phone, $data['linkedid']);
+            $this->q_req = array_merge($arg, $this->q_req);
+            $arg = $this->b24->crmCompanyListByPhone($phone, $data['linkedid']);
             $this->q_req = array_merge($arg, $this->q_req);
             $this->tmpCallsData[$data['linkedid']]['search'] = 0;
         }
@@ -337,6 +340,8 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 $this->b24->telephonyExternalCallPostRegister($key, $partResponse);
             } elseif ($actionName === Bitrix24Integration::API_CRM_LIST_LEAD) {
                 $tmpArr[] = $this->postCrmLeadListByPhone($key, $partResponse);
+            } elseif ($actionName === Bitrix24Integration::API_CRM_LIST_COMPANY) {
+                $tmpArr[] = $this->postCrmCompanyListByPhone($key, $partResponse);
             } elseif ($actionName === Bitrix24Integration::API_SEARCH_ENTITIES) {
                 $tmpArr[] = $this->postSearchCrmEntities($key, $partResponse);
             } elseif ($actionName === Bitrix24Integration::API_ATTACH_RECORD) {
@@ -375,7 +380,31 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             }
             unset($row);
             $this->tmpCallsData[$key]['leads'] = $response;
-            if($this->tmpCallsData[$key]['search']  === 1){
+            if($this->tmpCallsData[$key]['search']  === 1 && $this->tmpCallsData[$key]['company'] === 1){
+                $tmpArr = $this->postEndSearchCrm($key);
+            }
+        }
+        return $tmpArr;
+    }
+    public function postCrmCompanyListByPhone(string $key, array $response): array
+    {
+        $tmpArr = [];
+        $key = explode('_', $key)[1]??'';
+        if (isset($this->tmpCallsData[$key])) {
+            $this->tmpCallsData[$key]['company'] = 1;
+            foreach ($response as &$row){
+                $row['CRM_ENTITY_TYPE'] = 'COMPANY';
+                $row['CRM_ENTITY_ID']   = $row['ID'];
+                foreach ($this->b24->inner_numbers as $inner){
+                    if($row['ASSIGNED_BY_ID'] === $inner['ID']){
+                        $row['USER_PHONE_INNER'] = $inner['UF_PHONE_INNER'];
+                        break;
+                    }
+                }
+            }
+            unset($row);
+            $this->tmpCallsData[$key]['company-list'] = $response;
+            if($this->tmpCallsData[$key]['search']  === 1 && $this->tmpCallsData[$key]['list-lead']  === 1){
                 $tmpArr = $this->postEndSearchCrm($key);
             }
         }
@@ -395,7 +424,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         if (isset($this->tmpCallsData[$key])) {
             $this->tmpCallsData[$key]['search'] = 1;
             $this->tmpCallsData[$key]['entities'] = $response;
-            if($this->tmpCallsData[$key]['list-lead'] === 1){
+            if($this->tmpCallsData[$key]['list-lead'] === 1 && $this->tmpCallsData[$key]['company'] = 1){
                 $tmpArr = $this->postEndSearchCrm($key);
             }
         }
@@ -407,7 +436,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $tmpArr = [];
         $entities = $this->tmpCallsData[$key]['entities'];
         $leads    = $this->tmpCallsData[$key]['leads'];
-
+        $company  = $this->tmpCallsData[$key]['company-list'];
 
         if (empty($entities) && empty($leads)) {
             // Это новый лид. Пользователь сам сопоставит его с компанией.
@@ -418,10 +447,9 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         } else {
             $chooseFirst = !isset($this->didUsers[$this->tmpCallsData[$key]['data']['did']]);
             $users = $this->didUsers[$this->tmpCallsData[$key]['data']['did']];
-
-            // Если не нашли среди лидов, ищем среди контактов / компаний.
-            foreach ($entities as $entity) {
-                if ($entity['CRM_ENTITY_TYPE'] === 'COMPANY' && ( $chooseFirst || in_array($entity['ASSIGNED_BY']['USER_PHONE_INNER'], $users, true))) {
+            // Ищем среди компаний.
+            foreach ($company as $entity) {
+                if ($chooseFirst || in_array($entity['USER_PHONE_INNER'], $users, true)) {
                     $this->tmpCallsData[$key]['crm-data'] = $entity;
                     $this->tmpCallsData[$key]['wait'] = false;
                     $this->tmpCallsData[$key]['responsible'] = $entity['ASSIGNED_BY']['USER_PHONE_INNER'];
