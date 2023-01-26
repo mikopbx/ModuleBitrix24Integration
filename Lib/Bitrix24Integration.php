@@ -1627,7 +1627,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $pid = Processes::getPidOfProcess('Modules\ModuleBitrix24Integration');
         if(!empty($pid)){
             $killPath = Util::which('kill');
-            shell_exec("$killPath -9".implode(  ' ', $pid));
+            shell_exec("$killPath -9 '$pid'");
         }
         $workerSafeScriptsPath = Util::getFilePathByClassName(WorkerSafeScriptsCore::class);
         $phpPath               = Util::which('php');
