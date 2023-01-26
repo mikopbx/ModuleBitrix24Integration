@@ -361,22 +361,22 @@ class Bitrix24Integration extends PbxExtensionBase
                 $this->logger->writeError('Fail REST response ' . json_encode($response));
             }
         }
-
-        $queues = $data['cmd'];
-        unset($queues['event.get'], $queues['event.offline.get']);
-        if(!empty($queues)){
-            foreach ($queues as $index => $queue){
-                $query = [];
-                parse_str(parse_url(rawurldecode($queue), PHP_URL_QUERY), $query);
-                unset($query['auth']);
-                $queues[$index] = $query;
+        if(isset( $data['cmd'])){
+            $queues = $data['cmd'];
+            unset($queues['event.get'], $queues['event.offline.get']);
+            if(!empty($queues)){
+                foreach ($queues as $index => $queue){
+                    $query = [];
+                    parse_str(parse_url(rawurldecode($queue), PHP_URL_QUERY), $query);
+                    unset($query['auth']);
+                    $queues[$index] = $query;
+                }
+                $this->logger->writeInfo("REQUEST: ".json_encode($queues, JSON_UNESCAPED_UNICODE));
+                $result = $response['result']["result"];
+                unset($result['event.get'],$result['event.offline.get']);
+                $this->logger->writeInfo("RESPONSE: ".json_encode($result, JSON_UNESCAPED_UNICODE));
             }
-            $this->logger->writeInfo("REQUEST: ".json_encode($queues, JSON_UNESCAPED_UNICODE));
-            $result = $response['result']["result"];
-            unset($result['event.get'],$result['event.offline.get']);
-            $this->logger->writeInfo("RESPONSE: ".json_encode($result, JSON_UNESCAPED_UNICODE));
         }
-
         $this->checkErrorInResponse($response, $status);
         $delta = microtime(true) - $startTime;
         $this->logRequestData($url, $data, $response, $delta);
@@ -1617,36 +1617,21 @@ class Bitrix24Integration extends PbxExtensionBase
     }
 
     /**
-     * @param bool $restart
      */
-    public function startAllServices(bool $restart = false): void
+    public function startAllServices(): void
     {
         $moduleEnabled = PbxExtensionUtils::isEnabled($this->moduleUniqueId);
         if ( ! $moduleEnabled) {
             return;
         }
-
-        if (empty($this->getAccessToken())) {
-            $this->updateToken($this->refresh_token);
+        $pid = Processes::getPidOfProcess('Modules\ModuleBitrix24Integration');
+        if(!empty($pid)){
+            $killPath = Util::which('kill');
+            shell_exec("$killPath -9".implode(  ' ', $pid));
         }
-
-        $configClass      = new Bitrix24IntegrationConf();
-        $workersToRestart = $configClass->getModuleWorkers();
-
-        if ($restart) {
-            foreach ($workersToRestart as $moduleWorker) {
-                Processes::processPHPWorker($moduleWorker['worker']);
-            }
-        } else {
-            $safeScript = new WorkerSafeScriptsCore();
-            foreach ($workersToRestart as $moduleWorker) {
-                if ($moduleWorker['type'] === WorkerSafeScriptsCore::CHECK_BY_AMI) {
-                    $safeScript->checkWorkerAMI($moduleWorker['worker']);
-                } else {
-                    $safeScript->checkWorkerBeanstalk($moduleWorker['worker']);
-                }
-            }
-        }
+        $workerSafeScriptsPath = Util::getFilePathByClassName(WorkerSafeScriptsCore::class);
+        $phpPath               = Util::which('php');
+        Processes::mwExecBg("$phpPath -f {$workerSafeScriptsPath} start");
     }
 
     public function testUpdateToken($token){
