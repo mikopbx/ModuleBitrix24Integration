@@ -68,7 +68,7 @@ class Bitrix24IntegrationConf extends ConfigClass
     {
         $module = new Bitrix24Integration();
         if ($module->initialized) {
-            $module->startAllServices(true);
+            $module->startAllServices();
         }
     }
 
@@ -108,7 +108,7 @@ class Bitrix24IntegrationConf extends ConfigClass
     {
         $module = new Bitrix24Integration();
         if ($module->initialized) {
-            $module->startAllServices(true);
+            $module->startAllServices();
         }
         PBX::dialplanReload();
     }
