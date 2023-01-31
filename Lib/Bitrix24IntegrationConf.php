@@ -114,6 +114,17 @@ class Bitrix24IntegrationConf extends ConfigClass
     }
 
     /**
+     * Process module disable request
+     *
+     * @return bool
+     */
+    public function onBeforeModuleDisable(): bool
+    {
+        PBX::dialplanReload();
+        return true;
+    }
+
+    /**
      * Prepares additional contexts sections in the extensions.conf file
      *
      * @return string

@@ -1593,6 +1593,23 @@ class Bitrix24Integration extends PbxExtensionBase
     }
 
     /**
+     * Получение список "Источников" звонков.
+     * @param string $id
+     * @return array
+     */
+    public function crmStatusEntityItems(string $id = "SOURCE"): array
+    {
+        $params                                 = [
+            'entityId'   => $id,
+            'auth' => $this->getAccessToken(),
+        ];
+        $arg                                    = [];
+        $arg['crm.status.entity.items_' . uniqid('', true)] = 'crm.status.entity.items?' . http_build_query($params);
+
+        return $arg;
+    }
+
+    /**
      * Удаление Дела по ID
      *
      * @param  string $phone
