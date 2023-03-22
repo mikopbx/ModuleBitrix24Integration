@@ -372,8 +372,11 @@ class Bitrix24Integration extends PbxExtensionBase
                     $queues[$index] = $query;
                 }
                 $this->logger->writeInfo("REQUEST: ".json_encode($queues, JSON_UNESCAPED_UNICODE));
-                $result = $response['result']["result"];
-                unset($result['event.get'],$result['event.offline.get']);
+                $result = $response['result']["result"]??[];
+                // Чистым массив перед выводом в лог.
+                if(is_array($result)){
+                    unset($result['event.get'],$result['event.offline.get']);
+                }
                 $this->logger->writeInfo("RESPONSE: ".json_encode($result, JSON_UNESCAPED_UNICODE));
             }
         }
