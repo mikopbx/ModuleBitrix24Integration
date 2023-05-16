@@ -1001,7 +1001,7 @@ class Bitrix24Integration extends PbxExtensionBase
     /**
      * Получение информации правам доступа для приложения.
      *
-     * @return PBXApiResult
+     * @return PBXApiResult An object containing the result of the API call.
      */
     public function getScope(): PBXApiResult
     {
