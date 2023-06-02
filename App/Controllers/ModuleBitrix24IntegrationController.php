@@ -14,6 +14,7 @@ use MikoPBX\Core\System\BeanstalkClient;
 use MikoPBX\Modules\PbxExtensionUtils;
 use MikoPBX\PBXCoreREST\Workers\WorkerApiCommands;
 use Modules\ModuleBitrix24Integration\App\Forms\ModuleBitrix24IntegrationForm;
+use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Users;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24ExternalLines;
@@ -98,10 +99,17 @@ class ModuleBitrix24IntegrationController extends BaseController
             'columns' => [
                 'user_id',
                 'disabled',
+                'open_card_mode',
             ],
         ];
         $bitrix24Users    = ModuleBitrix24Users::find($parameters)->toArray();
         $bitrix24UsersIds = array_column($bitrix24Users, 'user_id');
+
+        $this->view->cardMods = [
+            Bitrix24Integration::OPEN_CARD_DIRECTLY,
+            Bitrix24Integration::OPEN_CARD_NONE,
+            Bitrix24Integration::OPEN_CARD_ANSWERED
+        ];
 
         $extensionTable = [];
         foreach ($extensions as $extension) {
@@ -129,6 +137,7 @@ class ModuleBitrix24IntegrationController extends BaseController
                     $key = array_search($extension->userid, $bitrix24UsersIds, true);
                     if ($key !== false) {
                         $extensionTable[$extension->userid]['status'] = ($bitrix24Users[$key]['disabled'] === '1') ? 'disabled' : '';
+                        $extensionTable[$extension->userid]['open_card_mode'] = empty($bitrix24Users[$key]['open_card_mode']) ? Bitrix24Integration::OPEN_CARD_DIRECTLY : $bitrix24Users[$key]['open_card_mode'];
                     }
 
                     break;
@@ -263,30 +272,28 @@ class ModuleBitrix24IntegrationController extends BaseController
         }
 
         // Users filter
-        foreach ($data as $key => $value) {
-            if (substr_count($key, 'user-') > 0) {
-                $userId       = explode('user-', $key)[1];
-                $disabled     = ($data[$key] === 'on') ? '0' : '1';
-                $parameters   = [
-                    'conditions' => 'user_id=:userId:',
-                    'bind'       => [
-                        'userId' => $userId,
-                    ],
-                ];
-                $userSettings = ModuleBitrix24Users::findFirst($parameters);
-                if ( ! $userSettings) {
-                    $userSettings          = new ModuleBitrix24Users();
-                    $userSettings->user_id = $userId;
-                }
-                $userSettings->disabled = $disabled;
-                if ($userSettings->save() === false) {
-                    $errors = $userSettings->getMessages();
-                    $this->flash->error(implode('<br>', $errors));
-                    $this->view->success = false;
-                    $this->db->rollback();
-
-                    return;
-                }
+        $arrUsersPost = json_decode($data['arrUsers'],true);
+        foreach ($arrUsersPost as $rowData) {
+            $userId         = $rowData['user_id'];
+            $parameters   = [
+                'conditions' => 'user_id=:userId:',
+                'bind'       => [
+                    'userId' => $userId,
+                ],
+            ];
+            $userSettings = ModuleBitrix24Users::findFirst($parameters);
+            if ( ! $userSettings) {
+                $userSettings          = new ModuleBitrix24Users();
+                $userSettings->user_id = $userId;
+            }
+            $userSettings->open_card_mode = $rowData['open_card_mode'];
+            $userSettings->disabled       = $rowData['disabled'] ? '1' : '0';
+            if ($userSettings->save() === false) {
+                $errors = $userSettings->getMessages();
+                $this->flash->error(implode('<br>', $errors));
+                $this->view->success = false;
+                $this->db->rollback();
+                return;
             }
         }
 

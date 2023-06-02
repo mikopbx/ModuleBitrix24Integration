@@ -107,7 +107,24 @@ var ModuleBitrix24Integration = {
       columns: [{
         orderable: false,
         searchable: false
-      }, null, null, null],
+      }, null, null, null, null],
+
+      /**
+       * Draw event - fired once the table has completed a draw.
+       */
+      drawCallback: function drawCallback() {
+        $('#extensions-table .select-group').each(function (index, obj) {
+          $(obj).dropdown({
+            values: ModuleBitrix24Integration.makeDropdownList($(obj).attr('data-value'))
+          });
+        });
+        $('#extensions-table .select-group').dropdown({
+          onChange: ModuleBitrix24Integration.changeCardModeInList
+        });
+        $('#extensions-table div.text').each(function (index, obj) {
+          $(obj).text(globalTranslate['mod_b24_i_OPEN_CARD_' + $(obj).parent().attr('data-value')]);
+        });
+      },
       order: [1, 'asc'],
       language: SemanticLocalization.dataTableLocalisation
     });
@@ -245,6 +262,42 @@ var ModuleBitrix24Integration = {
       ModuleBitrix24Integration.$dirrtyField.val(Math.random());
       ModuleBitrix24Integration.$dirrtyField.trigger('change');
     });
+    $('#open-cards-list option').each(function (index, obj) {
+      $(obj).html(globalTranslate["mod_b24_i_OPEN_CARD_" + $(obj).val()]);
+    });
+  },
+
+  /**
+   * Подготавливает список выбора пользователей
+   * @param selected
+   * @returns {[]}
+   */
+  makeDropdownList: function makeDropdownList(selected) {
+    var values = [];
+    $('#open-cards-list option').each(function (index, obj) {
+      if (selected === obj.text) {
+        values.push({
+          name: globalTranslate["mod_b24_i_OPEN_CARD_" + obj.value],
+          value: obj.value,
+          selected: true
+        });
+      } else {
+        values.push({
+          name: globalTranslate["mod_b24_i_OPEN_CARD_" + obj.value],
+          value: obj.value
+        });
+      }
+    });
+    return values;
+  },
+
+  /**
+   * Обработка изменения группы в списке
+   */
+  changeCardModeInList: function changeCardModeInList(value, text, $choice) {
+    ModuleBitrix24Integration.$dirrtyField.val(Math.random());
+    ModuleBitrix24Integration.$dirrtyField.trigger('change');
+    ModuleBitrix24Integration.onChangeField();
   },
 
   /**
@@ -330,6 +383,22 @@ var ModuleBitrix24Integration = {
     });
     result.data.externalLines = JSON.stringify(arrExternalLines);
     result.data.portal = result.data.portal.replace(/^(https?|http):\/\//, '');
+    var arrUsers = [];
+    $('#extensions-table tr').each(function (index, obj) {
+      var uname = $(obj).find('td input[type="checkbox"]').attr('name');
+
+      if (uname === undefined) {
+        return;
+      }
+
+      arrUsers.push({
+        id: $(obj).attr('id'),
+        user_id: uname.replace('user-', ''),
+        open_card_mode: $(obj).find('td div.select-group').dropdown('get value'),
+        disabled: $(obj).find('td div.checkbox').checkbox('is unchecked')
+      });
+    });
+    result.data.arrUsers = JSON.stringify(arrUsers);
     return result;
   },
 

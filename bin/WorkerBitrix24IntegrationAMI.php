@@ -312,6 +312,11 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         if ( ! $this->export_cdr) {
             return;
         }
+        if( !isset($this->b24->usersSettingsB24[$data['dst_num']]) && !isset($this->b24->usersSettingsB24[$data['src_num']])){
+            // Вызов по этому звонку не следует грузить в b24, внутренний номер не участвует в интеграции.
+            // Или тут нет внутреннего номера.
+            return;
+        }
         $dstNum = $this->b24->getPhoneIndex($data['dst_num']);
         $LINE_NUMBER = $this->external_lines[$data['did']]??'';
         if (isset($this->inner_numbers[$data['src_num']]) && strlen($general_src_num) <= $this->extensionLength) {
@@ -337,11 +342,10 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         } elseif (isset($this->inner_numbers[$data['dst_num']]) || isset($this->b24->mobile_numbers[$dstNum])) {
             if(isset($this->b24->mobile_numbers[$dstNum])){
                 $userId = $this->b24->mobile_numbers[$dstNum]['ID'];
-                $inner  = $data['dst_num'];
             }else{
                 $userId = $this->inner_numbers[$data['dst_num']]['ID'];
-                $inner  = $data['dst_num'];
             }
+            $inner  = $data['dst_num'];
             // Это входящий вызов на внутренний номер сотрудника.
             $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_OUT && $this->crmCreateLead === '1')?'1':'0';
             if (strlen($general_src_num) > $this->extensionLength && ! in_array($general_src_num, $this->extensions, true)) {
@@ -508,4 +512,4 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
 }
 
 // Start worker process
-WorkerBitrix24IntegrationAMI::startWorker($argv??null);
+WorkerBitrix24IntegrationAMI::startWorker($argv??[]);
