@@ -10,6 +10,7 @@ namespace Modules\ModuleBitrix24Integration\Models;
 
 use MikoPBX\Common\Models\Users;
 use MikoPBX\Modules\Models\ModulesModelsBase;
+use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
 use Phalcon\Mvc\Model\Relation;
 
 class ModuleBitrix24Users extends ModulesModelsBase
@@ -22,11 +23,18 @@ class ModuleBitrix24Users extends ModulesModelsBase
     public $id;
 
     /**
-     * идентификатор пользователя из таблицы Users
+     * Идентификатор пользователя из таблицы Users
      *
      * @Column(type="integer", nullable=true)
      */
     public $user_id;
+
+    /**
+     * Режим открытия карточки звонка.
+     *
+     * @Column(type="string", nullable=true)
+     */
+    public $open_card_mode = Bitrix24Integration::OPEN_CARD_DIRECTLY;
 
     /**
      * статус фильтрации, если 1 то выключить передачу данных в Bitrix24

@@ -117,6 +117,7 @@
                 <thead>
                 <tr>
                     <th></th>
+                    <th class="center aligned">{{t._('mod_b24_i_OPEN_CARD')}}</th>
                     <th>{{ t._('ex_Name') }}</th>
                     <th class="center aligned">{{ t._('ex_Extension') }}</th>
                     <th class="center aligned">{{ t._('ex_Mobile') }}</th>
@@ -131,6 +132,13 @@
                 <input type="checkbox" {% if extension['status']!='disabled' %} checked {% endif %} name="user-{{ extension['userid'] }}" data-value="{{ extension['id'] }}"> <label></label>
                 </div>
                 </td>
+                <td class="center aligned">
+                    <div class="ui dropdown select-group" data-value="{{ extension['open_card_mode'] }}">
+                        <div class="text">{{ extension['open_card_mode'] }}</div>
+                        <i class="dropdown icon"></i>
+                    </div>
+                </td>
+
                 <td class="{{ extension['status'] }}"><img src="{{ extension['avatar'] }}" class="ui avatar image"
                                                                       data-value="{{ extension['userid'] }}"> {{ extension['username'] }}
                 </td>
@@ -170,3 +178,9 @@
 
     {{ partial("partials/submitbutton",['indexurl':'pbx-extension-modules/index/']) }}
 </form>
+
+<select id="open-cards-list" style="display: none;">
+    {% for record in cardMods %}
+        <option value="{{ record }}">{{ record }}</option>
+    {% endfor %}
+</select>

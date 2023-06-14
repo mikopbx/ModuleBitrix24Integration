@@ -259,7 +259,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                     $cdr = ModuleBitrix24CDR::findFirst("uniq_id='{$data['UNIQUEID']}'");
                     if ($cdr) {
                         $data['CALL_ID'] = $cdr->call_id;
-                        $data['USER_ID'] = $cdr->user_id;
+                        $data['USER_ID'] = (int)$cdr->user_id;
                         $tmpArr[] = $this->b24->telephonyExternalCallHide($data);
                     }
                 } elseif ('action_dial_answer' === $data['action']) {
@@ -287,7 +287,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                             $cdr->answer = 1;
                             $cdr->save();
                         }
-                        if ($cdr->answer !== '1') {
+                        if ($cdr->answer !== 1) {
                             if (!empty($row->dealId)) {
                                 $dealId = max($dealId, $row->dealId);
                             }
@@ -299,14 +299,27 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                             }
                             // Для всех CDR, где вызов НЕ отвечен определяем сотрудника и закрываем карточку звонка.
                             $data['CALL_ID'] = $row->call_id;
-                            $data['USER_ID'] = $row->user_id;
+                            $data['USER_ID'] = (int)$row->user_id;
                             $tmpArr[] = $this->b24->telephonyExternalCallHide($data);
                         }
-                        if ($row->answer === '1') {
+                        if ($row->answer === 1) {
                             // Меняем ответственного, на последнего, кто ответил.
                             $userId = $row->user_id;
+
+                            // Открываем карточку клиента тому, кто ответил. (если разрешено).
+                            $data['CALL_ID'] = $row->call_id;
+                            $data['USER_ID'] = (int)$row->user_id;
+
+                            $tmpInnerNumArray = array_values($this->b24->inner_numbers);
+                            // Поиск внутреннего номера пользователя b24.
+                            $innerNumber      = $tmpInnerNumArray[array_search($userId, array_column($tmpInnerNumArray, 'ID'),true)]['UF_PHONE_INNER']??'';
+                            $cardOpenSetting  = $this->b24->usersSettingsB24[$innerNumber]['open_card_mode']??'';
+                            if($cardOpenSetting === Bitrix24Integration::OPEN_CARD_ANSWERED){
+                                $tmpArr[] = $this->b24->telephonyExternalCallShow($data);
+                            }
                         }
                     }
+
                     if (!empty($leadId) && !empty($userId)) {
                         $tmpArr[] = $this->b24->crmLeadUpdate($dealId, $userId);
                     }
@@ -565,4 +578,4 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
 
 
 // Start worker process
-WorkerBitrix24IntegrationHTTP::startWorker($argv??null);
+WorkerBitrix24IntegrationHTTP::startWorker($argv??[]);

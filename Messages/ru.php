@@ -63,4 +63,9 @@ return [
     'mod_b24_i_lead_type_all'             => 'Все звонки',
     'mod_b24_i_lead_type_incoming'        => 'Только входящие',
     'mod_b24_i_lead_type_outgoing'        => 'Только исходящие',
+
+    'mod_b24_i_OPEN_CARD'                 => 'Карточка звонка',
+    'mod_b24_i_OPEN_CARD_NONE'            => 'Не открывать',
+    'mod_b24_i_OPEN_CARD_DIRECTLY'        => 'Открывать при звонке',
+    'mod_b24_i_OPEN_CARD_ANSWERED'        => 'Открывать при ответе',
 ];

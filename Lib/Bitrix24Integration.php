@@ -37,11 +37,16 @@ class Bitrix24Integration extends PbxExtensionBase
     public const API_SEARCH_ENTITIES = 'telephony.externalCall.searchCrmEntities';
     public const API_CALL_FINISH     = 'telephony.externalcall.finish';
     public const API_CALL_HIDE       = 'telephony.externalcall.hide';
+    public const API_CALL_SHOW       = 'telephony.externalcall.show';
     public const API_CALL_REGISTER   = 'telephony.externalcall.register';
     public const API_CRM_ADD_LEAD    = 'crm.lead.add';
     public const API_CRM_ADD_CONTACT = 'crm.contact.add';
     public const API_CRM_LIST_LEAD   = 'crm.lead.list';
     public const API_CRM_LIST_COMPANY= 'crm.company.list';
+
+    public const OPEN_CARD_NONE      = 'NONE';
+    public const OPEN_CARD_DIRECTLY  = 'DIRECTLY';
+    public const OPEN_CARD_ANSWERED  = 'ANSWERED';
 
     public const B24_INTEGRATION_CHANNEL = 'b24_integration_channel';
     public const B24_SEARCH_CHANNEL = 'b24_search_channel';
@@ -49,7 +54,7 @@ class Bitrix24Integration extends PbxExtensionBase
     public array $inner_numbers;
     public array $mobile_numbers;
     private $SESSION;
-    private array $disabled_numbers;
+    public array $usersSettingsB24;
     private array $mem_cache;
     private string $refresh_token;
     private string $portal;
@@ -112,7 +117,7 @@ class Bitrix24Integration extends PbxExtensionBase
         if($settings === null){
             return;
         }
-        $this->disabled_numbers = $this->getDisabledNumbers();
+        $this->usersSettingsB24 = $this->getUsersSettings();
         $this->backgroundUpload = ($settings->backgroundUpload === '1');
         $default_action = IncomingRoutingTable::findFirst('priority = 9999');
         if(!empty($settings->callbackQueue)){
@@ -149,32 +154,32 @@ class Bitrix24Integration extends PbxExtensionBase
      *
      * @return array
      */
-    private function getDisabledNumbers(): array
+    private function getUsersSettings(): array
     {
         // Мы не можем использовать JOIN в разных базах данных
         $parameters            = [
-            'conditions' => 'disabled = 1',
-            'columns'    => ['user_id'],
+            'conditions' => 'disabled <> 1',
+            'columns'    => ['user_id,open_card_mode'],
         ];
-        $disabledBitrix24Users = ModuleBitrix24Users::find($parameters)->toArray();
-        if (count($disabledBitrix24Users) === 0) {
-            return [];
+        $bitrix24UsersTmp = ModuleBitrix24Users::find($parameters)->toArray();
+        $uSettings = [];
+        foreach ($bitrix24UsersTmp as $uData){
+            $uSettings[$uData['user_id']] = $uData;
         }
+        unset($bitrix24UsersTmp);
         $parameters = [
             'conditions' => 'is_general_user_number = 1 AND type = "SIP" AND userid IN ({ids:array})',
-            'columns'    => ['number'],
+            'columns'    => ['number,userid'],
             'bind'       => [
-                'ids' => array_column($disabledBitrix24Users, 'user_id'),
+                'ids' => array_keys($uSettings),
             ],
         ];
-
-        $disabledExtensions = Extensions::find($parameters)->toArray();
-        $result             = array_merge_recursive(...$disabledExtensions)['number'] ?? [];
-        if ( ! is_array($result)) {
-            $result = [$result];
+        $dbData = Extensions::find($parameters)->toArray();
+        $settings = [];
+        foreach ($dbData as $row){
+            $settings[$row['number']] = $uSettings[$row['userid']];
         }
-
-        return $result;
+        return $settings;
     }
 
     /**
@@ -372,8 +377,11 @@ class Bitrix24Integration extends PbxExtensionBase
                     $queues[$index] = $query;
                 }
                 $this->logger->writeInfo("REQUEST: ".json_encode($queues, JSON_UNESCAPED_UNICODE));
-                $result = $response['result']["result"];
-                unset($result['event.get'],$result['event.offline.get']);
+                $result = $response['result']["result"]??[];
+                // Чистым массив перед выводом в лог.
+                if(is_array($result)){
+                    unset($result['event.get'],$result['event.offline.get']);
+                }
                 $this->logger->writeInfo("RESPONSE: ".json_encode($result, JSON_UNESCAPED_UNICODE));
             }
         }
@@ -998,7 +1006,7 @@ class Bitrix24Integration extends PbxExtensionBase
     /**
      * Получение информации правам доступа для приложения.
      *
-     * @return PBXApiResult
+     * @return PBXApiResult An object containing the result of the API call.
      */
     public function getScope(): PBXApiResult
     {
@@ -1082,11 +1090,11 @@ class Bitrix24Integration extends PbxExtensionBase
         // Сохраним кэш.
         $this->saveCache($cache_key, '1', 180);
 
-        $show_card = '1';
-        if (in_array($options['USER_PHONE_INNER'], $this->disabled_numbers, true)) {
-            $show_card = '0';
+        $show_card = '0';
+        $cardOpenSetting = $this->usersSettingsB24[$options['USER_PHONE_INNER']]['open_card_mode']??'';
+        if ($cardOpenSetting === self::OPEN_CARD_DIRECTLY || $cardOpenSetting === '') {
+            $show_card = '1';
         }
-
         $params = [
             'USER_PHONE_INNER' => '', // Внутренний номер пользователя
             'USER_ID'          => '', // Идентификатор пользователя
@@ -1554,6 +1562,28 @@ class Bitrix24Integration extends PbxExtensionBase
     }
 
     /**
+     * Показать карточку звонка для пользователя.
+     *
+     * @param $options
+     *
+     * @return array
+     */
+    public function telephonyExternalCallShow($options): array
+    {
+        $params = [
+            'CALL_ID' => '',
+            'USER_ID' => '',
+            'auth'    => $this->getAccessToken(),
+        ];
+        $this->fillPropertyValues($options, $params);
+
+        $arg                   = [];
+        $arg[self::API_CALL_SHOW.uniqid('', true)] = self::API_CALL_SHOW.'?' . http_build_query($params);
+
+        return $arg;
+    }
+
+    /**
      * Удаление Дела по ID
      *
      * @param      $id
@@ -1588,6 +1618,23 @@ class Bitrix24Integration extends PbxExtensionBase
         ];
         $arg                                    = [];
         $arg['lead.delete_' . uniqid('', true)] = 'crm.lead.delete?' . http_build_query($params);
+
+        return $arg;
+    }
+
+    /**
+     * Получение список "Источников" звонков.
+     * @param string $id
+     * @return array
+     */
+    public function crmStatusEntityItems(string $id = "SOURCE"): array
+    {
+        $params                                 = [
+            'entityId'   => $id,
+            'auth' => $this->getAccessToken(),
+        ];
+        $arg                                    = [];
+        $arg['crm.status.entity.items_' . uniqid('', true)] = 'crm.status.entity.items?' . http_build_query($params);
 
         return $arg;
     }

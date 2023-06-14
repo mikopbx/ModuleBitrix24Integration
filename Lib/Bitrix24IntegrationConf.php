@@ -77,7 +77,7 @@ class Bitrix24IntegrationConf extends ConfigClass
      *
      * @param array $request
      *
-     * @return PBXApiResult
+     * @return PBXApiResult An object containing the result of the API call.
      */
     public function moduleRestAPICallback(array $request): PBXApiResult
     {
@@ -111,6 +111,17 @@ class Bitrix24IntegrationConf extends ConfigClass
             $module->startAllServices();
         }
         PBX::dialplanReload();
+    }
+
+    /**
+     * Process module disable request
+     *
+     * @return bool
+     */
+    public function onBeforeModuleDisable(): bool
+    {
+        PBX::dialplanReload();
+        return true;
     }
 
     /**
