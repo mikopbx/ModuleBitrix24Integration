@@ -80,4 +80,4 @@ class UploaderB24 extends WorkerBase
 
 
 // Start worker process
-UploaderB24::startWorker($argv??null);
+UploaderB24::startWorker($argv??[]);
