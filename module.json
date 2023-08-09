@@ -3,7 +3,11 @@
   "moduleUniqueID":"ModuleBitrix24Integration",
   "support_email": "help@miko.ru",
   "version": "%ModuleVersion%",
-  "min_pbx_version": "2021.2.170",
+  "min_pbx_version": "2023.2.126",
   "lic_product_id": 31,
-  "lic_feature_id": 41
+  "lic_feature_id": 41,
+  "wiki_links": {
+    "ru": {"https://wiki.mikopbx.com/module-bitrix24-integration": "https://docs.mikopbx.com/mikopbx/modules/miko/module-bitrix24-integration"},
+    "en": {"https://wiki.mikopbx.com/module-bitrix24-integration": "https://docs.mikopbx.com/mikopbx/v/english/modules/miko/module-bitrix24-integration"}
+  }
 }
