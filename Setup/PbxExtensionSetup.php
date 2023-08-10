@@ -1,4 +1,22 @@
 <?php
+/*
+ * MikoPBX - free phone system for small business
+ * Copyright © 2017-2023 Alexey Portnov and Nikolay Beketov
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with this program.
+ * If not, see <https://www.gnu.org/licenses/>.
+ */
+
 /**
  * Copyright © MIKO LLC - All Rights Reserved
  * Unauthorized copying of this file, via any medium is strictly prohibited
@@ -28,13 +46,7 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
      */
     public function installDB(): bool
     {
-        // Создаем базу данных
-        $result = $this->createSettingsTableByModelsAnnotations();
-
-        // Регаем модуль в PBX Extensions
-        if ($result) {
-            $result = $this->registerNewModule();
-        }
+        $result = parent::installDB();
 
         if ($result) {
             $this->transferOldSettings();
@@ -82,21 +94,29 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
     }
 
     /**
-     * Выполняет активацию триалов, проверку лицензионного клчюча
+     * Adds the module to the sidebar menu.
+     * @see https://docs.mikopbx.com/mikopbx-development/module-developement/module-installer#addtosidebar
      *
-     * @return bool результат активации лицензии
+     * @return bool The result of the addition process.
      */
-    public function activateLicense(): bool
+    public function addToSidebar(): bool
     {
-        $lic = PbxSettings::getValueByKey('PBXLicense');
-        if (empty($lic)) {
-            $this->messages[] = 'License key not found...';
-            return false;
+        $menuSettingsKey           = "AdditionalMenuItem{$this->moduleUniqueID}";
+        $menuSettings              = PbxSettings::findFirstByKey($menuSettingsKey);
+        if ($menuSettings === null) {
+            $menuSettings      = new PbxSettings();
+            $menuSettings->key = $menuSettingsKey;
         }
-        // Получение пробной лицензии. Продукт "Bitrix24Integration".
-        $this->license->addtrial('31');
+        $value               = [
+            'uniqid'        => $this->moduleUniqueID,
+            'group'         => 'integrations',
+            'iconClass'     => 'puzzle',
+            'caption'       => "Breadcrumb{$this->moduleUniqueID}",
+            'showAtSidebar' => true,
+        ];
+        $menuSettings->value = json_encode($value);
 
-        return true;
+        return $menuSettings->save();
     }
 
 }
