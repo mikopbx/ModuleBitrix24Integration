@@ -1,5 +1,23 @@
 <?php
 /*
+ * MikoPBX - free phone system for small business
+ * Copyright © 2017-2023 Alexey Portnov and Nikolay Beketov
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with this program.
+ * If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/*
  * Copyright © MIKO LLC - All Rights Reserved
  * Unauthorized copying of this file, via any medium is strictly prohibited
  * Proprietary and confidential
@@ -12,6 +30,7 @@ use MikoPBX\AdminCabinet\Controllers\BaseController;
 use MikoPBX\Common\Models\Users;
 use MikoPBX\Core\System\BeanstalkClient;
 use MikoPBX\Modules\PbxExtensionUtils;
+use MikoPBX\PBXCoreREST\Lib\PbxExtensionsProcessor;
 use MikoPBX\PBXCoreREST\Workers\WorkerApiCommands;
 use Modules\ModuleBitrix24Integration\App\Forms\ModuleBitrix24IntegrationForm;
 use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
@@ -190,7 +209,7 @@ class ModuleBitrix24IntegrationController extends BaseController
                                               'input' => $input,     // Параметры запроса.
                                               'action' => 'ACTIVATE-CODE',
                                               'REQUEST_METHOD' => $_SERVER['REQUEST_METHOD'],
-                                              'processor' => 'modules',
+                                              'processor' => PbxExtensionsProcessor::class,
                                           ], JSON_THROW_ON_ERROR);
 
         $client = new BeanstalkClient(WorkerApiCommands::class);

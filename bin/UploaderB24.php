@@ -22,15 +22,16 @@ require_once 'Globals.php';
 
 use MikoPBX\Core\System\BeanstalkClient;
 use Exception;
-use MikoPBX\Core\System\Util;
 use MikoPBX\Core\Workers\WorkerBase;
 use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
+use Modules\ModuleBitrix24Integration\Lib\Logger;
 
 class UploaderB24 extends WorkerBase
 {
     public const B24_UPLOADER_CHANNEL = 'b24-uploader';
     private Bitrix24Integration $b24;
     private BeanstalkClient $queueAgent;
+    private Logger $logger;
 
     /**
      * Начало работы демона.
@@ -39,16 +40,21 @@ class UploaderB24 extends WorkerBase
      */
     public function start($params):void
     {
-        $this->b24       = new Bitrix24Integration();
+        $this->logger =  new Logger('UploaderB24', 'ModuleBitrix24Integration');
+        $this->logger->writeInfo('Start daemon...');
+
+        $this->b24    = new Bitrix24Integration();
         $this->initBeanstalk();
-        /** Основной цикл демона. */
-        while (true) {
+        $this->logger->writeInfo('Start waiting...');
+        while (!$this->needRestart) {
             try {
-                $this->queueAgent->wait(1);
+                $this->queueAgent->wait(10);
             } catch (Exception $e) {
+                $this->logger->writeError($e->getLine().';'.$e->getCode().';'.$e->getMessage());
                 sleep(1);
                 $this->initBeanstalk();
             }
+            $this->logger->rotate();
         }
     }
 
@@ -58,6 +64,7 @@ class UploaderB24 extends WorkerBase
      */
     private function initBeanstalk():void
     {
+        $this->logger->writeInfo('Init Beanstalk...');
         $this->queueAgent = new BeanstalkClient(self::B24_UPLOADER_CHANNEL);
         $this->queueAgent->subscribe($this->makePingTubeName(self::class), [$this, 'pingCallBack']);
         $this->queueAgent->subscribe(self::B24_UPLOADER_CHANNEL,  [$this, 'callBack']);
@@ -66,18 +73,32 @@ class UploaderB24 extends WorkerBase
     /**
      * @param BeanstalkClient $client
      */
-    public function callBack($client): void
+    public function callBack(BeanstalkClient $client): void
     {
+        $stringData = $client->getBody();
         /** @var array $data */
-        $data = json_decode($client->getBody(), true);
+        $data = json_decode($stringData, true);
+        $this->logger->writeInfo("Start upload file. uploadUrl: {$data['uploadUrl']}, filename: {$data['FILENAME']}");
+        $this->logger->writeInfo("Raw data: $stringData");
+        if(!file_exists($data['FILENAME'])){
+            $this->logger->writeError("File not exists!!!");
+            return;
+        }
         $result = $this->b24->uploadRecord($data['uploadUrl'], $data['FILENAME']);
+        try {
+            $rawResult = json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+        }catch (Exception $e){
+            $this->logger->writeError('Exception upload file ' . $e->getMessage());
+            return;
+        }
         if(!isset($result['result']["FILE_ID"])){
-            Util::sysLogMsg(self::class, 'Fail upload file. ' . json_encode($data, JSON_UNESCAPED_SLASHES));
+            $this->logger->writeError('Fail upload file. ' . $rawResult);
         }
         usleep(300000);
     }
 }
 
-
 // Start worker process
-UploaderB24::startWorker($argv??null);
+if(isset($argv) && count($argv) !== 1) {
+    UploaderB24::startWorker($argv??[]);
+}

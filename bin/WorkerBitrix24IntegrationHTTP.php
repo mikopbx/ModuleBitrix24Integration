@@ -361,7 +361,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 $uploadUrl = $partResponse["uploadUrl"] ?? '';
                 $data = $this->b24->telephonyPostAttachRecord($key, $uploadUrl);
                 if (!empty($data)) {
-                    $this->queueAgent->publish(json_encode($data, JSON_UNESCAPED_SLASHES), 'b24-uploader');
+                    $this->queueAgent->publish(json_encode($data, JSON_UNESCAPED_SLASHES), UploaderB24::B24_UPLOADER_CHANNEL);
                 }
             } elseif ($actionName === Bitrix24Integration::API_CRM_ADD_LEAD) {
                 $this->postCrmAddLead($key, $partResponse);
@@ -576,6 +576,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
 
 }
 
-
 // Start worker process
-WorkerBitrix24IntegrationHTTP::startWorker($argv??[]);
+if(isset($argv) && count($argv) !== 1) {
+    WorkerBitrix24IntegrationHTTP::startWorker($argv??[]);
+}
