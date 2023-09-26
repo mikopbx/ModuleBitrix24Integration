@@ -61,6 +61,19 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     private string $responsibleMissedCalls = '';
 
     /**
+     * Handles the received signal.
+     *
+     * @param int $signal The signal to handle.
+     *
+     * @return void
+     */
+    public function signalHandler(int $signal): void
+    {
+        parent::signalHandler($signal);
+        cli_set_process_title('SHUTDOWN_'.cli_get_process_title());
+    }
+
+    /**
      * Старт работы листнера.
      *
      * @param $params
@@ -90,7 +103,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         $this->extensionLength = $config->getGeneralSettings('PBXInternalExtensionLength');
 
         $this->am->addEventHandler("userevent", [$this, "callback"]);
-        while (true) {
+        while ($this->needRestart === false) {
             $result = $this->am->waitUserEvent(true);
             if ($result == false) {
                 // Нужен реконнект.

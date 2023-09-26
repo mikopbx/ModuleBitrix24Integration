@@ -226,15 +226,7 @@ class Bitrix24Integration extends PbxExtensionBase
     {
         $result = false;
         if(!$this->mainProcess && !$refresh_token){
-            // Только один процесс может обновлять информацию по токену.
-            $data = ModuleBitrix24Integration::findFirst();
-            if($data){
-                $this->SESSION          = empty($data->session) ? null : json_decode($data->session, true);
-                $this->refresh_token    = ''.$data->refresh_token;
-                $result = true;
-            }
-            unset($data);
-            return $result;
+            return $this->getTokenFromSettings();
         }
         if ($refresh_token) {
             $this->SESSION                  = [];
@@ -268,6 +260,33 @@ class Bitrix24Integration extends PbxExtensionBase
             $this->updateSessionData($query_data);
         } else {
             $this->logger->writeError('Refresh token: '.json_encode($query_data));
+        }
+
+        return $result;
+    }
+
+    /**
+     * Получение токен из настроек или кэш.
+     * @return bool
+     */
+    private function getTokenFromSettings():bool
+    {
+        $result = false;
+        sleep(2);
+        $session = CacheManager::getCacheData('access_token');
+        if(!empty($session)){
+            $this->SESSION = $session;
+            $result = true;
+            $this->logger->writeInfo('Get token from cache: '.json_encode($session));
+        }else{
+            // Только mainProcess процесс может обновлять информацию по токену.
+            // Тк кэш пуст, получаем из базы данных.
+            $data = ModuleBitrix24Integration::findFirst();
+            if($data){
+                $this->SESSION          = empty($data->session) ? null : json_decode($data->session, true);
+                $result = true;
+            }
+            unset($data);
         }
 
         return $result;
@@ -543,6 +562,8 @@ class Bitrix24Integration extends PbxExtensionBase
         }
         $data->session = json_encode($this->SESSION, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
         $data->save();
+
+        CacheManager::setCacheData('access_token', $this->SESSION, 3600);
     }
 
     /**
@@ -1667,18 +1688,7 @@ class Bitrix24Integration extends PbxExtensionBase
      */
     public function startAllServices(): void
     {
-        $moduleEnabled = PbxExtensionUtils::isEnabled($this->moduleUniqueId);
-        if ( ! $moduleEnabled) {
-            return;
-        }
-        $pid = Processes::getPidOfProcess('Modules\ModuleBitrix24Integration');
-        if(!empty($pid)){
-            $killPath = Util::which('kill');
-            shell_exec("$killPath -9 '$pid'");
-        }
-        $workerSafeScriptsPath = Util::getFilePathByClassName(WorkerSafeScriptsCore::class);
-        $phpPath               = Util::which('php');
-        Processes::mwExecBg("$phpPath -f {$workerSafeScriptsPath} start");
+        // Сервисы будут запущены по cron в течение минуты.
     }
 
     public function testUpdateToken($token){
