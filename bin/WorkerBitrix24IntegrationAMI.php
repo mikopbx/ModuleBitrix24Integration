@@ -343,12 +343,15 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         if ( ! $this->export_cdr) {
             return;
         }
-        if( !isset($this->b24->usersSettingsB24[$data['dst_num']]) && !isset($this->b24->usersSettingsB24[$data['src_num']])){
+        $dstNum = $this->b24->getPhoneIndex($data['dst_num']);
+        $dstUserShotNum = $this->b24->mobile_numbers[$dstNum]['UF_PHONE_INNER']??'';
+        if( !isset($this->b24->usersSettingsB24[$data['dst_num']])
+            && !isset($this->b24->usersSettingsB24[$data['src_num']])
+            && !isset($this->b24->usersSettingsB24[$dstUserShotNum])){
             // Вызов по этому звонку не следует грузить в b24, внутренний номер не участвует в интеграции.
             // Или тут нет внутреннего номера.
             return;
         }
-        $dstNum = $this->b24->getPhoneIndex($data['dst_num']);
         $LINE_NUMBER = $this->external_lines[$data['did']]??'';
         if (isset($this->inner_numbers[$data['src_num']]) && strlen($general_src_num) <= $this->extensionLength) {
             // Это исходящий вызов с внутреннего номера.

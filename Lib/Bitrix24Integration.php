@@ -799,6 +799,7 @@ class Bitrix24Integration extends PbxExtensionBase
                 $user['NAME']            = '' . $value['NAME'] . ' ' . $value['LAST_NAME'];
                 $user['ID']              = $value['ID'];
                 $user['PERSONAL_MOBILE'] = preg_replace('/(\D)/', '', $value['PERSONAL_MOBILE']);
+                $user['WORK_PHONE']      = preg_replace('/(\D)/', '', $value['WORK_PHONE']);
                 $user['EMAIL']           = $value['EMAIL'];
                 $user['UF_PHONE_INNER']  = preg_replace('/(\D)/', '', $value['UF_PHONE_INNER']);
 
