@@ -372,6 +372,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'did'              => $data['did']
                 ];
                 $this->Action_SendToBeanstalk($req_data);
+                $this->b24->saveCache('reg-cdr-'.$req_data['linkedid'], true, 600);
             }
         } elseif (isset($this->inner_numbers[$data['dst_num']]) || isset($this->b24->mobile_numbers[$dstNum])) {
             if(isset($this->b24->mobile_numbers[$dstNum])){
@@ -399,6 +400,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'did'              => $data['did']
                 ];
                 $this->Action_SendToBeanstalk($req_data);
+                $this->b24->saveCache('reg-cdr-'.$req_data['linkedid'], true, 600);
             } elseif (strlen($data['src_num']) > $this->extensionLength && ! in_array($data['src_num'], $this->extensions, true)) {
                 // Это вызов с номера клиента.
                 $req_data = [
@@ -416,6 +418,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'did'              => $data['did']
                 ];
                 $this->Action_SendToBeanstalk($req_data);
+                $this->b24->saveCache('reg-cdr-'.$req_data['linkedid'], true, 600);
             }
         }
 
@@ -498,27 +501,47 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         } elseif (isset($this->b24->mobile_numbers[$dstNum])) {
             // Переадресация на мобильный номер сотрудника.
             $USER_ID = $this->b24->mobile_numbers[$dstNum]['ID'];
-        } else {
-            return;
         }
 
         $responsible = '';
-        $isMissed = true;
-        if($data['GLOBAL_STATUS'] === 'ANSWERED'){
-            if($data['disposition'] === 'ANSWERED'){
+        $isMissed = $data['GLOBAL_STATUS'] !== 'ANSWERED';
+        if(!empty($USER_ID) && !$isMissed) {
+            if ($data['disposition'] === 'ANSWERED') {
                 // Вызов был отвечен в рамках этой CDR.
                 $responsible = $USER_ID;
             }
-            $isMissed = false;
-        }elseif ($isOutgoing === false && !empty($this->responsibleMissedCalls)){
+        }elseif ($isMissed && !empty($USER_ID) ){
+            // Рандомно назначаем ответственного для пропущенного.
+            $responsible = $USER_ID;
+        }elseif ($isMissed && $isOutgoing === false && !empty($this->responsibleMissedCalls)) {
             // Назначаем пропущенный на ответственного.
             $responsible = $this->responsibleMissedCalls;
         }else{
-            // Работаем в OLD режиме, рандомный ответственный.
-            $responsible = $USER_ID;
+            return;
         }
         if(!empty($responsible)
-           && !$this->b24->getCache('missed-cdr-'.$data['linkedid'])){
+           && !$this->b24->getCache('finish-cdr-'.$data['UNIQUEID'])){
+
+            if(!$this->b24->getCache('reg-cdr-'.$data['linkedid'])){
+                $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_OUT && $this->crmCreateLead === '1')?'1':'0';
+                $LINE_NUMBER = $this->external_lines[$data['did']]??'';
+                $req_data = [
+                    'UNIQUEID'         => $data['UNIQUEID'],
+                    'linkedid'         => $data['linkedid'],
+                    'CALL_START_DATE'  => date(\DateTimeInterface::ATOM, strtotime($data['start'])),
+                    'USER_ID'          => $responsible,
+                    'USER_PHONE_INNER' => $data['dst_num'],
+                    'PHONE_NUMBER'     => $data['src_num'],
+                    'DST_USER_CHANNEL' => $data['dst_chan']??'',
+                    'CRM_CREATE'       => $createLead,
+                    'TYPE'             => '2',
+                    'LINE_NUMBER'      => $LINE_NUMBER,
+                    'action'           => 'telephonyExternalCallRegister',
+                    'did'              => $data['did']
+                ];
+                $this->Action_SendToBeanstalk($req_data);
+            }
+
             $params = [
                 'UNIQUEID'       => $data['UNIQUEID'],
                 'USER_ID'        => $responsible,
@@ -532,7 +555,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             ];
             $this->Action_SendToBeanstalk($params);
             if($isMissed){
-                $this->b24->saveCache('missed-cdr-'.$data['linkedid'], true, 60);
+                $this->b24->saveCache('finish-cdr-'.$data['UNIQUEID'], true, 60);
             }
         }
     }
