@@ -59,6 +59,19 @@ class UploaderB24 extends WorkerBase
     }
 
     /**
+     * Handles the received signal.
+     *
+     * @param int $signal The signal to handle.
+     *
+     * @return void
+     */
+    public function signalHandler(int $signal): void
+    {
+        parent::signalHandler($signal);
+        cli_set_process_title('SHUTDOWN_'.cli_get_process_title());
+    }
+
+    /**
      * Инициализация Beanstalk
      * @return void
      */
@@ -87,12 +100,14 @@ class UploaderB24 extends WorkerBase
         $result = $this->b24->uploadRecord($data['uploadUrl'], $data['FILENAME']);
         try {
             $rawResult = json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+            $rawResult2 = json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
         }catch (Exception $e){
             $this->logger->writeError('Exception upload file ' . $e->getMessage());
             return;
         }
         if(!isset($result['result']["FILE_ID"])){
-            $this->logger->writeError('Fail upload file. ' . $rawResult);
+            $this->logger->writeError('Fail upload file. Req ' . $rawResult);
+            $this->logger->writeError('Fail upload file. Res' . $rawResult2);
         }
         usleep(300000);
     }

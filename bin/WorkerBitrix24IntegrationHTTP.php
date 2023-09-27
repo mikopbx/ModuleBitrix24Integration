@@ -42,6 +42,19 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     private array $didUsers = [];
 
     /**
+     * Handles the received signal.
+     *
+     * @param int $signal The signal to handle.
+     *
+     * @return void
+     */
+    public function signalHandler(int $signal): void
+    {
+        parent::signalHandler($signal);
+        cli_set_process_title('SHUTDOWN_'.cli_get_process_title());
+    }
+
+    /**
      * Начало работы демона.
      *
      * @param $argv
@@ -66,7 +79,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $this->searchEntities = !empty($this->didUsers);
         /** Основной цикл демона. */
         $this->initBeanstalk();
-        while (true) {
+        while ($this->needRestart === false) {
             try {
                 $this->queueAgent->wait(1);
             } catch (Exception $e) {

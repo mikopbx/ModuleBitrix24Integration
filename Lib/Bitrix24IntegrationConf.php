@@ -62,17 +62,6 @@ class Bitrix24IntegrationConf extends ConfigClass
     }
 
     /**
-     * Будет вызван после старта asterisk.
-     */
-    public function onAfterPbxStarted(): void
-    {
-        $module = new Bitrix24Integration();
-        if ($module->initialized) {
-            $module->startAllServices();
-        }
-    }
-
-    /**
      *  Process CoreAPI requests under root rights
      *
      * @param array $request
@@ -106,10 +95,6 @@ class Bitrix24IntegrationConf extends ConfigClass
      */
     public function onAfterModuleEnable(): void
     {
-        $module = new Bitrix24Integration();
-        if ($module->initialized) {
-            $module->startAllServices();
-        }
         PBX::dialplanReload();
     }
 

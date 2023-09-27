@@ -12,7 +12,7 @@ return [
     'mod_b24_i_client_secret' => 'Κλειδί εφαρμογής (client_secret)',
     'mod_b24_i_client_id' => 'Αναγνωριστικό εφαρμογής (client_id)',
     'mod_b24_i_region_REST_API' => 'REST API',
-    'mod_b24_i_region_WORLD' => 'Ο υπόλοιπος κόσμος',
+    'mod_b24_i_region_WORLD' => 'Ολος ο κόσμος',
     'mod_b24_i_region_UKRAINE' => 'Ουκρανία',
     'mod_b24_i_region_BELARUS' => 'Λευκορωσία',
     'mod_b24_i_region_RUSSIA' => 'Ρωσία',
@@ -58,4 +58,12 @@ return [
  * Written by Alexey Portnov, 5 2020
  */
     'repModuleBitrix24Integration' => 'Μονάδα ενσωμάτωσης Bitrix24 CRM - %repesent%',
+    'mod_b24_i_OPEN_CARD' => 'τηλεφωνική κάρτα',
+    'mod_b24_i_OPEN_CARD_NONE' => 'Μην ανοίξεις',
+    'mod_b24_i_leadType' => 'Το οποίο απαιτεί τη δημιουργία δυνητικού πελάτη',
+    'mod_b24_i_lead_type_all' => 'Ολες οι κλήσεις',
+    'mod_b24_i_lead_type_incoming' => 'Μόνο εισερχόμενα',
+    'mod_b24_i_lead_type_outgoing' => 'Μόνο εξερχόμενα',
+    'mod_b24_i_OPEN_CARD_DIRECTLY' => 'Άνοιγμα κατά την κλήση',
+    'mod_b24_i_OPEN_CARD_ANSWERED' => 'Άνοιγμα στην απάντηση',
 ];
