@@ -936,11 +936,11 @@ class Bitrix24Integration extends PbxExtensionBase
      *
      * @param $number
      *
-     * @return bool|string
+     * @return string
      */
-    public function getPhoneIndex($number)
+    public function getPhoneIndex($number):string
     {
-        return substr($number, -10);
+        return ''.substr($number, -10);
     }
 
     /**

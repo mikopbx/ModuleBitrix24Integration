@@ -482,25 +482,25 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         if ( ! $this->export_cdr) {
             return;
         }
+        $srsUserId = $this->getInnerNum($data['src_num']);
+        $dstUserId = $this->getInnerNum($data['dst_num']);
 
-        if(isset($this->channelCounter[$data['UNIQUEID']])){
+        if(isset($this->channelCounter[$data['UNIQUEID']])
             // Не все каналы с этим ID были завершены.
             // Вероятно это множественная регистрация.
+            // Либо это CDR по внутреннему вызову.
+            || (!empty($srsUserId) && !empty($dstUserId)) ){
             return;
         }
 
-        $dstNum = $this->b24->getPhoneIndex($data['dst_num']);
         $isOutgoing = false;
-        if (isset($this->inner_numbers[$data['src_num']])) {
+        if (!empty($srsUserId)) {
             // Это исходящий вызов.
-            $USER_ID     = $this->inner_numbers[$data['src_num']]['ID'];
+            $USER_ID     = $srsUserId;
             $isOutgoing  = true;
-        } elseif (isset($this->inner_numbers[$data['dst_num']])) {
+        } else{
             // Это входящие вызов.
-            $USER_ID = $this->inner_numbers[$data['dst_num']]['ID'];
-        } elseif (isset($this->b24->mobile_numbers[$dstNum])) {
-            // Переадресация на мобильный номер сотрудника.
-            $USER_ID = $this->b24->mobile_numbers[$dstNum]['ID'];
+            $USER_ID     = $dstUserId;
         }
 
         $responsible = '';
@@ -566,6 +566,22 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         $this->channelCounter[$data['UNIQUEID']] = $countChannel;
     }
 
+    /**
+     * Является ли номер внутренним.
+     * @param string $number
+     * @return string
+     */
+    private function getInnerNum(string $number):string
+    {
+        $userId = '';
+        $number = $this->b24->getPhoneIndex($number);
+        if(isset($this->inner_numbers[$number])){
+            $userId = $this->inner_numbers[$number]['ID'];
+        } elseif(isset($this->b24->mobile_numbers[$number])){
+            $userId = $this->b24->mobile_numbers[$number]['ID'];
+        }
+        return  $userId;
+    }
 }
 
 // Start worker process
