@@ -407,7 +407,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->checkErrorInResponse($response, $status);
         $delta = microtime(true) - $startTime;
         $this->logRequestData($url, $data, $response, $delta);
-        if ($delta > 2 || $totalTime > 2) {
+        if ($delta > 5 || $totalTime > 5) {
             $this->logger->writeError(
                 "Slow response. PHP time:{$delta}s, cURL time: {$totalTime}, url:{$url}, Data:$q4Dump, Response: " . json_encode(
                     $response
