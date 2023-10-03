@@ -23,8 +23,11 @@ use Modules\ModuleBitrix24Integration\Lib\ModuleBitrix24GetResponsible;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 
 require_once 'Globals.php';
-$settings = ModuleBitrix24Integration::findFirst()->toArray();
-
+try {
+    $settings = ModuleBitrix24Integration::findFirst()->toArray();
+}catch (\Throwable $e){
+    return;
+}
 $useInterception = $settings['use_interception']??'0';
 if($useInterception !== '1'){
     exit(0);

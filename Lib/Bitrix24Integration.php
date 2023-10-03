@@ -76,9 +76,13 @@ class Bitrix24Integration extends PbxExtensionBase
             $this->mainProcess     = cli_get_process_title() === WorkerBitrix24IntegrationHTTP::class;
         }
         $this->updateTokenTime = $this->mainProcess?300:150;
-
         $this->mem_cache = [];
-        $data            = ModuleBitrix24Integration::findFirst();
+        try {
+            $data            = ModuleBitrix24Integration::findFirst();
+        }catch (\Throwable $e){
+            $this->logger->writeError($e->getLine().':'.$e->getMessage());
+            return;
+        }
         if ($data === null
             || empty($data->portal)
             || empty($data->b24_region)) {
@@ -165,6 +169,9 @@ class Bitrix24Integration extends PbxExtensionBase
         $uSettings = [];
         foreach ($bitrix24UsersTmp as $uData){
             $uSettings[$uData['user_id']] = $uData;
+        }
+        if(empty($uSettings)){
+            return [];
         }
         unset($bitrix24UsersTmp);
         $parameters = [
@@ -399,7 +406,11 @@ class Bitrix24Integration extends PbxExtensionBase
                 $result = $response['result']["result"]??[];
                 // Чистым массив перед выводом в лог.
                 if(is_array($result)){
-                    unset($result['event.get'],$result['event.offline.get']);
+                    foreach (['event.get', 'event.offline.get'] as $key){
+                        if(isset($result[$key])){
+                            unset($result[$key]);
+                        }
+                    }
                 }
                 $this->logger->writeInfo("RESPONSE: ".json_encode($result, JSON_UNESCAPED_UNICODE));
             }
@@ -407,7 +418,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->checkErrorInResponse($response, $status);
         $delta = microtime(true) - $startTime;
         $this->logRequestData($url, $data, $response, $delta);
-        if ($delta > 2 || $totalTime > 2) {
+        if ($delta > 5 || $totalTime > 5) {
             $this->logger->writeError(
                 "Slow response. PHP time:{$delta}s, cURL time: {$totalTime}, url:{$url}, Data:$q4Dump, Response: " . json_encode(
                     $response
