@@ -100,14 +100,13 @@ class UploaderB24 extends WorkerBase
         $result = $this->b24->uploadRecord($data['uploadUrl'], $data['FILENAME']);
         try {
             $rawResult = json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
-            $rawResult2 = json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+            $this->logger->writeError('Result' . $rawResult);
         }catch (Exception $e){
             $this->logger->writeError('Exception upload file ' . $e->getMessage());
             return;
         }
         if(!isset($result['result']["FILE_ID"])){
             $this->logger->writeError('Fail upload file. Req ' . $rawResult);
-            $this->logger->writeError('Fail upload file. Res' . $rawResult2);
         }
         usleep(300000);
     }
