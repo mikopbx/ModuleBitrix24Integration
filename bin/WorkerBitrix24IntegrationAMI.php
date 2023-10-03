@@ -522,7 +522,8 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         if(!empty($responsible)
            && !$this->b24->getCache('finish-cdr-'.$data['UNIQUEID'])){
 
-            if(!$isOutgoing && !$this->b24->getCache('reg-cdr-'.$data['linkedid'])){
+            if(!$isOutgoing && strlen($data['src_num']) > $this->extensionLength
+                && !$this->b24->getCache('reg-cdr-'.$data['linkedid'])){
                 // Только для вхоядщих. Если это пропущенный, то сперва его нужно зарегистрировать.
                 $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_OUT && $this->crmCreateLead === '1')?'1':'0';
                 $LINE_NUMBER = $this->external_lines[$data['did']]??'';
