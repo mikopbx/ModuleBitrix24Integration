@@ -61,7 +61,7 @@ class CacheManager
      */
     public static function setCacheData($key, $value, int $ttl = 86400):void
     {
-        $cacheAdapter = AutoDialerMain::cacheAdapter();
+        $cacheAdapter = self::cacheAdapter();
         try {
             $cacheAdapter->set($key, $value, $ttl);
         }catch (\Throwable $e){
@@ -77,7 +77,7 @@ class CacheManager
     public static function getCacheData($key):array
     {
         $result = [];
-        $cacheAdapter = AutoDialerMain::cacheAdapter();
+        $cacheAdapter = self::cacheAdapter();
         try {
             $result = $cacheAdapter->get($key);
             $result = (array)$result;
