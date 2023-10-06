@@ -774,7 +774,6 @@ class Bitrix24Integration extends PbxExtensionBase
         if ( ! isset($users_list['result']) || ! is_array($users_list['result'])) {
             return $data;
         }
-
         if ($user_id) {
             foreach ($users_list['result'] as $value) {
                 if ($value['ID'] === $user_id) {
@@ -887,11 +886,8 @@ class Bitrix24Integration extends PbxExtensionBase
     {
         // Пробуем получить закэшированные записи
         $res_data = $this->getCache(__FUNCTION__);
-        if (is_array($res_data) && count($res_data) === 0) {
-            $res_data = $this->getCache(__FUNCTION__);
-        }
         if ($res_data === null) {
-            // Кэш не =уществует / истекло время жизни.
+            // Кэш не пуст / истекло время жизни.
             $res_data = [];
             $url      = 'https://' . $this->portal . '/rest/user.get';
 
@@ -899,6 +895,7 @@ class Bitrix24Integration extends PbxExtensionBase
             $params = [
                 'auth'  => $this->getAccessToken(),
                 'start' => $next,
+                'FILTER' => ['ACTIVE' => true]
             ];
             // Выполняем первичный запрос. В нем станет ясно количество сотрудников.
             $data  = $this->query($url, $params);
@@ -914,18 +911,16 @@ class Bitrix24Integration extends PbxExtensionBase
             $arg = [];
             while ($next < $total) {
                 // Пользователей больше 50ти, формируем пакетный запрос к b24.
-                $arg["userGet_$next"] = 'user.get?' . http_build_query(["start" => "$next"]);
+                $arg["userGet_$next"] = 'user.get?' . http_build_query(["start" => (string)$next]);
                 $next                 += $step;
             }
-            if (count($arg) > 0) {
-                // Пакет запросов сформирован, отправляем.
-                $response = $this->sendBatch($arg);
-                foreach ($arg as $key => $value) {
-                    $res = $response['result']['result'][$key] ?? false;
-                    if ($res) {
-                        // Собираем результат в массив.
-                        $res_data[] = $res;
-                    }
+            // Пакет запросов сформирован, отправляем.
+            $response = $this->sendBatch($arg);
+            foreach ($arg as $key => $value) {
+                $res = $response['result']['result'][$key] ?? false;
+                if ($res) {
+                    // Собираем результат в массив.
+                    $res_data[] = $res;
                 }
             }
             // Сохраняем их в кэше
