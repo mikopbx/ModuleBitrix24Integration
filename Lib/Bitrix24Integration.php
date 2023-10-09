@@ -911,7 +911,7 @@ class Bitrix24Integration extends PbxExtensionBase
             $arg = [];
             while ($next < $total) {
                 // Пользователей больше 50ти, формируем пакетный запрос к b24.
-                $arg["userGet_$next"] = 'user.get?' . http_build_query(["start" => (string)$next]);
+                $arg["userGet_$next"] = 'user.get?' . http_build_query(["start" => (string)$next, 'FILTER' => ['ACTIVE' => true]]);
                 $next                 += $step;
             }
             // Пакет запросов сформирован, отправляем.
