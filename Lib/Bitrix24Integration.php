@@ -703,6 +703,7 @@ class Bitrix24Integration extends PbxExtensionBase
             'result' => 'ERROR',
             'data'   => $req_data,
         ];
+        $this->logger->writeInfo(json_encode($req_data));
         if ('ONEXTERNALCALLSTART' === $req_data['event']) {
             $FROM_USER_ID = $req_data['data']['USER_ID'];
             $dst          = $req_data['data']['PHONE_NUMBER'];
@@ -734,6 +735,8 @@ class Bitrix24Integration extends PbxExtensionBase
                 $this->logger->writeInfo(
                     "ONEXTERNALCALLSTART: originate from user {$FROM_USER_ID} <{$phone_data['peer_number']}> to {$dst})"
                 );
+            }else{
+                $this->logger->writeInfo('User: '.$FROM_USER_ID." - ".json_encode($req_data));
             }
         } elseif ('ONEXTERNALCALLBACKSTART' === $req_data['event']) {
             $PHONE_NUMBER = preg_replace("/[^0-9+]/", '', urldecode($req_data['data']['PHONE_NUMBER']));
