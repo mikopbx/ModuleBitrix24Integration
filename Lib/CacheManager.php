@@ -21,7 +21,6 @@ namespace Modules\ModuleBitrix24Integration\Lib;
 
 use MikoPBX\Common\Providers\ConfigProvider;
 use MikoPBX\Core\System\Util;
-use Modules\ModuleAutoDialer\Lib\AutoDialerMain;
 use Phalcon\Cache\Adapter\Redis;
 use Phalcon\Di;
 use Phalcon\Storage\SerializerFactory;

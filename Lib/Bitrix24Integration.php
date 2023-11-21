@@ -22,7 +22,6 @@ use Modules\ModuleBitrix24Integration\Models\{ModuleBitrix24ExternalLines,
 };
 use MikoPBX\Core\System\Util;
 use Modules\ModuleBitrix24Integration\bin\WorkerBitrix24IntegrationHTTP;
-use \Modules\ModuleBitrix24Integration\Lib\CacheManager;
 
 class Bitrix24Integration extends PbxExtensionBase
 {
