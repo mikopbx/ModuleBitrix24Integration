@@ -12,11 +12,8 @@ use Phalcon\Mvc\Model\Manager;
 use MikoPBX\Common\Models\CallQueues;
 use MikoPBX\Common\Models\IncomingRoutingTable;
 use MikoPBX\Common\Models\Extensions;
-use MikoPBX\Core\System\Processes;
-use MikoPBX\Core\Workers\Cron\WorkerSafeScriptsCore;
 use MikoPBX\Modules\Logger;
 use MikoPBX\Modules\PbxExtensionBase;
-use MikoPBX\Modules\PbxExtensionUtils;
 use MikoPBX\PBXCoreREST\Lib\PBXApiResult;
 use Modules\ModuleBitrix24Integration\Models\{ModuleBitrix24ExternalLines,
     ModuleBitrix24Integration,
@@ -25,7 +22,7 @@ use Modules\ModuleBitrix24Integration\Models\{ModuleBitrix24ExternalLines,
 };
 use MikoPBX\Core\System\Util;
 use Modules\ModuleBitrix24Integration\bin\WorkerBitrix24IntegrationHTTP;
-
+use \Modules\ModuleBitrix24Integration\Lib\CacheManager;
 
 class Bitrix24Integration extends PbxExtensionBase
 {
@@ -536,7 +533,12 @@ class Bitrix24Integration extends PbxExtensionBase
      */
     public function getCache($cacheKey)
     {
-        return $this->di->getManagedCache()->get($cacheKey);
+        $value = null;
+        $data = CacheManager::getCacheData($cacheKey);
+        if(!empty($data) && isset($data[0])){
+            $value = $data[0];
+        }
+        return $value;
     }
 
     /**
@@ -552,8 +554,7 @@ class Bitrix24Integration extends PbxExtensionBase
      */
     public function saveCache(string $cacheKey, $resData, int $ttl = 3600): void
     {
-        $managedCache = $this->di->getManagedCache();
-        $managedCache->set($cacheKey, $resData, $ttl);
+        CacheManager::setCacheData($cacheKey, [$resData], $ttl);
     }
 
     /**
