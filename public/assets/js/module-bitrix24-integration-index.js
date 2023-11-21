@@ -201,11 +201,12 @@ var ModuleBitrix24Integration = {
        * @param data
        */
       createdRow: function createdRow(row, data) {
+        var templateDisable = '<div class="ui fitted toggle checkbox">\n' + '                <input type="checkbox" ' + (data.disabled === '0' ? 'checked=""' : '') + ' tabindex="0" class="hidden"> <label></label>\n' + '                </div>';
         var templateName = '<div class="ui transparent fluid input inline-edit">' + "<input class=\"external-name\" type=\"text\" data-value=\"".concat(data.name, "\" value=\"").concat(data.name, "\">") + '</div>';
         var templateNumber = '<div class="ui transparent fluid input inline-edit">' + "<input class=\"external-number\" type=\"text\" data-value=\"".concat(data.number, "\" value=\"").concat(data.number, "\">") + '</div>';
         var templateDid = '<div class="ui transparent input inline-edit">' + "<input class=\"external-aliases\" type=\"text\" data-value=\"".concat(data.alias, "\" value=\"").concat(data.alias, "\">") + '</div>';
         var templateDeleteButton = '<div class="ui small basic icon buttons action-buttons">' + "<a href=\"#\" data-value = \"".concat(data.id, "\"") + " class=\"ui button delete two-steps-delete popuped\" data-content=\"".concat(globalTranslate.bt_ToolTipDelete, "\">") + '<i class="icon trash red"></i></a></div>';
-        $('td', row).eq(0).html('<i class="ui user circle icon"></i>');
+        $('td', row).eq(0).html(templateDisable);
         $('td', row).eq(1).html(templateName);
         $('td', row).eq(2).html(templateNumber);
         $('td', row).eq(3).html(templateDid);
@@ -217,6 +218,12 @@ var ModuleBitrix24Integration = {
        */
       drawCallback: function drawCallback() {
         ModuleBitrix24Integration.initializeInputmask($(ModuleBitrix24Integration.inputNumberJQTPL));
+        ModuleBitrix24Integration.$recordsTable.find('div.checkbox').checkbox({
+          onChange: function onChange() {
+            Form.$formObj.form('set value', 'dirrty', Math.random());
+            Form.checkValues();
+          }
+        });
       },
       language: SemanticLocalization.dataTableLocalisation,
       ordering: false
@@ -229,6 +236,8 @@ var ModuleBitrix24Integration = {
       $(e.target).attr('readonly', false);
       ModuleBitrix24Integration.$dirrtyField.val(Math.random());
       ModuleBitrix24Integration.$dirrtyField.trigger('change');
+      Form.$formObj.form('set value', 'dirrty', Math.random());
+      Form.checkValues();
     }); // Отправка формы на сервер по уходу с поля ввода
 
     $('body').on('focusout', '.external-name, .external-number, .external-aliases', function (e) {
@@ -236,6 +245,8 @@ var ModuleBitrix24Integration = {
       $(e.target).attr('readonly', true);
       ModuleBitrix24Integration.$dirrtyField.val(Math.random());
       ModuleBitrix24Integration.$dirrtyField.trigger('change');
+      Form.$formObj.form('set value', 'dirrty', Math.random());
+      Form.checkValues();
     }); // Клик на кнопку удалить
 
     $('body').on('click', 'a.delete', function (e) {
@@ -375,6 +386,7 @@ var ModuleBitrix24Integration = {
     var arrExternalLines = [];
     $('#external-line-table tr').each(function (index, obj) {
       arrExternalLines.push({
+        disabled: $(obj).find('div.checkbox').checkbox('is checked') === false,
         id: $(obj).attr('id'),
         name: $(obj).find('input.external-name').val(),
         number: $(obj).find('input.external-number').val(),

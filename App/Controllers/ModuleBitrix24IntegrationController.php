@@ -428,6 +428,7 @@ class ModuleBitrix24IntegrationController extends BaseController
 
         // Найдем все записи подходящие под заданный фильтр
         $parameters['columns'] = [
+            'disabled',
             'name',
             'number',
             'alias',

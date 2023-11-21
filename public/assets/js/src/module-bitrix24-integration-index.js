@@ -210,6 +210,9 @@ const ModuleBitrix24Integration = {
 			 * @param data
 			 */
 			createdRow(row, data) {
+				const templateDisable = '<div class="ui fitted toggle checkbox">\n' +
+					'                <input type="checkbox" '+((data.disabled==='0')?'checked=""':'')+' tabindex="0" class="hidden"> <label></label>\n' +
+					'                </div>';
 				const templateName =
 					'<div class="ui transparent fluid input inline-edit">' +
 					`<input class="external-name" type="text" data-value="${data.name}" value="${data.name}">` +
@@ -230,7 +233,7 @@ const ModuleBitrix24Integration = {
 					` class="ui button delete two-steps-delete popuped" data-content="${globalTranslate.bt_ToolTipDelete}">` +
 					'<i class="icon trash red"></i></a></div>';
 
-				$('td', row).eq(0).html('<i class="ui user circle icon"></i>');
+				$('td', row).eq(0).html(templateDisable);
 				$('td', row).eq(1).html(templateName);
 				$('td', row).eq(2).html(templateNumber);
 				$('td', row).eq(3).html(templateDid);
@@ -241,6 +244,14 @@ const ModuleBitrix24Integration = {
 			 */
 			drawCallback() {
 				ModuleBitrix24Integration.initializeInputmask($(ModuleBitrix24Integration.inputNumberJQTPL));
+				ModuleBitrix24Integration.$recordsTable.find('div.checkbox').checkbox(
+					{
+						onChange() {
+							Form.$formObj.form('set value', 'dirrty', Math.random());
+							Form.checkValues();
+						},
+					}
+				);
 			},
 			language: SemanticLocalization.dataTableLocalisation,
 			ordering: false,
@@ -256,6 +267,9 @@ const ModuleBitrix24Integration = {
 			$(e.target).attr('readonly', false);
 			ModuleBitrix24Integration.$dirrtyField.val(Math.random());
 			ModuleBitrix24Integration.$dirrtyField.trigger('change');
+
+			Form.$formObj.form('set value', 'dirrty', Math.random());
+			Form.checkValues();
 		});
 
 		// Отправка формы на сервер по уходу с поля ввода
@@ -266,6 +280,9 @@ const ModuleBitrix24Integration = {
 			$(e.target).attr('readonly', true);
 			ModuleBitrix24Integration.$dirrtyField.val(Math.random());
 			ModuleBitrix24Integration.$dirrtyField.trigger('change');
+
+			Form.$formObj.form('set value', 'dirrty', Math.random());
+			Form.checkValues();
 		});
 
 		// Клик на кнопку удалить
@@ -411,6 +428,7 @@ const ModuleBitrix24Integration = {
 		const arrExternalLines = [];
 		$('#external-line-table tr').each((index, obj) => {
 			arrExternalLines.push({
+				disabled: $(obj).find('div.checkbox').checkbox('is checked') === false,
 				id: $(obj).attr('id'),
 				name: $(obj).find('input.external-name').val(),
 				number: $(obj).find('input.external-number').val(),

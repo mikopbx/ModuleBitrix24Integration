@@ -54,6 +54,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     private bool $export_cdr = false;
     private string $leadType = Bitrix24Integration::API_LEAD_TYPE_ALL;
     private array $external_lines = [];
+    private array $disabledDid = [];
     private string $crmCreateLead = '0';
     private BeanstalkClient $client;
 
@@ -217,6 +218,9 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     continue;
                 }
                 $this->external_lines[$alias] = $line['number'];
+                if($line['disabled'] === '1'){
+                    $this->disabledDid[] = $alias;
+                }
             }
         }
     }
@@ -352,6 +356,10 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             // Или тут нет внутреннего номера.
             return;
         }
+        if(in_array($data['did'],$this->disabledDid, true)){
+            $this->b24->saveCache('finish-cdr-'.$data['UNIQUEID'], true, 3600);
+            return;
+        }
         $LINE_NUMBER = $this->external_lines[$data['did']]??'';
         if (isset($this->inner_numbers[$data['src_num']]) && strlen($general_src_num) <= $this->extensionLength) {
             // Это исходящий вызов с внутреннего номера.
@@ -479,9 +487,6 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
      */
     private function actionCompleteCdr($data):void
     {
-        if ( ! $this->export_cdr) {
-            return;
-        }
         $srsUserId = $this->getInnerNum($data['src_num']);
         $dstUserId = $this->getInnerNum($data['dst_num']);
 
