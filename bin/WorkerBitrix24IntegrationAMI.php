@@ -343,7 +343,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         if ( ! $this->export_cdr) {
             return;
         }
-        $dstNum = $this->b24->getPhoneIndex($data['dst_num']);
+        $dstNum = Bitrix24Integration::getPhoneIndex($data['dst_num']);
         $dstUserShotNum = $this->b24->mobile_numbers[$dstNum]['UF_PHONE_INNER']??'';
         if( !isset($this->b24->usersSettingsB24[$data['dst_num']])
             && !isset($this->b24->usersSettingsB24[$data['src_num']])
@@ -575,7 +575,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     private function getInnerNum(string $number):string
     {
         $userId = '';
-        $number = $this->b24->getPhoneIndex($number);
+        $number = Bitrix24Integration::getPhoneIndex($number);
         if(isset($this->inner_numbers[$number])){
             $userId = $this->inner_numbers[$number]['ID'];
         } elseif(isset($this->b24->mobile_numbers[$number])){

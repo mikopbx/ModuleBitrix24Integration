@@ -19,6 +19,8 @@
  */
 
 use MikoPBX\Core\Asterisk\AGI;
+use Modules\ModuleBitrix24Integration\Lib\CacheManager;
+use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
 use Modules\ModuleBitrix24Integration\Lib\ModuleBitrix24GetResponsible;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 
@@ -38,11 +40,19 @@ $number     = $agi->request['agi_callerid'];
 $extension  = $agi->request['agi_extension'];
 $linkedId   = $agi->get_variable("CHANNEL(linkedid)", true);
 
+$idPhone       = Bitrix24Integration::getPhoneIndex($number);
+$mobileNumbers = CacheManager::getCacheData('mobile_numbers');
+
+$userData = $mobileNumbers[0][$idPhone]??[];
+if(!empty($userData)){
+    $agi->verbose("Call from user mobile $number...");
+    exit();
+}
 $agent = new ModuleBitrix24GetResponsible();
-$resposibleNumber = $agent->getResposibleNumber($number, $linkedId, $extension);
+$respNumber = $agent->getResposibleNumber($number, $linkedId, $extension);
 $agi->verbose("getResposibleNumber($number, $linkedId, $extension)");
-if(!empty($resposibleNumber)){
-    $agi->set_variable('B24_RESPONSIBLE_NUMBER', $resposibleNumber);
+if(!empty($respNumber)){
+    $agi->set_variable('B24_RESPONSIBLE_NUMBER', $respNumber);
     $agi->set_variable('B24_RESPONSIBLE_TIMEOUT', $settings['interception_call_duration']??60);
     $agi->exec('Gosub', "b24-interception,{$extension},1");
 }
