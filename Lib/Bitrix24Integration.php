@@ -12,11 +12,8 @@ use Phalcon\Mvc\Model\Manager;
 use MikoPBX\Common\Models\CallQueues;
 use MikoPBX\Common\Models\IncomingRoutingTable;
 use MikoPBX\Common\Models\Extensions;
-use MikoPBX\Core\System\Processes;
-use MikoPBX\Core\Workers\Cron\WorkerSafeScriptsCore;
 use MikoPBX\Modules\Logger;
 use MikoPBX\Modules\PbxExtensionBase;
-use MikoPBX\Modules\PbxExtensionUtils;
 use MikoPBX\PBXCoreREST\Lib\PBXApiResult;
 use Modules\ModuleBitrix24Integration\Models\{ModuleBitrix24ExternalLines,
     ModuleBitrix24Integration,
@@ -25,7 +22,6 @@ use Modules\ModuleBitrix24Integration\Models\{ModuleBitrix24ExternalLines,
 };
 use MikoPBX\Core\System\Util;
 use Modules\ModuleBitrix24Integration\bin\WorkerBitrix24IntegrationHTTP;
-
 
 class Bitrix24Integration extends PbxExtensionBase
 {
@@ -536,7 +532,12 @@ class Bitrix24Integration extends PbxExtensionBase
      */
     public function getCache($cacheKey)
     {
-        return $this->di->getManagedCache()->get($cacheKey);
+        $value = null;
+        $data = CacheManager::getCacheData($cacheKey);
+        if(!empty($data) && isset($data[0])){
+            $value = $data[0];
+        }
+        return $value;
     }
 
     /**
@@ -552,8 +553,7 @@ class Bitrix24Integration extends PbxExtensionBase
      */
     public function saveCache(string $cacheKey, $resData, int $ttl = 3600): void
     {
-        $managedCache = $this->di->getManagedCache();
-        $managedCache->set($cacheKey, $resData, $ttl);
+        CacheManager::setCacheData($cacheKey, [$resData], $ttl);
     }
 
     /**
@@ -703,6 +703,7 @@ class Bitrix24Integration extends PbxExtensionBase
             'result' => 'ERROR',
             'data'   => $req_data,
         ];
+        $this->logger->writeInfo(json_encode($req_data));
         if ('ONEXTERNALCALLSTART' === $req_data['event']) {
             $FROM_USER_ID = $req_data['data']['USER_ID'];
             $dst          = $req_data['data']['PHONE_NUMBER'];
@@ -724,7 +725,7 @@ class Bitrix24Integration extends PbxExtensionBase
                     'USER_ID'      => $req_data['data']['USER_ID'],
                     'PHONE_NUMBER' => $req_data['data']['PHONE_NUMBER'],
                 ];
-                $pre_call_key = "tmp5_{$phone_data['peer_number']}_" . $this->getPhoneIndex(
+                $pre_call_key = "tmp5_{$phone_data['peer_number']}_" . self::getPhoneIndex(
                         $req_data['data']['PHONE_NUMBER']
                     );
                 $this->saveCache($pre_call_key, $data, 5);
@@ -734,6 +735,8 @@ class Bitrix24Integration extends PbxExtensionBase
                 $this->logger->writeInfo(
                     "ONEXTERNALCALLSTART: originate from user {$FROM_USER_ID} <{$phone_data['peer_number']}> to {$dst})"
                 );
+            }else{
+                $this->logger->writeInfo('User: '.$FROM_USER_ID." - ".json_encode($req_data));
             }
         } elseif ('ONEXTERNALCALLBACKSTART' === $req_data['event']) {
             $PHONE_NUMBER = preg_replace("/[^0-9+]/", '', urldecode($req_data['data']['PHONE_NUMBER']));
@@ -742,7 +745,7 @@ class Bitrix24Integration extends PbxExtensionBase
                 'CRM_ENTITY_ID'   => $req_data['data']['CRM_ENTITY_ID'],
                 'PHONE_NUMBER'    => $PHONE_NUMBER,
             ];
-            $pre_call_key = "tmp5_ONEXTERNALCALLBACKSTART_" . $this->getPhoneIndex($PHONE_NUMBER);
+            $pre_call_key = "tmp5_ONEXTERNALCALLBACKSTART_" . self::getPhoneIndex($PHONE_NUMBER);
             $this->saveCache($pre_call_key, $data, 5);
 
             if(empty($this->queueUid)){
@@ -786,7 +789,7 @@ class Bitrix24Integration extends PbxExtensionBase
                     $peer_number = $ext_data !== null ? $ext_data->number : '';
 
                     if ( ! empty($peer_mobile)) {
-                        $p_key = $this->getPhoneIndex($peer_mobile);
+                        $p_key = self::getPhoneIndex($peer_mobile);
                         /** @var Extensions $exten_mobile */
                         $exten_mobile = Extensions::findFirst("number LIKE '%{$p_key}'");
                         $peer_mobile  = $exten_mobile !== null ? $exten_mobile->number : '';
@@ -814,15 +817,15 @@ class Bitrix24Integration extends PbxExtensionBase
                 $user['UF_PHONE_INNER']  = preg_replace('/(\D)/', '', $value['UF_PHONE_INNER']);
 
                 if (!empty($user['PERSONAL_MOBILE'])) {
-                    $mobile_key                        = $this->getPhoneIndex($user['PERSONAL_MOBILE']);
+                    $mobile_key                        = self::getPhoneIndex($user['PERSONAL_MOBILE']);
                     $this->mobile_numbers[$mobile_key] = $user;
                 }
                 if (!empty($value['WORK_PHONE'])) {
-                    $mobile_key                        = $this->getPhoneIndex($user['WORK_PHONE']);
+                    $mobile_key                        = self::getPhoneIndex($user['WORK_PHONE']);
                     $this->mobile_numbers[$mobile_key] = $user;
                 }
                 if(isset($pbx_numbers[$user['UF_PHONE_INNER']])){
-                    $mobile_key                        = $this->getPhoneIndex($pbx_numbers[$user['UF_PHONE_INNER']]);
+                    $mobile_key                        = self::getPhoneIndex($pbx_numbers[$user['UF_PHONE_INNER']]);
                     $this->mobile_numbers[$mobile_key] = $user;
                 }
                 $this->inner_numbers[$user['UF_PHONE_INNER']] = $user;
@@ -911,7 +914,7 @@ class Bitrix24Integration extends PbxExtensionBase
             $arg = [];
             while ($next < $total) {
                 // Пользователей больше 50ти, формируем пакетный запрос к b24.
-                $arg["userGet_$next"] = 'user.get?' . http_build_query(["start" => (string)$next]);
+                $arg["userGet_$next"] = 'user.get?' . http_build_query(["start" => (string)$next, 'FILTER' => ['ACTIVE' => true]]);
                 $next                 += $step;
             }
             // Пакет запросов сформирован, отправляем.
@@ -944,7 +947,7 @@ class Bitrix24Integration extends PbxExtensionBase
      *
      * @return string
      */
-    public function getPhoneIndex($number):string
+    public static function getPhoneIndex($number):string
     {
         return ''.substr($number, -10);
     }
@@ -1108,8 +1111,8 @@ class Bitrix24Integration extends PbxExtensionBase
         // Сформируем кэш, чтобы исключить дублирующие события.
         $cache_key = "tmp180_call_register_{$options['USER_ID']}_" .
             strtotime($options['CALL_START_DATE']) . "_" .
-            $this->getPhoneIndex($options['PHONE_NUMBER']). "_" .
-            $this->getPhoneIndex($options['USER_PHONE_INNER']);
+            self::getPhoneIndex($options['PHONE_NUMBER']). "_" .
+            self::getPhoneIndex($options['USER_PHONE_INNER']);
 
         $res_data = $this->getCache($cache_key);
         if ($res_data) {

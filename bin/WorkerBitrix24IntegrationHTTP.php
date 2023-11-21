@@ -136,12 +136,12 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             if ($res_data === null) {
                 $this->b24->saveCache($cache_key, $data);
 
-                $pre_call_key = "tmp5_{$data['USER_PHONE_INNER']}_" . $this->b24->getPhoneIndex($data['PHONE_NUMBER']);
+                $pre_call_key = "tmp5_{$data['USER_PHONE_INNER']}_" . Bitrix24Integration::getPhoneIndex($data['PHONE_NUMBER']);
                 $cache_data = $this->b24->getCache($pre_call_key);
                 if ($cache_data !== null) {
                     $data['PHONE_NUMBER'] = $cache_data['PHONE_NUMBER'] ?? $data['PHONE_NUMBER'];
                 }
-                $pre_call_key = "tmp5_ONEXTERNALCALLBACKSTART_" . $this->b24->getPhoneIndex($data['PHONE_NUMBER']);
+                $pre_call_key = "tmp5_ONEXTERNALCALLBACKSTART_" . Bitrix24Integration::getPhoneIndex($data['PHONE_NUMBER']);
                 $cache_data = $this->b24->getCache($pre_call_key);
                 if ($cache_data !== null) {
                     $data['PHONE_NUMBER'] = $cache_data['PHONE_NUMBER'] ?? $data['PHONE_NUMBER'];

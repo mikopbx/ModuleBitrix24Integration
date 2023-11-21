@@ -41,6 +41,12 @@ class ModuleBitrix24ExternalLines extends ModulesModelsBase
      */
     public $alias;
 
+    /**
+     * статус фильтрации, если 1 то выключить передачу данных в Bitrix24
+     *
+     * @Column(type="integer", default="0", nullable=true)
+     */
+    public $disabled = 0;
 
     public function initialize() :void{
         $this->setSource('m_ModuleBitrix24ExternalLines');

@@ -54,6 +54,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     private bool $export_cdr = false;
     private string $leadType = Bitrix24Integration::API_LEAD_TYPE_ALL;
     private array $external_lines = [];
+    private array $disabledDid = [];
     private string $crmCreateLead = '0';
     private BeanstalkClient $client;
 
@@ -76,9 +77,9 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     /**
      * Старт работы листнера.
      *
-     * @param $params
+     * @param $argv
      */
-    public function start($params):void
+    public function start($argv):void
     {
         $this->client = new BeanstalkClient(Bitrix24Integration::B24_INTEGRATION_CHANNEL);
         $this->am     = Util::getAstManager();
@@ -217,6 +218,9 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     continue;
                 }
                 $this->external_lines[$alias] = $line['number'];
+                if($line['disabled'] === '1'){
+                    $this->disabledDid[] = $alias;
+                }
             }
         }
     }
@@ -343,13 +347,17 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         if ( ! $this->export_cdr) {
             return;
         }
-        $dstNum = $this->b24->getPhoneIndex($data['dst_num']);
+        $dstNum = Bitrix24Integration::getPhoneIndex($data['dst_num']);
         $dstUserShotNum = $this->b24->mobile_numbers[$dstNum]['UF_PHONE_INNER']??'';
         if( !isset($this->b24->usersSettingsB24[$data['dst_num']])
             && !isset($this->b24->usersSettingsB24[$data['src_num']])
             && !isset($this->b24->usersSettingsB24[$dstUserShotNum])){
             // Вызов по этому звонку не следует грузить в b24, внутренний номер не участвует в интеграции.
             // Или тут нет внутреннего номера.
+            return;
+        }
+        if(in_array($data['did'],$this->disabledDid, true)){
+            $this->b24->saveCache('finish-cdr-'.$data['UNIQUEID'], true, 3600);
             return;
         }
         $LINE_NUMBER = $this->external_lines[$data['did']]??'';
@@ -479,9 +487,6 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
      */
     private function actionCompleteCdr($data):void
     {
-        if ( ! $this->export_cdr) {
-            return;
-        }
         $srsUserId = $this->getInnerNum($data['src_num']);
         $dstUserId = $this->getInnerNum($data['dst_num']);
 
@@ -575,7 +580,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     private function getInnerNum(string $number):string
     {
         $userId = '';
-        $number = $this->b24->getPhoneIndex($number);
+        $number = Bitrix24Integration::getPhoneIndex($number);
         if(isset($this->inner_numbers[$number])){
             $userId = $this->inner_numbers[$number]['ID'];
         } elseif(isset($this->b24->mobile_numbers[$number])){

@@ -36,9 +36,9 @@ class UploaderB24 extends WorkerBase
     /**
      * Начало работы демона.
      *
-     * @param $params
+     * @param $argv
      */
-    public function start($params):void
+    public function start($argv):void
     {
         $this->logger =  new Logger('UploaderB24', 'ModuleBitrix24Integration');
         $this->logger->writeInfo('Start daemon...');
