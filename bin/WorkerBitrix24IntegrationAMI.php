@@ -358,6 +358,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         }
         if(in_array($data['did'],$this->disabledDid, true)){
             $this->b24->saveCache('finish-cdr-'.$data['UNIQUEID'], true, 3600);
+            $this->b24->saveCache('finish-cdr-'.$data['linkedid'], true, 3600);
             return;
         }
         $LINE_NUMBER = $this->external_lines[$data['did']]??'';
@@ -510,22 +511,27 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
 
         $responsible = '';
         $isMissed = $data['GLOBAL_STATUS'] !== 'ANSWERED';
+
+        $finishKeyID = 'finish-cdr-'.$data['UNIQUEID'];
         if(!empty($USER_ID) && !$isMissed) {
             if ($data['disposition'] === 'ANSWERED') {
                 // Вызов был отвечен в рамках этой CDR.
                 $responsible = $USER_ID;
             }
-        }elseif ($isMissed && !empty($USER_ID) ){
-            // Рандомно назначаем ответственного для пропущенного.
-            $responsible = $USER_ID;
         }elseif ($isMissed && $isOutgoing === false && !empty($this->responsibleMissedCalls)) {
             // Назначаем пропущенный на ответственного.
             $responsible = $this->responsibleMissedCalls;
+            // Если пропущен, то финишируем только один CDR.
+            $finishKeyID = 'finish-cdr-'.$data['linkedid'];
+        }elseif ($isMissed && !empty($USER_ID) ){
+            // Рандомно назначаем ответственного для пропущенного.
+            $responsible = $USER_ID;
         }else{
             return;
         }
+
         if(!empty($responsible)
-           && !$this->b24->getCache('finish-cdr-'.$data['UNIQUEID'])){
+           && !$this->b24->getCache($finishKeyID)){
 
             if(!$isOutgoing && strlen($data['src_num']) > $this->extensionLength
                 && !$this->b24->getCache('reg-cdr-'.$data['linkedid'])){
@@ -561,7 +567,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             ];
             $this->Action_SendToBeanstalk($params);
             if($isMissed){
-                $this->b24->saveCache('finish-cdr-'.$data['UNIQUEID'], true, 60);
+                $this->b24->saveCache($finishKeyID, true, 60);
             }
         }
     }
