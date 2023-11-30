@@ -50,7 +50,7 @@ if(!empty($userData)){
 }
 $agent = new ModuleBitrix24GetResponsible();
 $respNumber = $agent->getResposibleNumber($number, $linkedId, $extension);
-$agi->verbose("getResposibleNumber($number, $linkedId, $extension)");
+$agi->verbose("getResposibleNumber($number, $linkedId, $extension) -> '$respNumber'");
 if(!empty($respNumber)){
     $agi->set_variable('B24_RESPONSIBLE_NUMBER', $respNumber);
     $agi->set_variable('B24_RESPONSIBLE_TIMEOUT', $settings['interception_call_duration']??60);

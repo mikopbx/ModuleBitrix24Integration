@@ -8,6 +8,7 @@
 
 namespace Modules\ModuleBitrix24Integration\Lib;
 
+use MikoPBX\Common\Models\Extensions;
 use MikoPBX\Core\System\PBX;
 use MikoPBX\Core\System\Util;
 use MikoPBX\Modules\Config\ConfigClass;
@@ -116,10 +117,43 @@ class Bitrix24IntegrationConf extends ConfigClass
      */
     public function extensionGenContexts(): string
     {
-        return  '[b24-interception]'.PHP_EOL.
+        $innerMobile = [];
+        $mobileNumberData = Extensions::find("type='".Extensions::TYPE_EXTERNAL."'")->toArray();
+        foreach ($mobileNumberData as $mData){
+            $innerMobile[] = Bitrix24Integration::getPhoneIndex($mData['number']);
+        }
+        $innerMobile = array_unique($innerMobile);
+        $conf = '[b24-inner-mobile]'.PHP_EOL;
+        foreach ($innerMobile as $extension){
+            $conf.=   "exten => $extension,1,NoOp()".PHP_EOL;
+        }
+
+        $disabledDid = [];
+        $lines = ModuleBitrix24ExternalLines::find()->toArray();
+        foreach ($lines as $line){
+            $aliases = explode(' ', $line['alias']);
+            foreach ($aliases as $alias){
+                if(empty($alias)){
+                    continue;
+                }
+                if($line['disabled'] === '1'){
+                    $disabledDid[] = $alias;
+                }
+            }
+        }
+        $disabledDid = array_unique($disabledDid);
+        $conf.= PHP_EOL.'[b24-disabled-did]'.PHP_EOL;
+        $pattern = '/^[0-9*#A-Za-z]+$/';
+        foreach ($disabledDid as $extension){
+            if (!preg_match($pattern, $extension)) {
+                break;
+            }
+            $conf.=   "exten => $extension,1,NoOp()".PHP_EOL;
+        }
+        return  $conf.PHP_EOL.
+                '[b24-interception]'.PHP_EOL.
                 'exten => _[0-9*#+]!,1,ExecIf($["${B24_RESPONSIBLE_NUMBER}x" == "x" && "${B24_RESPONSIBLE_TIMEOUT}x" == "x"]?return)'."\n\t".
-                'same => n,Set(M_TIMEOUT=${B24_RESPONSIBLE_TIMEOUT)'."\n\t".
-	            'same => n,Dial(Local/${B24_RESPONSIBLE_NUMBER}@internal-incoming/n,${B24_RESPONSIBLE_TIMEOUT},${TRANSFER_OPTIONS}Kg)'."\n\t".
+	            'same => n,Dial(Local/${B24_RESPONSIBLE_NUMBER}@internal/n,${B24_RESPONSIBLE_TIMEOUT},${TRANSFER_OPTIONS}Kg)'."\n\t".
 	            'same => n,return'.PHP_EOL;
     }
 
@@ -133,7 +167,10 @@ class Bitrix24IntegrationConf extends ConfigClass
      */
     public function generateIncomingRoutBeforeDial(string $rout_number): string
     {
+        $len = strlen(Bitrix24Integration::getPhoneIndex(str_repeat('1', 32)));
         $scriptFile = "$this->moduleDir/agi-bin/b24CheckResponsible.php";
-        return "\t".'same => n,AGI('.$scriptFile.')' . "\n\t";
+        return "\t".'same => n,ExecIf($["${DIALPLAN_EXISTS(b24-disabled-did,${EXTEN},1)}" == "1"]?Set(B24_DISABLE_INTERCEPTION=1))'."\n".
+               "\t".'same => n,ExecIf($["${DIALPLAN_EXISTS(b24-inner-mobile,${CALLERID(num):-'.$len.'},1)}" == "1"]?Set(B24_DISABLE_INTERCEPTION=1))'."\n".
+               "\t".'same => n,ExecIf($["${B24_DISABLE_INTERCEPTION}" != "1"]?AGI('.$scriptFile.'))'."\n\t";
     }
 }
