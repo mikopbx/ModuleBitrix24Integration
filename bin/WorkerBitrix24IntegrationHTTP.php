@@ -464,6 +464,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $leads    = $this->tmpCallsData[$key]['leads'];
         $company  = $this->tmpCallsData[$key]['company-list'];
 
+        $this->b24->logger->writeInfo("findContactByPhone: company: ".count($company).', leads: '.count($leads). ', entities: '.count($entities));
         if (empty($entities) && empty($leads)) {
             // Это новый лид. Пользователь сам сопоставит его с компанией.
             $this->tmpCallsData[$key]['wait'] = false;
@@ -476,6 +477,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             // Ищем среди компаний.
             foreach ($company as $entity) {
                 if ($chooseFirst || in_array($entity['USER_PHONE_INNER'], $users, true)) {
+                    $this->b24->logger->writeInfo("findContactByPhone: company id:". $entity['ID']. ', TITLE: '.$entity['TITLE']. ', responsible: '. $entity['USER_PHONE_INNER']);
                     $this->tmpCallsData[$key]['crm-data'] = $entity;
                     $this->tmpCallsData[$key]['wait'] = false;
                     $this->tmpCallsData[$key]['responsible'] = $entity['ASSIGNED_BY']['USER_PHONE_INNER'];
@@ -484,10 +486,11 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 }
             }
             if (empty($this->tmpCallsData[$key]['crm-data'])) {
-                // Пользователи, закрепленные за DID.
+                // Сперва ищем среди лидов.
+                // Пользователи, закрепленные за DID. (Невасофт доработки)
                 foreach ($leads as $lead){
-                    // Сперва ищем среди лидов.
                     if ($chooseFirst || in_array($lead['USER_PHONE_INNER'], $users, true)) {
+                        $this->b24->logger->writeInfo("findContactByPhone: lead id:". $lead['ID']. ', TITLE: '.$lead['TITLE']. ', responsible: '. $lead['USER_PHONE_INNER']);
                         $this->tmpCallsData[$key]['crm-data'] = $lead;
                         $this->tmpCallsData[$key]['wait'] = false;
                         $this->tmpCallsData[$key]['responsible'] = $lead['USER_PHONE_INNER'];
@@ -500,6 +503,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 // Если не нашли среди лидов, ищем среди контактов / компаний.
                 foreach ($entities as $entity) {
                     if ($chooseFirst || in_array($entity['ASSIGNED_BY']['USER_PHONE_INNER'], $users, true)) {
+                        $this->b24->logger->writeInfo("findContactByPhone: ".$entity['CRM_ENTITY_TYPE']." id:". $entity['CRM_ENTITY_ID']. ', TITLE: '.$entity['NAME']. ', responsible: '. $entity['ASSIGNED_BY']['USER_PHONE_INNER']);
                         $this->tmpCallsData[$key]['crm-data'] = $entity;
                         $this->tmpCallsData[$key]['wait'] = false;
                         $this->tmpCallsData[$key]['responsible'] = $entity['ASSIGNED_BY']['USER_PHONE_INNER'];
