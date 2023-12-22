@@ -1383,9 +1383,9 @@ class Bitrix24Integration extends PbxExtensionBase
             ],
             'filter' => [
                 "PHONE"=> $phone,
-                "STATUS_SEMANTIC_ID" => 'P'
+                "OPENED" => 'Y'
             ],
-            'select'=> [ "ID", "TITLE", "ASSIGNED_BY_ID", "STATUS_SEMANTIC_ID"],
+            'select'=> [ "ID", "TITLE", "ASSIGNED_BY_ID"],
             'auth' => $this->getAccessToken(),
         ];
         $arg = [];

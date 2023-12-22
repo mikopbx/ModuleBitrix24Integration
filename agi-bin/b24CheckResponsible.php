@@ -36,7 +36,7 @@ if($useInterception !== '1'){
 }
 
 $agi        = new AGI();
-$number     = $agi->request['agi_callerid'];
+$number     = preg_replace('/\D/', '', $agi->request['agi_callerid']);
 $extension  = $agi->request['agi_extension'];
 $linkedId   = $agi->get_variable("CHANNEL(linkedid)", true);
 
