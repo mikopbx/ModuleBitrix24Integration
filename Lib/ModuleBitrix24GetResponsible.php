@@ -22,13 +22,14 @@ use MikoPBX\Core\System\BeanstalkClient;
 class ModuleBitrix24GetResponsible{
     private BeanstalkClient $queueAgent;
     private string $responsibleNumber = '';
+    private array $data = [];
 
     public function __construct()
     {
         $this->queueAgent = new BeanstalkClient();
     }
 
-    public function getResposibleNumber(string $number, string $linkedId, string $did, int $timeout = 5):string
+    public function getResposibleNumber(string $number, string $linkedId, string $did, int $timeout = 10):string
     {
         $inbox_tube    = uniqid(Bitrix24Integration::B24_SEARCH_CHANNEL, true);
         $data = [
@@ -50,10 +51,18 @@ class ModuleBitrix24GetResponsible{
         return $this->responsibleNumber;
     }
 
+    public function getData():array
+    {
+        return $this->data;
+    }
+
     public function calback($client):void
     {
-        $data = json_decode($client->getBody(), true);
-        $this->responsibleNumber = $data['responsible']??'';
+        $dataFromJson = json_decode($client->getBody(), true);
+        if(is_array($dataFromJson)){
+            $this->responsibleNumber = $dataFromJson['responsible']??'';
+            $this->data = $dataFromJson;
+        }
     }
 
     public function timeOutCallback():void

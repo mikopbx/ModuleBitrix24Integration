@@ -30,6 +30,13 @@ class Bitrix24IntegrationConf extends ConfigClass
      */
     public function modelsEventChangeData($data): void
     {
+        if ($data['model'] === ModuleBitrix24Integration::class) {
+            $changedFields = count($data['changedFields']);
+            $syncKeys = ['lastLeadId', 'lastCompanyId', 'lastContactId', 'lastDealId'];
+            if ($changedFields === 1 && in_array($data['changedFields'][0],$syncKeys, true)) {
+                return;
+            }
+        }
         $moduleModels = [
             ModuleBitrix24ExternalLines::class,
             ModuleBitrix24Integration::class,

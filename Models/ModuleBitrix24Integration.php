@@ -116,6 +116,23 @@ class ModuleBitrix24Integration extends ModulesModelsBase
      */
     public $client_secret;
 
+    /**
+     *
+     * @Column(type="string", nullable=true)
+     */
+    public $lastContactId;
+
+    /**
+     *
+     * @Column(type="string", nullable=true)
+     */
+    public $lastCompanyId;
+
+    /**
+     *
+     * @Column(type="string", nullable=true)
+     */
+    public $lastLeadId;
 
 
     public function initialize(): void

@@ -38,6 +38,7 @@ use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24ExternalLines;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use MikoPBX\Core\System\Util;
+use Modules\ModuleBitrix24Integration\Lib\Logger;
 
 class WorkerBitrix24IntegrationAMI extends WorkerBase
 {
@@ -60,6 +61,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
 
     private array $channelCounter = [];
     private string $responsibleMissedCalls = '';
+    private Logger $logger;
 
     /**
      * Handles the received signal.
@@ -71,6 +73,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     public function signalHandler(int $signal): void
     {
         parent::signalHandler($signal);
+        $this->logger->writeInfo('Need SHUTDOWN... '.$signal);
         cli_set_process_title('SHUTDOWN_'.cli_get_process_title());
     }
 
@@ -81,13 +84,16 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
      */
     public function start($argv):void
     {
+        $this->logger =  new Logger('IntegrationAMI', 'ModuleBitrix24Integration');
+        $this->logger->writeInfo('Start daemon...');
+
         $this->client = new BeanstalkClient(Bitrix24Integration::B24_INTEGRATION_CHANNEL);
         $this->am     = Util::getAstManager();
         $this->b24    = new Bitrix24Integration();
 
-        $this->b24->logger->writeInfo("Bitrix24IntegrationAMI: starting...");
         if (!$this->b24->initialized) {
-            die('Settings not set...');
+            $this->logger->writeError('Settings not set... exit');
+            exit();
         }
         $this->setFilter();
 
@@ -105,23 +111,23 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
 
         $this->am->addEventHandler("userevent", [$this, "callback"]);
         while ($this->needRestart === false) {
-            $result = $this->am->waitUserEvent(true);
-            if ($result == false) {
-                // Нужен реконнект.
+            $this->am->waitUserEvent(true);
+            if ( !is_resource($this->am->socket) === false) {
+                $this->logger->writeError('Need reconnect AMI...');
                 usleep(100000);
                 $this->am = Util::getAstManager();
                 $this->setFilter();
             }
+            $this->logger->rotate();
         }
     }
-
 
     /**
      * Отправка данных на сервер очередей.
      *
      * @param array $result - данные в ормате json для отправки.
      */
-    private function Action_SendToBeanstalk($result): void
+    private function Action_SendToBeanstalk(array $result): void
     {
         $message_is_sent = false;
         $error           = '';
@@ -142,9 +148,8 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 $error        = $e->getMessage();
             }
         }
-
         if ($message_is_sent === false) {
-            Util::sysLogMsg('b24_AMI_Connector', 'Error send data to queue. ' . $error);
+            $this->logger->writeInfo('Error send data to queue. '.$error);
         }
 
     }
@@ -160,14 +165,15 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 $this->inner_numbers = (array)$innerNumbers;
                 break;
             }
-            $this->b24->logger->writeInfo("Bitrix24IntegrationAMI: inner numbers is empty. Wait 2 seconds...");
+            $this->logger->writeError('inner numbers is empty. Wait 2 seconds.');
             sleep(2);
             $iterationCount++;
             if ($iterationCount>25){ // Сейчас WorkerSafeScriptsCore создаст копию этого процесса, т.к. он не отвечает на Ping
-                die('Internal numbers not installed');
+                $this->logger->writeError('Internal numbers not installed.');
+                exit(1);
             }
         }
-
+        $this->logger->writeInfo('Update settings...');
         $keys_for_del  = [];
         foreach ($this->msg as $key => $time) {
             if ((time() - $time) > 5) {
@@ -255,15 +261,15 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             }
             return;
         }
-
         if ('CdrConnector' !== $parameters['UserEvent']) {
             return;
         }
         if(!isset($parameters['AgiData'])){
             return;
         }
-
-        $data = json_decode(base64_decode($parameters['AgiData']), true);
+        $stringData = base64_decode($parameters['AgiData']);
+        $data = json_decode($stringData, true);
+        $this->logger->writeInfo($data['action'].': '.$stringData);
         switch ($data['action']) {
             case 'hangup_chan':
                 $this->actionHangupChan($data);
@@ -330,7 +336,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     unlink($filename);
                 }
             } else {
-                Util::sysLogMsg('Bitrix24NotifyAMI', "Error get data from queue 'select_cdr'. ");
+                $this->logger->writeError("Error get data from queue 'select_cdr'");
             }
         }
         $this->actionCreateCdr($data, $general_src_num);
@@ -354,16 +360,18 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             && !isset($this->b24->usersSettingsB24[$dstUserShotNum])){
             // Вызов по этому звонку не следует грузить в b24, внутренний номер не участвует в интеграции.
             // Или тут нет внутреннего номера.
+            $this->logger->writeInfo("the internal number is not involved in the integration.");
             return;
         }
         if(in_array($data['did'],$this->disabledDid, true)){
             $this->b24->saveCache('finish-cdr-'.$data['UNIQUEID'], true, 3600);
             $this->b24->saveCache('finish-cdr-'.$data['linkedid'], true, 3600);
+            $this->logger->writeInfo("Integration is disabled for this DID");
             return;
         }
         $LINE_NUMBER = $this->external_lines[$data['did']]??'';
         if (isset($this->inner_numbers[$data['src_num']]) && strlen($general_src_num) <= $this->extensionLength) {
-            // Это исходящий вызов с внутреннего номера.
+            $this->logger->writeInfo("This is an outgoing call from an internal number.");
             if (strlen($data['dst_num']) > $this->extensionLength && ! in_array($data['dst_num'], $this->extensions, true)) {
                 $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_IN && $this->crmCreateLead === '1')?'1':"0";
                 $req_data = [
@@ -382,6 +390,8 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 ];
                 $this->Action_SendToBeanstalk($req_data);
                 $this->b24->saveCache('reg-cdr-'.$req_data['linkedid'], true, 600);
+            }else{
+                $this->logger->writeInfo("{$data['dst_num']} <= $this->extensionLength || {$data['dst_num']} is  internal... cancellation");
             }
         } elseif (isset($this->inner_numbers[$data['dst_num']]) || isset($this->b24->mobile_numbers[$dstNum])) {
             if(isset($this->b24->mobile_numbers[$dstNum])){
@@ -390,10 +400,10 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 $userId = $this->inner_numbers[$data['dst_num']]['ID'];
             }
             $inner  = $data['dst_num'];
-            // Это входящий вызов на внутренний номер сотрудника.
+            $this->logger->writeInfo("This is an incoming call to an employee's internal number.");
             $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_OUT && $this->crmCreateLead === '1')?'1':'0';
             if (strlen($general_src_num) > $this->extensionLength && ! in_array($general_src_num, $this->extensions, true)) {
-                // Это переадресация от с.
+                $this->logger->writeInfo("This is transfer...");
                 $req_data = [
                     'UNIQUEID'         => $data['UNIQUEID'],
                     'linkedid'         => $data['linkedid'],
@@ -412,6 +422,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 $this->b24->saveCache('reg-cdr-'.$req_data['linkedid'], true, 600);
             } elseif (strlen($data['src_num']) > $this->extensionLength && ! in_array($data['src_num'], $this->extensions, true)) {
                 // Это вызов с номера клиента.
+                $this->logger->writeInfo("This is incoming...");
                 $req_data = [
                     'UNIQUEID'         => $data['UNIQUEID'],
                     'linkedid'         => $data['linkedid'],
@@ -428,6 +439,9 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 ];
                 $this->Action_SendToBeanstalk($req_data);
                 $this->b24->saveCache('reg-cdr-'.$req_data['linkedid'], true, 600);
+            }else{
+                $this->logger->writeInfo("cancellation...");
+
             }
         }
 
@@ -488,6 +502,11 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
      */
     private function actionCompleteCdr($data):void
     {
+        if(in_array($data['did'],$this->disabledDid, true)){
+            $this->logger->writeInfo("Integration is disabled for this DID");
+            return;
+        }
+
         $srsUserId = $this->getInnerNum($data['src_num']);
         $dstUserId = $this->getInnerNum($data['dst_num']);
 
@@ -496,6 +515,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             // Вероятно это множественная регистрация.
             // Либо это CDR по внутреннему вызову.
             || (!empty($srsUserId) && !empty($dstUserId)) ){
+            $this->logger->writeInfo("Not all channels with this ID have been completed. This is probably a multiple registration. Or it's CD R on an internal call.. cancellation");
             return;
         }
 
@@ -527,6 +547,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             // Рандомно назначаем ответственного для пропущенного.
             $responsible = $USER_ID;
         }else{
+            $this->logger->writeInfo("The responsible person was not found. cancellation");
             return;
         }
 
@@ -535,7 +556,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
 
             if(!$isOutgoing && strlen($data['src_num']) > $this->extensionLength
                 && !$this->b24->getCache('reg-cdr-'.$data['linkedid'])){
-                // Только для вхоядщих. Если это пропущенный, то сперва его нужно зарегистрировать.
+                $this->logger->writeInfo("Send Register event... For incoming users only. If it is a missed one, then you need to register it first.");
                 $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_OUT && $this->crmCreateLead === '1')?'1':'0';
                 $LINE_NUMBER = $this->external_lines[$data['did']]??'';
                 $req_data = [
@@ -554,6 +575,8 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 ];
                 $this->Action_SendToBeanstalk($req_data);
             }
+
+            $this->logger->writeInfo("Send finish event...");
             $params = [
                 'UNIQUEID'       => $data['UNIQUEID'],
                 'USER_ID'        => $responsible,
@@ -571,6 +594,12 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             }
         }
     }
+
+    /**
+     * Событие создания нового канала назначения.
+     * @param $data
+     * @return void
+     */
     public function actionDialCreateChan($data):void{
         // Считаем каналы с одинаковым UID
         $countChannel = $this->channelCounter[$data['UNIQUEID']]??0;
