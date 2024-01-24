@@ -130,12 +130,11 @@ class ModuleBitrix24IntegrationController extends BaseController
             Bitrix24Integration::OPEN_CARD_ANSWERED
         ];
 
-        $b24    = new Bitrix24Integration();
-        $usersB24 = $b24->getCache('userGet');
+        $usersB24 = (new Bitrix24Integration())->userGet();
         unset($b24);
-        if ( is_array($usersB24) ) {
+        if ( is_array($usersB24['result']) ) {
             $usersB24['users'] = [];
-            foreach ($usersB24[0]??[] as $userB24){
+            foreach ($usersB24['result'] as $userB24){
                 $usersB24['users'][$userB24['UF_PHONE_INNER']] = "{$userB24['LAST_NAME']} {$userB24['NAME']}";
             }
             $usersB24 = $usersB24['users'];
