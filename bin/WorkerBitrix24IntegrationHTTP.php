@@ -172,19 +172,19 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             if (!isset($this->tmpCallsData[$data['linkedid']]) && $data['action'] === 'telephonyExternalCallRegister') {
                 $this->createTmpCallData($data);
             }
+            $callData = &$this->tmpCallsData[$data['linkedid']];
             if ($data['action'] === 'telephonyExternalCallRegister'
-                && ($this->tmpCallsData[$data['linkedid']]['data']['action']??'') !== 'telephonyExternalCallRegister'){
-                $this->tmpCallsData[$data['linkedid']]['data'] = $data;
-                $data['CRM_ENTITY_TYPE'] = $this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_TYPE'];
-                $data['CRM_ENTITY_ID']   = $this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_ID'];
+                && ($callData['data']['action']??'') !== 'telephonyExternalCallRegister'){
+                $callData['data'] = $data;
+                $data['CRM_ENTITY_TYPE'] = $callData['crm-data']['CRM_ENTITY_TYPE'];
+                $data['CRM_ENTITY_ID']   = $callData['crm-data']['CRM_ENTITY_ID'];
             }
-
-            $wait = $this->tmpCallsData[$data['linkedid']]['wait']?? false;
+            $wait = $callData['wait']?? false;
             if ($wait === false) {
                 // Не требуется предварительная обработка. Выполнить сразу.
                 return false;
             }
-            $this->tmpCallsData[$data['linkedid']]['events'][] = $data;
+            $callData['events'][] = $data;
         } else {
             $needActions = false;
         }
@@ -439,7 +439,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $chooseFirst = !isset($this->didUsers[$did]);
         $users       = $this->didUsers[$did];
 
-        foreach (['COMPANY', 'LEAD', 'CONTACT'] as $type){
+        foreach (['LEAD', 'CONTACT', 'COMPANY'] as $type){
             if($callData['wait'] === false){
                 break;
             }
@@ -498,6 +498,8 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         }
         $this->tmpCallsData[$key]['lead'] = 1;
         $this->tmpCallsData[$key]['wait'] = false;
+        $this->tmpCallsData[$key]['crm-data']['CRM_ENTITY_TYPE'] = 'LEAD';
+        $this->tmpCallsData[$key]['crm-data']['CRM_ENTITY_ID']   = $response;
         $this->addEventsToMainQueue($key, 'LEAD', $response);
     }
 
