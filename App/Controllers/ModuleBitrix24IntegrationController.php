@@ -131,7 +131,6 @@ class ModuleBitrix24IntegrationController extends BaseController
         ];
 
         $usersB24 = (new Bitrix24Integration())->userGet();
-        unset($b24);
         if ( is_array($usersB24['result']) ) {
             $usersB24['users'] = [];
             foreach ($usersB24['result'] as $userB24){
