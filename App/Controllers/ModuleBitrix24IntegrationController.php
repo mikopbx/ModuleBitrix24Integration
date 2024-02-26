@@ -130,6 +130,15 @@ class ModuleBitrix24IntegrationController extends BaseController
             Bitrix24Integration::OPEN_CARD_ANSWERED
         ];
 
+        $usersB24 = (new Bitrix24Integration())->userGet();
+        if ( is_array($usersB24['result']) ) {
+            $usersB24['users'] = [];
+            foreach ($usersB24['result'] as $userB24){
+                $usersB24['users'][$userB24['UF_PHONE_INNER']] = "{$userB24['LAST_NAME']} {$userB24['NAME']}";
+            }
+            $usersB24 = $usersB24['users'];
+        }
+
         $extensionTable = [];
         foreach ($extensions as $extension) {
             switch ($extension->type) {
@@ -139,6 +148,7 @@ class ModuleBitrix24IntegrationController extends BaseController
                     $extensionTable[$extension->userid]['status']   = '';
                     $extensionTable[$extension->userid]['id']       = $extension->id;
                     $extensionTable[$extension->userid]['username'] = $extension->username;
+                    $extensionTable[$extension->userid]['b24Name']  = $usersB24[$extension->number]??'';
 
                     if ( ! array_key_exists('mobile', $extensionTable[$extension->userid])) {
                         $extensionTable[$extension->userid]['mobile'] = '';

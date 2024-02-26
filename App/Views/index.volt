@@ -143,7 +143,19 @@
                 <td class="{{ extension['status'] }}"><img src="{{ extension['avatar'] }}" class="ui avatar image"
                                                                       data-value="{{ extension['userid'] }}"> {{ extension['username'] }}
                 </td>
+                {% if extension['b24Name'] === "" %}
                 <td class="center aligned {{ extension['status'] }}">{{ extension['number'] }}</td>
+                {% else %}
+                <td class="center aligned {{ extension['status'] }}">
+                    <div class="ui blue label">
+                      <i class="user icon"></i>
+                      {{ extension['number'] }}
+                      <a class="detail">{{ extension['b24Name'] }}</a>
+                    </div>
+                </td>
+
+                {% endif %}
+
                 <td class="center aligned {{ extension['status'] }}">{{ extension['mobile'] }}</td>
             </tr>
             {% if loop.last %}

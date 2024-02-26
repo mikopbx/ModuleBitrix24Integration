@@ -15,22 +15,23 @@ use MikoPBX\Common\Models\Extensions;
 use MikoPBX\Modules\Logger;
 use MikoPBX\Modules\PbxExtensionBase;
 use MikoPBX\PBXCoreREST\Lib\PBXApiResult;
-use Modules\ModuleBitrix24Integration\Models\{ModuleBitrix24ExternalLines,
+use Modules\ModuleBitrix24Integration\Models\{B24PhoneBook,
+    ModuleBitrix24ExternalLines,
     ModuleBitrix24Integration,
     ModuleBitrix24CDR,
-    ModuleBitrix24Users
-};
+    ModuleBitrix24Users};
 use MikoPBX\Core\System\Util;
 use Modules\ModuleBitrix24Integration\bin\WorkerBitrix24IntegrationHTTP;
 
 class Bitrix24Integration extends PbxExtensionBase
 {
+    public const URI_OAUTH = 'https://oauth.bitrix.info/oauth/token/';
+
     public const API_LEAD_TYPE_ALL   = 'all';
     public const API_LEAD_TYPE_IN    = 'incoming';
     public const API_LEAD_TYPE_OUT   = 'outgoing';
 
     public const API_ATTACH_RECORD   = 'telephony.externalCall.attachRecord';
-    public const API_SEARCH_ENTITIES = 'telephony.externalCall.searchCrmEntities';
     public const API_CALL_FINISH     = 'telephony.externalcall.finish';
     public const API_CALL_HIDE       = 'telephony.externalcall.hide';
     public const API_CALL_SHOW       = 'telephony.externalcall.show';
@@ -39,6 +40,7 @@ class Bitrix24Integration extends PbxExtensionBase
     public const API_CRM_ADD_CONTACT = 'crm.contact.add';
     public const API_CRM_LIST_LEAD   = 'crm.lead.list';
     public const API_CRM_LIST_COMPANY= 'crm.company.list';
+    public const API_CRM_LIST_CONTACT= 'crm.contact.list';
 
     public const OPEN_CARD_NONE      = 'NONE';
     public const OPEN_CARD_DIRECTLY  = 'DIRECTLY';
@@ -47,6 +49,7 @@ class Bitrix24Integration extends PbxExtensionBase
     public const B24_INTEGRATION_CHANNEL = 'b24_integration_channel';
     public const B24_SEARCH_CHANNEL = 'b24_search_channel';
 
+    public array $b24Users;
     public array $inner_numbers;
     public array $mobile_numbers;
     private $SESSION;
@@ -65,7 +68,12 @@ class Bitrix24Integration extends PbxExtensionBase
     private bool $mainProcess = false;
     private int $updateTokenTime;
 
-    public function __construct()
+    public $lastContactId;
+    public $lastCompanyId;
+    public $lastLeadId;
+    public $lastDealId;
+
+    public function __construct($mainProcess=false)
     {
         parent::__construct();
         if(php_sapi_name() === "cli"){
@@ -117,6 +125,10 @@ class Bitrix24Integration extends PbxExtensionBase
         if($settings === null){
             return;
         }
+        $this->lastLeadId    = $settings->lastLeadId;
+        $this->lastCompanyId = $settings->lastCompanyId;
+        $this->lastContactId = $settings->lastContactId;
+
         $this->usersSettingsB24 = $this->getUsersSettings();
         $this->backgroundUpload = ($settings->backgroundUpload === '1');
         $default_action = IncomingRoutingTable::findFirst('priority = 9999');
@@ -227,7 +239,6 @@ class Bitrix24Integration extends PbxExtensionBase
      */
     public function updateToken($refresh_token = null): bool
     {
-        $result = false;
         if(!$this->mainProcess && !$refresh_token){
             return $this->getTokenFromSettings();
         }
@@ -238,33 +249,52 @@ class Bitrix24Integration extends PbxExtensionBase
         if ( ! isset($this->SESSION["refresh_token"])) {
             return false;
         }
-        $oAuthToken = ModuleBitrix24Integration::getAvailableRegions()[$this->b24_region];
+
+        return $this->authByCode($this->SESSION["refresh_token"], $this->b24_region, 'refresh_token');
+    }
+
+    /**
+     * oAuth2 аутентификация по code.
+     * @param string $code
+     * @param string $region
+     * @param string $grantType
+     * @return bool
+     */
+    public function authByCode(string $code, string $region, string $grantType = 'authorization_code'): bool
+    {
+        $tokenKey = [
+            'authorization_code' => 'code',
+            'refresh_token' => 'refresh_token',
+        ];
+
+        $result = false;
+        $oAuthToken = ModuleBitrix24Integration::getAvailableRegions()[$region];
         if(empty($oAuthToken['CLIENT_ID'])){
             $oAuthToken['CLIENT_ID']     = $this->client_id;
             $oAuthToken['CLIENT_SECRET'] = $this->client_secret;
         }
         $params     = [
-            "grant_type"    => "refresh_token",
-            "client_id"     => $oAuthToken['CLIENT_ID'],
-            "client_secret" => $oAuthToken['CLIENT_SECRET'],
-            "refresh_token" => $this->SESSION["refresh_token"],
+            "grant_type"          => $grantType,
+            "client_id"           => $oAuthToken['CLIENT_ID'],
+            "client_secret"       => $oAuthToken['CLIENT_SECRET'],
+            $tokenKey[$grantType]??'-' => $code,
         ];
-        $query_data = $this->query("https://oauth.bitrix.info/oauth/token/", $params);
+        $query_data = $this->query(self::URI_OAUTH, $params);
         if( ($query_data['error']??'') === 'invalid_grant' ){
             // Не корректно выбран регион.
             $oAuthToken = ModuleBitrix24Integration::getAvailableRegions()['WORLD'];
             $params['client_id']     = $oAuthToken['CLIENT_ID'];
             $params['client_secret'] = $oAuthToken['CLIENT_SECRET'];
-            $query_data = $this->query("https://oauth.bitrix.info/oauth/token/", $params);
+            $query_data = $this->query(self::URI_OAUTH, $params);
         }
-
         if (isset($query_data["access_token"])) {
             $result = true;
             $this->updateSessionData($query_data);
+            $this->logger->writeInfo('The token has been successfully updated');
+
         } else {
             $this->logger->writeError('Refresh token: '.json_encode($query_data));
         }
-
         return $result;
     }
 
@@ -290,40 +320,6 @@ class Bitrix24Integration extends PbxExtensionBase
                 $result = true;
             }
             unset($data);
-        }
-
-        return $result;
-    }
-
-    /**
-     * oAuth2 аутентификация по code.
-     * @param $code
-     * @return bool
-     */
-    public function authByCode($code, $region): bool
-    {
-        $result = false;
-        $oAuthToken = ModuleBitrix24Integration::getAvailableRegions()[$region];
-        $params     = [
-            "grant_type"    => "authorization_code",
-            "client_id"     => $oAuthToken['CLIENT_ID'],
-            "client_secret" => $oAuthToken['CLIENT_SECRET'],
-            "code"          => $code,
-        ];
-        $query_data = $this->query("https://oauth.bitrix.info/oauth/token/", $params);
-        if( ($query_data['error']??'') === 'invalid_grant' ){
-            // Не корректно выбран регион.
-            $oAuthToken = ModuleBitrix24Integration::getAvailableRegions()['WORLD'];
-            $params['client_id']     = $oAuthToken['CLIENT_ID'];
-            $params['client_secret'] = $oAuthToken['CLIENT_SECRET'];
-            $query_data = $this->query("https://oauth.bitrix.info/oauth/token/", $params);
-        }
-
-        if (isset($query_data["access_token"])) {
-            $result = true;
-            $this->updateSessionData($query_data);
-        } else {
-            $this->logger->writeError('Refresh token: '.json_encode($query_data));
         }
 
         return $result;
@@ -391,6 +387,16 @@ class Bitrix24Integration extends PbxExtensionBase
         if(isset( $data['cmd'])){
             $queues = $data['cmd'];
             unset($queues['event.get'], $queues['event.offline.get']);
+            foreach ($queues as $index => $queue){
+                [$apiKey] = explode('_', $index);
+                if(!in_array($apiKey, [self::API_CRM_LIST_LEAD, self::API_CRM_LIST_CONTACT, self::API_CRM_LIST_COMPANY], true)){
+                    continue;
+                }
+                if(empty($response['result']["result"][$index])){
+                    unset($queues[$index]);
+                }
+            }
+
             if(!empty($queues)){
                 foreach ($queues as $index => $queue){
                     $query = [];
@@ -488,7 +494,7 @@ class Bitrix24Integration extends PbxExtensionBase
      * @param     $curlOptions
      * @param     $status
      * @param     $headers
-     * @param int $time
+     * @param float $time
      *
      * @return mixed
      */
@@ -584,37 +590,40 @@ class Bitrix24Integration extends PbxExtensionBase
      */
     public function eventsBind(): bool
     {
-        $eventd_res = $this->eventGet();
+        $eventResults = $this->eventGet();
 
         usleep(500000);
-        $binds  = $eventd_res['result']['result']['event.get'] ?? [];
+        $binds  = $eventResults['result']['result']['event.get'] ?? [];
         $events = [];
         foreach ($binds as $bind) {
             $events[] = $bind['event'];
         }
         $arg = [];
-        if ( ! in_array('ONEXTERNALCALLSTART', $events, true)) {
-            $paramsCall                 = [
-                "event_type" => 'offline',
-                "event"      => 'OnExternalCallStart',
-                "auth"       => $this->getAccessToken(),
-            ];
-            $arg["OnExternalCallStart"] = 'event.bind?' . http_build_query($paramsCall);
+        $eventsAll = [
+            'OnExternalCallStart',
+            'OnExternalCallBackStart',
+            'onCrmLeadUpdate',
+            'onCrmCompanyUpdate',
+            'onCrmContactUpdate',
+            'onCrmContactDelete',
+            'onCrmCompanyDelete',
+            'onCrmLeadDelete',
+        ];
+        foreach ($eventsAll as $event){
+            if (!in_array(strtoupper($event), $events, true)) {
+                $paramsCallBack                 = [
+                    "event_type" => 'offline',
+                    "event"      => $event,
+                    "auth"       => $this->getAccessToken(),
+                ];
+                $arg[$event] = 'event.bind?' . http_build_query($paramsCallBack);
+            }
         }
-        if ( ! in_array('ONEXTERNALCALLBACKSTART', $events, true)) {
-            $paramsCallBack                 = [
-                "event_type" => 'offline',
-                "event"      => 'OnExternalCallBackStart',
-                "auth"       => $this->getAccessToken(),
-            ];
-            $arg["OnExternalCallBackStart"] = 'event.bind?' . http_build_query($paramsCallBack);
-        }
-
         if (!empty($arg)) {
             $this->logger->writeInfo('Update event binding...');
             $arg      = array_merge($arg, $this->eventOfflineGet());
             $response = $this->sendBatch($arg);
-            $result   = ! isset($response['result']['result_error']);
+            $result   = empty($response['result']['result_error']??[]);
         } else {
             $result = true;
         }
@@ -695,7 +704,6 @@ class Bitrix24Integration extends PbxExtensionBase
      * @param $req_data
      *
      * @return array
-     * @throws \Exception
      */
     public function handleEvent($req_data): array
     {
@@ -704,15 +712,22 @@ class Bitrix24Integration extends PbxExtensionBase
             'data'   => $req_data,
         ];
         $this->logger->writeInfo(json_encode($req_data));
-        if ('ONEXTERNALCALLSTART' === $req_data['event']) {
+        $event = $req_data['event']??[];
+        if ('ONEXTERNALCALLSTART' === $req_data['event']['EVENT_NAME']) {
+            $delta = time() - strtotime($event['TIMESTAMP_X']);
+            if ($delta > 15) {
+                $this->logger->writeInfo(
+                    "An outdated response was received {$delta}s: " . json_encode($event)
+                );
+            }
             $FROM_USER_ID = $req_data['data']['USER_ID'];
             $dst          = $req_data['data']['PHONE_NUMBER'];
 
-            // Повторный вызов на тот же номер возможне только через N секунд.
-            $cache_key = 'tmp5_' . __FUNCTION__ . "_{$FROM_USER_ID}_{$dst}";
+            // Повторный вызов на тот же номер возможен только через N секунд.
+            $cache_key = 'tmp5_' . __FUNCTION__ . "_{$FROM_USER_ID}_$dst";
             $res_data  = $this->getCache($cache_key);
             if ($res_data !== null) {
-                $this->logger->writeInfo("Repeated calls to the number {$dst} are possible in N seconds ");
+                $this->logger->writeInfo("Repeated calls to the number $dst are possible in N seconds ");
 
                 return $result;
             }
@@ -738,7 +753,7 @@ class Bitrix24Integration extends PbxExtensionBase
             }else{
                 $this->logger->writeInfo('User: '.$FROM_USER_ID." - ".json_encode($req_data));
             }
-        } elseif ('ONEXTERNALCALLBACKSTART' === $req_data['event']) {
+        } elseif ('ONEXTERNALCALLBACKSTART' === $req_data['event']['EVENT_NAME']) {
             $PHONE_NUMBER = preg_replace("/[^0-9+]/", '', urldecode($req_data['data']['PHONE_NUMBER']));
             $data         = [
                 'CRM_ENTITY_TYPE' => $req_data['data']['CRM_ENTITY_TYPE'],
@@ -807,6 +822,7 @@ class Bitrix24Integration extends PbxExtensionBase
             $pbx_numbers = $this->getPbxNumbers();
             $this->inner_numbers  = [];
             $this->mobile_numbers = [];
+            $this->b24Users = [];
             foreach ($users_list['result'] as $value) {
                 $user                    = [];
                 $user['NAME']            = '' . $value['NAME'] . ' ' . $value['LAST_NAME'];
@@ -829,6 +845,7 @@ class Bitrix24Integration extends PbxExtensionBase
                     $this->mobile_numbers[$mobile_key] = $user;
                 }
                 $this->inner_numbers[$user['UF_PHONE_INNER']] = $user;
+                $this->b24Users[$value['ID']] = $user['UF_PHONE_INNER'];
             }
 
             $data = $this->mobile_numbers;
@@ -887,8 +904,12 @@ class Bitrix24Integration extends PbxExtensionBase
      */
     public function userGet(): array
     {
-        // Пробуем получить закэшированные записи
-        $res_data = $this->getCache(__FUNCTION__);
+        if($this->mainProcess === false){
+            $res_data = max($this->getCache(__FUNCTION__."_LONG"), $this->getCache(__FUNCTION__));
+        }else{
+            $res_data = $this->getCache(__FUNCTION__);
+        }
+        // Пробуем получить кэшированные записи
         if ($res_data === null) {
             // Кэш не пуст / истекло время жизни.
             $res_data = [];
@@ -926,8 +947,9 @@ class Bitrix24Integration extends PbxExtensionBase
                     $res_data[] = $res;
                 }
             }
-            // Сохраняем их в кэше
+            // Сохраняем в кэше
             $this->saveCache(__FUNCTION__, $res_data, 90);
+            $this->saveCache(__FUNCTION__."_LONG", $res_data);
         }
 
         if (count($res_data) > 1) {
@@ -973,7 +995,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $db_data = ModuleBitrix24ExternalLines::find()->toArray();
         foreach ($db_data as $line) {
             $local_lines_keys[] = $line['number'];
-            if (in_array($line['number'], $external_lines_keys)) {
+            if (in_array($line['number'], $external_lines_keys, true)) {
                 continue;
             }
             // Номера нет в Б24, добавим его.
@@ -986,17 +1008,17 @@ class Bitrix24Integration extends PbxExtensionBase
 
         // Обход сохраненных в b24 внешних линий.
         foreach ($external_lines_keys as $line) {
-            if (in_array($line, $local_lines_keys)) {
+            if (in_array($line, $local_lines_keys, true)) {
                 continue;
             }
             $params = [
                 'NUMBER' => $line,
                 'NAME'   => '',
             ];
-            // Ключа нет на MIKOPBX. Удалим его из Б24
+            // Ключа нет на MikoPBX. Удалим его из Б24
             $arg[uniqid('externalLine.add', true)] = 'telephony.externalLine.delete?' . http_build_query($params);
         }
-        if (count($arg) > 0) {
+        if (!empty($arg)) {
             $this->sendBatch($arg);
             usleep(500000);
         }
@@ -1025,8 +1047,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $arg       = [];
         $resp_data = $this->getExternalLines();
         foreach ($resp_data as $line_data) {
-            $external_lines_keys[]                    = $line_data['NUMBER'];
-            $params                                   = [
+            $params = [
                 'NUMBER' => $line_data['NUMBER'],
             ];
             $arg[uniqid('externalLine.delete', true)] = 'telephony.externalLine.delete?' . http_build_query($params);
@@ -1218,12 +1239,10 @@ class Bitrix24Integration extends PbxExtensionBase
      */
     public function telephonyExternalCallFinish($options): array
     {
-        $CALL_DATA = $this->getCallDataByUniqueId($options['UNIQUEID']);
-        $CALL_ID   = $this->getCallIdByUniqueId($options['UNIQUEID']);
+        [$CALL_DATA, $CALL_ID] = $this->getCallDataById($options);
         if (empty($CALL_ID)) {
             return [];
         }
-
         $userId = ($CALL_DATA['answer'] === '1') ? $CALL_DATA['user_id'] : '';
         $params = [
             'CALL_ID'       => $CALL_ID,
@@ -1251,10 +1270,10 @@ class Bitrix24Integration extends PbxExtensionBase
             $this->mem_cache[$finishKey] = $CALL_DATA;
         }
         if ($options['GLOBAL_STATUS'] !== 'ANSWERED') {
-            $this->mem_cache["{$finishKey}-missed"]   = $CALL_DATA;
+            $this->mem_cache["$finishKey-missed"]   = $CALL_DATA;
         }
         if ($options['GLOBAL_STATUS'] === 'ANSWERED' && $options['disposition'] === 'ANSWERED') {
-            $this->mem_cache["{$finishKey}-answered"] = $CALL_DATA;
+            $this->mem_cache["$finishKey-answered"] = $CALL_DATA;
         }
         return $arg;
     }
@@ -1272,9 +1291,9 @@ class Bitrix24Integration extends PbxExtensionBase
             // Постановка задачи на удаление activity.
             $queryArray[] = $this->crmActivityDelete($activityId);
         }
-        $cacheData = $this->getMemCache("{$finishKey}-answered");
+        $cacheData = $this->getMemCache("$finishKey-answered");
         if($cacheData === null){
-            $cacheData = $this->getMemCache("{$finishKey}-missed");
+            $cacheData = $this->getMemCache("$finishKey-missed");
         }
         if(isset($cacheData['contact_id'])){
             $queryArray[] = $this->crmContactUpdate($cacheData['contact_id'], $response['PORTAL_USER_ID']);
@@ -1343,78 +1362,121 @@ class Bitrix24Integration extends PbxExtensionBase
     }
 
     /**
-     * Обновление пользователя для Lead,
-     * @param string $phone
-     * @param string $id
-     * @param string $user
+     * Запрос синхронизации справочников.
+     * @param string $type
+     * @param array $arIds
      * @return array
      */
-    public function crmAddContact(string $phone, string $id = '', string  $user = ''): array
+    public function crmListEnt(string $type, array $arIds = []): array
     {
+        $id = '0';
+        $select = [ "ID", "ASSIGNED_BY_ID", "PHONE"];
+        if(self::API_CRM_LIST_CONTACT === $type){
+            $id = $this->lastContactId;
+            $select = [ "ID", "NAME", "LAST_NAME", "SECOND_NAME", "COMPANY_ID",  "ASSIGNED_BY_ID", "PHONE", "LEAD_ID", "DATE_CREATE", "DATE_MODIFY"];
+        }elseif (self::API_CRM_LIST_COMPANY === $type){
+            $id = $this->lastCompanyId;
+            $select = [ "ID", "TITLE",  "ASSIGNED_BY_ID", "PHONE", "LEAD_ID", "DATE_CREATE", "DATE_MODIFY"];
+        }elseif (self::API_CRM_LIST_LEAD === $type){
+            $id = $this->lastLeadId;
+            $select = [ "ID", "TITLE",  "ASSIGNED_BY_ID", "PHONE", "CONTACT_ID", "COMPANY_ID", "STATUS_ID", "STATUS_SEMANTIC_ID", "DATE_CREATE", "DATE_MODIFY"];
+        }
+        if(empty($arIds)){
+            $filter = ['>ID' => $id];
+            $keyId = $type . '_init';
+        }else{
+            $filter = ['ID' => $arIds];
+            $keyId = $type . '_update_'.uniqid('', true);
+        }
+        $type = strtolower($type);
         $params = [
-            'fields' => [
-                'NAME' => $phone,
-                'OPENED' => "Y",
-                "SOURCE_ID" => "SELF",
-                "TYPE_ID" => "CLIENT",
-                "ASSIGNED_BY_ID" => $user,
-                "PHONE"=> [ [ "VALUE"=> $phone, "VALUE_TYPE"=> "WORK" ] ]
-            ],
-            'auth' => $this->getAccessToken(),
-            'params' => [
-                'REGISTER_SONET_EVENT' => 'N'
-            ]
+            'order'  => ["ID" =>  "ASC"],
+            'filter' => $filter,
+            'start'  => '-1',
+            'select' => $select,
+            'auth'   => $this->getAccessToken(),
         ];
         $arg = [];
-        if(empty($id)){
-            $id = 'crm.contact.add_' . uniqid('', true);
-        }else{
-            $id = 'crm.contact.add_' . $id;
-        }
-        $arg[$id] = 'crm.contact.add?' . http_build_query($params);
+        $arg[$keyId] = $type.'?' . http_build_query($params);
         return $arg;
     }
 
-    public function crmLeadListByPhone(string $phone, $id): array
+    public function crmListEntResults($action, $keyId, $data):void
     {
-        $params = [
-            'order'=> [
-                "DATE_CREATE" =>  "DESC"
-            ],
-            'filter' => [
-                "PHONE"=> $phone,
-                "OPENED" => 'Y'
-            ],
-            'select'=> [ "ID", "TITLE", "ASSIGNED_BY_ID"],
-            'auth' => $this->getAccessToken(),
+        $contactTypes = [
+            self::API_CRM_LIST_CONTACT => 'CONTACT',
+            self::API_CRM_LIST_COMPANY => 'COMPANY',
+            self::API_CRM_LIST_LEAD => 'LEAD',
         ];
-        $arg = [];
-        if(empty($id)){
-            $id = 'crm.lead.list_' . uniqid('', true);
-        }else{
-            $id = 'crm.lead.list_' . $id;
+        $maxId = '';
+        foreach ($data as $entData){
+            $id          = $entData['ID'];
+            $maxId       = max($maxId, $id);
+            $userId      = $entData['ASSIGNED_BY_ID'];
+            $dateCreate  = $entData['DATE_CREATE'];
+            $dateModify  = $entData['DATE_MODIFY'];
+            $statusLeadId= $entData['STATUS_SEMANTIC_ID']??'';
+            if(self::API_CRM_LIST_CONTACT === $action){
+                $name  = $entData['LAST_NAME'] ." " . $entData['NAME']. " " . $entData['SECOND_NAME'];
+            }else{
+                $name  = $entData['TITLE'];
+            }
+            $contactType =  $contactTypes[$action]??'';
+            $this->deletePhoneContact($contactType, [$id]);
+            foreach ($entData['PHONE'] as $phoneData){
+                $phoneIndex = self::getPhoneIndex($phoneData['VALUE']);
+                if(empty($phoneIndex)){
+                    continue;
+                }
+                $pbRow = new B24PhoneBook();
+                $pbRow->b24id = $id;
+                $pbRow->userId = $userId;
+                $pbRow->dateCreate = $dateCreate;
+                $pbRow->dateModify = $dateModify;
+                $pbRow->statusLeadId = $statusLeadId;
+                $pbRow->name = $name;
+                $pbRow->phone = $phoneData['VALUE'];
+                $pbRow->phoneId = $phoneIndex;
+                $pbRow->contactType = $contactType;
+                $pbRow->save();
+            }
         }
-        $arg[$id] = 'crm.lead.list?' . http_build_query($params);
-        return $arg;
+        if(empty($maxId) || $keyId === 'update'){
+            return;
+        }
+        $settings = ModuleBitrix24Integration::findFirst();
+        if(!$settings){
+            return;
+        }
+        if(self::API_CRM_LIST_CONTACT === $action){
+            $this->lastContactId = $maxId;
+        }elseif (self::API_CRM_LIST_COMPANY === $action){
+            $this->lastCompanyId = $maxId;
+        }elseif (self::API_CRM_LIST_LEAD === $action){
+            $this->lastLeadId = $maxId;
+        }
+        $settings->lastContactId = $this->lastContactId;
+        $settings->lastCompanyId = $this->lastCompanyId;
+        $settings->lastLeadId    = $this->lastLeadId;
+        $settings->save();
     }
 
-    public function crmCompanyListByPhone(string $phone, $id): array
+    /**
+     * @param string $contactType
+     * @param array  $b24id
+     * @return void
+     */
+    public function deletePhoneContact(string $contactType, array $b24id):void
     {
-        $params = [
-            'filter' => [
-                "PHONE"=> $phone,
+        $filter = [
+            'conditions' => 'contactType = :contactType: AND b24id IN ({ids:array})',
+            'bind' => [
+                'ids' => $b24id,
+                'contactType' => $contactType,
             ],
-            'select'=> [ "ID", "TITLE", "ASSIGNED_BY_ID"],
-            'auth' => $this->getAccessToken(),
         ];
-        $arg = [];
-        if(empty($id)){
-            $id = 'crm.company.list_' . uniqid('', true);
-        }else{
-            $id = 'crm.company.list_' . $id;
-        }
-        $arg[$id] = 'crm.company.list?' . http_build_query($params);
-        return $arg;
+        $dataPB = B24PhoneBook::find($filter);
+        $dataPB->delete();
     }
 
     /**
@@ -1466,62 +1528,41 @@ class Bitrix24Integration extends PbxExtensionBase
     }
 
     /**
-     * Функции взаимодействия с базой данных на АТС.
-     */
-
-    /**
      * Получпение из базы данных идентификатора звонка.
-     * @param $uniq_id
-     * @return array
      */
-    public function getCallDataByUniqueId($uniq_id): array
+    private function getCallDataById($options): array
     {
-        $CALL_DATA = [];
-        /** @var ModuleBitrix24CDR $res */
-        $res = ModuleBitrix24CDR::findFirst("uniq_id='{$uniq_id}'");
-        if ($res !== null) {
-            $CALL_DATA  = $res->toArray();
-            unset($res);
-            $linkedId   = $CALL_DATA['linkedid'];
-            /** @var ModuleBitrix24CDR $row */
-            $rows       = ModuleBitrix24CDR::find("linkedid='{$linkedId}'");
-            foreach ($rows as $row){
-                if(!empty($row->dealId)){
-                    $CALL_DATA['deal_id']      = max($row->dealId,$CALL_DATA['deal_id']);
-                    $CALL_DATA['deal_user']    = $row->user_id;
-                }
-                if(!empty($row->contactId)){
-                    $CALL_DATA['contact_id']   = max($row->contactId,$CALL_DATA['contact_id']);
-                    $CALL_DATA['contact_user'] = $row->user_id;
-                }
-                if(!empty($row->lead_id)){
-                    $CALL_DATA['lead_id'] = max($row->lead_id,$CALL_DATA['lead_id']);
-                    $CALL_DATA['lead_user'] = $row->user_id;
-                }
+        $rows = ModuleBitrix24CDR::find("linkedid='{$options['linkedid']}'")->toArray();
+        $result = [];
+        foreach ($rows as $row){
+            if($row['uniq_id'] === $options['UNIQUEID']){
+                $result = [$row, $row['call_id']];
+                break;
             }
-            unset($rows);
         }
-
-        return $CALL_DATA;
-    }
-
-    /**
-     * Получпение из базы данных идентификатора звонка.
-     *
-     * @param $uniq_id
-     *
-     * @return string|null
-     */
-    public function getCallIdByUniqueId($uniq_id): ?string
-    {
-        $call_id = null;
-        /** @var ModuleBitrix24CDR $res */
-        $res = ModuleBitrix24CDR::findFirst("uniq_id='{$uniq_id}'");
-        if ($res !== null) {
-            $call_id = $res->call_id;
+        if(empty($result) && $options['GLOBAL_STATUS'] === 'NOANSWER'){
+            // Пропущенный вызов.
+            // Берем первую попавшуюся CDR.
+            return [$rows[0], $rows[0]['call_id']];
         }
-
-        return $call_id;
+        if(empty($result)){
+            return [];
+        }
+        foreach ($rows as $row){
+            if(!empty($row['dealId'])){
+                $result[0]['deal_id']      = max($row['dealId'],$result[0]['deal_id']);
+                $result[0]['deal_user']    = $row['user_id'];
+            }
+            if(!empty($row['contactId'])){
+                $result[0]['contact_id']   = max($row['contactId'],$result[0]['contact_id']);
+                $result[0]['contact_user'] = $row['user_id'];
+            }
+            if(!empty($row['lead_id'])){
+                $result[0]['lead_id'] = max($row['lead_id'],$result[0]['lead_id']);
+                $result[0]['lead_user'] = $row['user_id'];
+            }
+        }
+        return $result;
     }
 
     /**
@@ -1635,74 +1676,14 @@ class Bitrix24Integration extends PbxExtensionBase
     }
 
     /**
-     * Удаление Дела по ID
-     *
-     * @param      $id
-     *
-     * @return array
-     */
-    public function crmLeadDelete($id): array
-    {
-        $params                                 = [
-            'ID'   => $id,
-            'auth' => $this->getAccessToken(),
-        ];
-        $arg                                    = [];
-        $arg['lead.delete_' . uniqid('', true)] = 'crm.lead.delete?' . http_build_query($params);
-
-        return $arg;
-    }
-
-    /**
-     * Получение список "Источников" звонков.
-     * @param string $id
-     * @return array
-     */
-    public function crmStatusEntityItems(string $id = "SOURCE"): array
-    {
-        $params                                 = [
-            'entityId'   => $id,
-            'auth' => $this->getAccessToken(),
-        ];
-        $arg                                    = [];
-        $arg['crm.status.entity.items_' . uniqid('', true)] = 'crm.status.entity.items?' . http_build_query($params);
-
-        return $arg;
-    }
-
-    /**
-     * Удаление Дела по ID
-     *
-     * @param  string $phone
-     * @param  string $id
-     *
-     * @return array
-     */
-    public function searchCrmEntities(string $phone, string $id = ''): array
-    {
-        $params                                 = [
-            'PHONE_NUMBER'   => $phone,
-            'auth' => $this->getAccessToken(),
-        ];
-        $arg                                    = [];
-        if(empty($id)){
-            $id = self::API_SEARCH_ENTITIES.'_' . uniqid('', true);
-        }else{
-            $id = self::API_SEARCH_ENTITIES.'_' . $id;
-        }
-        $arg[$id] = self::API_SEARCH_ENTITIES.'?' . http_build_query($params);
-        return $arg;
-    }
-
-    /**
      */
     public function startAllServices(): void
     {
         // Сервисы будут запущены по cron в течение минуты.
     }
 
-    public function testUpdateToken($token){
+    public function testUpdateToken($token):void
+    {
         $this->updateToken($token);
     }
-
 }
