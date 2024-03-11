@@ -366,7 +366,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                     }
 
                     if (!empty($leadId) && !empty($userId)) {
-                        $tmpArr[] = $this->b24->crmLeadUpdate($dealId, $userId);
+                        $tmpArr[] = $this->b24->crmLeadUpdate($leadId, $userId);
                     }
                     if (!empty($dealId) && !empty($userId)) {
                         $tmpArr[] = $this->b24->crmDealUpdate($dealId, $userId);

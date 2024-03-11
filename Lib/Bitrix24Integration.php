@@ -1353,11 +1353,11 @@ class Bitrix24Integration extends PbxExtensionBase
         ];
         $arg = [];
         if(empty($id)){
-            $id = 'crm.lead.add_' . uniqid('', true);
+            $id = self::API_CRM_ADD_LEAD.'_' . uniqid('', true);
         }else{
-            $id = 'crm.lead.add_' . $id;
+            $id = self::API_CRM_ADD_LEAD.'_' . $id;
         }
-        $arg[$id] = 'crm.lead.add?' . http_build_query($params);
+        $arg[$id] = self::API_CRM_ADD_LEAD.'?' . http_build_query($params);
         return $arg;
     }
 
