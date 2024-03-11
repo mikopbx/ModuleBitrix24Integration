@@ -69,6 +69,8 @@ class UploaderB24 extends WorkerBase
     {
         parent::signalHandler($signal);
         cli_set_process_title('SHUTDOWN_'.cli_get_process_title());
+        $this->logger->writeInfo("NEED SHUTDOWN ($signal)...");
+
     }
 
     /**
@@ -89,24 +91,33 @@ class UploaderB24 extends WorkerBase
     public function callBack(BeanstalkClient $client): void
     {
         $stringData = $client->getBody();
-        /** @var array $data */
-        $data = json_decode($stringData, true);
-        $this->logger->writeInfo("Start upload file. uploadUrl: {$data['uploadUrl']}, filename: {$data['FILENAME']}");
+        $this->logger->writeInfo("Start upload file.");
         $this->logger->writeInfo("Raw data: $stringData");
-        if(!file_exists($data['FILENAME'])){
-            $this->logger->writeError("File not exists!!!");
+        try {
+            /** @var array $data */
+            $data = json_decode($stringData, true, 512, JSON_THROW_ON_ERROR);
+        }catch (Exception $e){
+            $data = null;
+        }
+        if(!is_array($data)){
+            $this->logger->writeError("Data is not valid JSON.");
             return;
         }
-        $result = $this->b24->uploadRecord($data['uploadUrl'], $data['FILENAME']);
+        $filename = $data['FILENAME']??'';
+        if(!file_exists($filename)){
+            $this->logger->writeError("File '$filename' not exists!!!");
+            return;
+        }
+        $result = $this->b24->uploadRecord($data['uploadUrl'], $filename);
         try {
-            $rawResult = json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
-            $this->logger->writeError('Result' . $rawResult);
+            $rawResult = json_encode($result, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+            $this->logger->writeInfo('Result: ' . $rawResult);
         }catch (Exception $e){
-            $this->logger->writeError('Exception upload file ' . $e->getMessage());
+            $this->logger->writeError('Exception upload file: ' . $e->getMessage());
             return;
         }
         if(!isset($result['result']["FILE_ID"])){
-            $this->logger->writeError('Fail upload file. Req ' . $rawResult);
+            $this->logger->writeError('Fail upload file. Req: ' . $rawResult);
         }
         usleep(300000);
     }

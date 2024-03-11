@@ -366,8 +366,13 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                     }
 
                     if (!empty($leadId) && !empty($userId)) {
-                        $tmpArr[] = $this->b24->crmLeadUpdate($dealId, $userId);
+                        $tmpArr[] = $this->b24->crmLeadUpdate($leadId, $userId);
                     }
+                    // Если лид добавляется вручную, до звонка методом crm.lead.add
+                    if($this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_TYPE']??'' === 'LEAD'){
+                        $tmpArr[] = $this->b24->crmLeadUpdate($this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_ID'], $userId);
+                    }
+
                     if (!empty($dealId) && !empty($userId)) {
                         $tmpArr[] = $this->b24->crmDealUpdate($dealId, $userId);
                     }
