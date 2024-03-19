@@ -76,6 +76,7 @@ class Bitrix24Integration extends PbxExtensionBase
     public function __construct($mainProcess=false)
     {
         parent::__construct();
+        $this->portal = '';
         if(php_sapi_name() === "cli"){
             $this->mainProcess     = cli_get_process_title() === WorkerBitrix24IntegrationHTTP::class;
         }
@@ -910,9 +911,8 @@ class Bitrix24Integration extends PbxExtensionBase
             $res_data = $this->getCache(__FUNCTION__);
         }
         // Пробуем получить кэшированные записи
-        if ($res_data === null) {
+        if ($res_data === null && !empty($this->portal)) {
             // Кэш не пуст / истекло время жизни.
-            $res_data = [];
             $url      = 'https://' . $this->portal . '/rest/user.get';
 
             $next   = 0;
@@ -950,6 +950,8 @@ class Bitrix24Integration extends PbxExtensionBase
             // Сохраняем в кэше
             $this->saveCache(__FUNCTION__, $res_data, 90);
             $this->saveCache(__FUNCTION__."_LONG", $res_data);
+        }elseif ($res_data === null ){
+            $res_data = [];
         }
 
         if (count($res_data) > 1) {
