@@ -117,13 +117,23 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
      */
     public function b24ChannelCallBack($client): void
     {
-        /** @var array $data */
-        $data = json_decode($client->getBody(), true);
+        $srcData = $client->getBody();
+        $this->b24->logger->writeInfo('Get AMI Event'. $srcData);
+        try {
+            /** @var array $data */
+            $data = json_decode($srcData, true, 512, JSON_THROW_ON_ERROR);
+        }catch (Exception $e){
+            $this->b24->logger->writeInfo('AMI Event'. $e->getMessage());
+            return;
+        }
+
+        $id = $data['linkedid']??'';
         if ($this->checkPreAction($data)) {
             // Получение сведений об организации по номеру телефона
             // Формирование лида.
             // Предварительные действия перед обработкой звонков.
             // Отрабатывает только если заполенн "$didUsers"
+            $this->b24->logger->writeInfo('Ignore event...'.$id);
             return;
         }
         $this->addDataToQueue($data);
@@ -168,6 +178,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     public function checkPreAction(&$data): bool
     {
         $needActions = true;
+        $id = $data['linkedid']??'';
         if ($this->searchEntities) {
             if (!isset($this->tmpCallsData[$data['linkedid']]) && $data['action'] === 'telephonyExternalCallRegister') {
                 $this->createTmpCallData($data);
@@ -181,11 +192,13 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             }
             $wait = $callData['wait']?? false;
             if ($wait === false) {
+                $this->b24->logger->writeInfo('checkPreAction wait === false...'.$id);
                 // Не требуется предварительная обработка. Выполнить сразу.
                 return false;
             }
             $callData['events'][] = $data;
         } else {
+            $this->b24->logger->writeInfo('checkPreAction needActions = false...'.$id);
             $needActions = false;
         }
         return $needActions;

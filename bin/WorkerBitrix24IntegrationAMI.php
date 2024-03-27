@@ -307,11 +307,12 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     private function actionDial($data):void {
         $general_src_num = null;
         if ($data['transfer'] === '1') {
+            $linkedId = $data['linkedid']??'';
             // Попробуем выяснить кого переадресуют.
             $filter                        = [
                 '(linkedid = {linkedid})',
                 'bind'  => [
-                    'linkedid' => $data['linkedid'],
+                    'linkedid' => $linkedId,
                 ],
                 'order' => 'id',
                 'limit' => 1,
@@ -336,7 +337,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     unlink($filename);
                 }
             } else {
-                $this->logger->writeError("Error get data from queue 'select_cdr'");
+                $this->logger->writeError("Error get data from queue 'select_cdr'". $linkedId);
             }
         }
         $this->actionCreateCdr($data, $general_src_num);
@@ -353,6 +354,8 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         if ( ! $this->export_cdr) {
             return;
         }
+        $linkedId = $data['linkedid']??'';
+
         $dstNum = Bitrix24Integration::getPhoneIndex($data['dst_num']);
         $dstUserShotNum = $this->b24->mobile_numbers[$dstNum]['UF_PHONE_INNER']??'';
         if( !isset($this->b24->usersSettingsB24[$data['dst_num']])
@@ -360,18 +363,18 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             && !isset($this->b24->usersSettingsB24[$dstUserShotNum])){
             // Вызов по этому звонку не следует грузить в b24, внутренний номер не участвует в интеграции.
             // Или тут нет внутреннего номера.
-            $this->logger->writeInfo("the internal number is not involved in the integration.");
+            $this->logger->writeInfo("the internal number is not involved in the integration. $linkedId");
             return;
         }
         if(in_array($data['did'],$this->disabledDid, true)){
             $this->b24->saveCache('finish-cdr-'.$data['UNIQUEID'], true, 3600);
             $this->b24->saveCache('finish-cdr-'.$data['linkedid'], true, 3600);
-            $this->logger->writeInfo("Integration is disabled for this DID");
+            $this->logger->writeInfo("Integration is disabled for this DID $linkedId");
             return;
         }
         $LINE_NUMBER = $this->external_lines[$data['did']]??'';
         if (isset($this->inner_numbers[$data['src_num']]) && strlen($general_src_num) <= $this->extensionLength) {
-            $this->logger->writeInfo("This is an outgoing call from an internal number.");
+            $this->logger->writeInfo("This is an outgoing call from an internal number. $linkedId");
             if (strlen($data['dst_num']) > $this->extensionLength && ! in_array($data['dst_num'], $this->extensions, true)) {
                 $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_IN && $this->crmCreateLead === '1')?'1':"0";
                 $req_data = [
@@ -391,7 +394,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 $this->Action_SendToBeanstalk($req_data);
                 $this->b24->saveCache('reg-cdr-'.$req_data['linkedid'], true, 600);
             }else{
-                $this->logger->writeInfo("{$data['dst_num']} <= $this->extensionLength || {$data['dst_num']} is  internal... cancellation");
+                $this->logger->writeInfo("{$data['dst_num']} <= $this->extensionLength || {$data['dst_num']} is  internal... cancellation $linkedId");
             }
         } elseif (isset($this->inner_numbers[$data['dst_num']]) || isset($this->b24->mobile_numbers[$dstNum])) {
             if(isset($this->b24->mobile_numbers[$dstNum])){
@@ -400,10 +403,10 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 $userId = $this->inner_numbers[$data['dst_num']]['ID'];
             }
             $inner  = $data['dst_num'];
-            $this->logger->writeInfo("This is an incoming call to an employee's internal number.");
+            $this->logger->writeInfo("This is an incoming call to an employee's internal number. $linkedId");
             $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_OUT && $this->crmCreateLead === '1')?'1':'0';
             if (strlen($general_src_num) > $this->extensionLength && ! in_array($general_src_num, $this->extensions, true)) {
-                $this->logger->writeInfo("This is transfer...");
+                $this->logger->writeInfo("This is transfer... $linkedId");
                 $req_data = [
                     'UNIQUEID'         => $data['UNIQUEID'],
                     'linkedid'         => $data['linkedid'],
@@ -422,7 +425,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 $this->b24->saveCache('reg-cdr-'.$req_data['linkedid'], true, 600);
             } elseif (strlen($data['src_num']) > $this->extensionLength && ! in_array($data['src_num'], $this->extensions, true)) {
                 // Это вызов с номера клиента.
-                $this->logger->writeInfo("This is incoming...");
+                $this->logger->writeInfo("This is incoming... $linkedId");
                 $req_data = [
                     'UNIQUEID'         => $data['UNIQUEID'],
                     'linkedid'         => $data['linkedid'],
@@ -440,7 +443,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 $this->Action_SendToBeanstalk($req_data);
                 $this->b24->saveCache('reg-cdr-'.$req_data['linkedid'], true, 600);
             }else{
-                $this->logger->writeInfo("cancellation...");
+                $this->logger->writeInfo("cancellation... $linkedId");
 
             }
         }
@@ -502,8 +505,9 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
      */
     private function actionCompleteCdr($data):void
     {
+        $linkedId = $data['linkedid']??'';
         if(in_array($data['did'],$this->disabledDid, true)){
-            $this->logger->writeInfo("Integration is disabled for this DID");
+            $this->logger->writeInfo("Integration is disabled for this DID".$linkedId);
             return;
         }
 
@@ -515,7 +519,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             // Вероятно это множественная регистрация.
             // Либо это CDR по внутреннему вызову.
             || (!empty($srsUserId) && !empty($dstUserId)) ){
-            $this->logger->writeInfo("Not all channels with this ID have been completed. This is probably a multiple registration. Or it's CD R on an internal call.. cancellation");
+            $this->logger->writeInfo("Not all channels with this ID have been completed. This is probably a multiple registration. Or it's CD R on an internal call.. cancellation".$linkedId);
             return;
         }
 
@@ -547,7 +551,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             // Рандомно назначаем ответственного для пропущенного.
             $responsible = $USER_ID;
         }else{
-            $this->logger->writeInfo("The responsible person was not found. cancellation");
+            $this->logger->writeInfo("The responsible person was not found. cancellation".$linkedId);
             return;
         }
 
@@ -556,7 +560,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
 
             if(!$isOutgoing && strlen($data['src_num']) > $this->extensionLength
                 && !$this->b24->getCache('reg-cdr-'.$data['linkedid'])){
-                $this->logger->writeInfo("Send Register event... For incoming users only. If it is a missed one, then you need to register it first.");
+                $this->logger->writeInfo("Send Register event... For incoming users only. If it is a missed one, then you need to register it first.".$linkedId);
                 $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_OUT && $this->crmCreateLead === '1')?'1':'0';
                 $LINE_NUMBER = $this->external_lines[$data['did']]??'';
                 $req_data = [
@@ -576,7 +580,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 $this->Action_SendToBeanstalk($req_data);
             }
 
-            $this->logger->writeInfo("Send finish event...");
+            $this->logger->writeInfo("Send finish event...".$linkedId);
             $params = [
                 'UNIQUEID'       => $data['UNIQUEID'],
                 'USER_ID'        => $responsible,

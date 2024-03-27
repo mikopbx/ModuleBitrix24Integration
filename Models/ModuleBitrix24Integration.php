@@ -9,6 +9,7 @@
 namespace Modules\ModuleBitrix24Integration\Models;
 
 use MikoPBX\Modules\Models\ModulesModelsBase;
+use Modules\ModuleBitrix24Integration\Lib\Constants;
 
 class ModuleBitrix24Integration extends ModulesModelsBase
 {
@@ -150,20 +151,20 @@ class ModuleBitrix24Integration extends ModulesModelsBase
     {
         return [
             'RUSSIA'=>[
-                'CLIENT_ID'=>'app.5ea2ab337deab1.57263195',
-                'CLIENT_SECRET'=>'XUMGJmFTgg2mjAnuZ0XykBODqToLT2f0HPDZagKP3HKtH6RT18',
+                'CLIENT_ID'=>Constants::VAL_CLIENT_ID_RU,
+                'CLIENT_SECRET'=>Constants::VAL_CLIENT_SECRET_RU,
             ],
             'BELARUS'=>[
-                'CLIENT_ID'=>'app.609f6df4629d95.85311286',
-                'CLIENT_SECRET'=>'cWNRrpmDzye1nqzE2lTjEcILaYl4iECo4h7LZfbzfUf8cuBU7G',
+                'CLIENT_ID'=>Constants::VAL_CLIENT_ID_W,
+                'CLIENT_SECRET'=>Constants::VAL_CLIENT_SECRET_W,
             ],
             'UKRAINE'=>[
-                'CLIENT_ID'=>'app.609f6df4629d95.85311286',
-                'CLIENT_SECRET'=>'cWNRrpmDzye1nqzE2lTjEcILaYl4iECo4h7LZfbzfUf8cuBU7G',
+                'CLIENT_ID'=>Constants::VAL_CLIENT_ID_W,
+                'CLIENT_SECRET'=>Constants::VAL_CLIENT_SECRET_W,
             ],
             'WORLD'=>[
-                'CLIENT_ID'=>'app.609f6df4629d95.85311286',
-                'CLIENT_SECRET'=>'cWNRrpmDzye1nqzE2lTjEcILaYl4iECo4h7LZfbzfUf8cuBU7G',
+                'CLIENT_ID'=>Constants::VAL_CLIENT_ID_W,
+                'CLIENT_SECRET'=>Constants::VAL_CLIENT_SECRET_W,
             ],
             'REST_API'=>[
                 'CLIENT_ID'=>'',
