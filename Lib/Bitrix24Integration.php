@@ -969,11 +969,15 @@ class Bitrix24Integration extends PbxExtensionBase
      *
      * @param $number
      *
-     * @return string
+     * @return bool|string
      */
-    public static function getPhoneIndex($number):string
+    public static function getPhoneIndex($number)
     {
-        return ''.substr($number, -10);
+        $number = preg_replace('/\D+/', '', $number);
+        if(!is_numeric(str_replace('+', '', $number))){
+            return $number;
+        }
+        return substr($number, -10);
     }
 
     /**
