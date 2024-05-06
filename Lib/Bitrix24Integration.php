@@ -1141,8 +1141,10 @@ class Bitrix24Integration extends PbxExtensionBase
             self::getPhoneIndex($options['PHONE_NUMBER']). "_" .
             self::getPhoneIndex($options['USER_PHONE_INNER']);
 
+        $id = $options['linkedid']??'';
         $res_data = $this->getCache($cache_key);
         if ($res_data) {
+            $this->logger->writeInfo("Igonre $id 'telephonyExternalCallRegister' id dublicate...");
             return [];
         }
         // Сохраним кэш.
@@ -1172,7 +1174,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->fillPropertyValues($options, $params);
 
         $arg       = [];
-        $key       = self::API_CALL_REGISTER.'_' . uniqid('', true);
+        $key       = self::API_CALL_REGISTER.'_'.$id . uniqid('', true);
         $arg[$key] = self::API_CALL_REGISTER.'?' . http_build_query($params);
 
         $options['time']       = time();
@@ -1266,7 +1268,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->fillPropertyValues($options, $params);
 
         $arg              = [];
-        $finishKey       = self::API_CALL_FINISH.'_' . uniqid('', true);
+        $finishKey       = self::API_CALL_FINISH.'_'.$options['linkedid'].'_' . uniqid('', true);
         $arg[$finishKey] = self::API_CALL_FINISH.'?' . http_build_query($params);
         if ($options['export_records']) {
             $this->telephonyExternalCallAttachRecord($options['FILE'], $CALL_ID, $arg);
@@ -1301,14 +1303,16 @@ class Bitrix24Integration extends PbxExtensionBase
         if($cacheData === null){
             $cacheData = $this->getMemCache("$finishKey-missed");
         }
+        $id = str_replace('telephony.externalcall.finish', '', $finishKey);
+
         if(isset($cacheData['contact_id'])){
-            $queryArray[] = $this->crmContactUpdate($cacheData['contact_id'], $response['PORTAL_USER_ID']);
+            $queryArray[] = $this->crmContactUpdate($cacheData['contact_id'], $response['PORTAL_USER_ID'], $id);
         }
         if(isset($cacheData['deal_id'])){
-            $queryArray[] = $this->crmDealUpdate($cacheData['deal_id'], $response['PORTAL_USER_ID']);
+            $queryArray[] = $this->crmDealUpdate($cacheData['deal_id'], $response['PORTAL_USER_ID'], $id);
         }
         if(isset($cacheData['lead_id'])){
-            $queryArray[] = $this->crmLeadUpdate($cacheData['lead_id'], $response['PORTAL_USER_ID']);
+            $queryArray[] = $this->crmLeadUpdate($cacheData['lead_id'], $response['PORTAL_USER_ID'], $id);
         }
     }
 
@@ -1316,9 +1320,10 @@ class Bitrix24Integration extends PbxExtensionBase
      * Обновление пользователя для Lead,
      * @param string $id
      * @param string $newUserId
+     * @param string $linkedId
      * @return array
      */
-    public function crmDealUpdate(string $id, string $newUserId): array
+    public function crmDealUpdate(string $id, string $newUserId, string $linkedId = ''): array
     {
         $params = [
             'id'   => $id,
@@ -1331,7 +1336,7 @@ class Bitrix24Integration extends PbxExtensionBase
             ]
         ];
         $arg = [];
-        $arg['crm.deal.update_' . uniqid('', true)] = 'crm.deal.update?' . http_build_query($params);
+        $arg['crm.deal.update_'.$linkedId.'_' . uniqid('', true)] = 'crm.deal.update?' . http_build_query($params);
         return $arg;
     }
 
@@ -1489,9 +1494,10 @@ class Bitrix24Integration extends PbxExtensionBase
      * Обновление пользователя для Lead,
      * @param string $id
      * @param string $newUserId
+     * @param string $linkedId
      * @return array
      */
-    public function crmContactUpdate(string $id, string $newUserId): array
+    public function crmContactUpdate(string $id, string $newUserId, string $linkedId = ''): array
     {
         $params = [
             'id'   => $id,
@@ -1504,7 +1510,7 @@ class Bitrix24Integration extends PbxExtensionBase
             ]
         ];
         $arg = [];
-        $arg['crm.contact.update_' . uniqid('', true)] = 'crm.contact.update?' . http_build_query($params);
+        $arg['crm.contact.update_'.$linkedId . '_' . uniqid('', true)] = 'crm.contact.update?' . http_build_query($params);
         return $arg;
     }
 
@@ -1512,9 +1518,10 @@ class Bitrix24Integration extends PbxExtensionBase
      * Обновление пользователя для Lead,
      * @param string $id
      * @param string $newUserId
+     * @param string $linkedId
      * @return array
      */
-    public function crmLeadUpdate(string $id, string $newUserId): array
+    public function crmLeadUpdate(string $id, string $newUserId, string $linkedId = ''): array
     {
         $params = [
             'id'   => $id,
@@ -1528,7 +1535,7 @@ class Bitrix24Integration extends PbxExtensionBase
         ];
 
         $arg                                        = [];
-        $arg['crm.lead.update_' . uniqid('', true)] = 'crm.lead.update?' . http_build_query($params);
+        $arg['crm.lead.update_'.$linkedId.'_'. uniqid('', true)] = 'crm.lead.update?' . http_build_query($params);
 
         return $arg;
     }
@@ -1634,7 +1641,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->fillPropertyValues($options, $params);
 
         $arg                   = [];
-        $arg[self::API_CALL_HIDE.uniqid('', true)] = self::API_CALL_HIDE.'?' . http_build_query($params);
+        $arg[self::API_CALL_HIDE.'_'.$options['linkedid'].'_'.uniqid('', true)] = self::API_CALL_HIDE.'?' . http_build_query($params);
 
         return $arg;
     }
@@ -1656,7 +1663,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->fillPropertyValues($options, $params);
 
         $arg                   = [];
-        $arg[self::API_CALL_SHOW.uniqid('', true)] = self::API_CALL_SHOW.'?' . http_build_query($params);
+        $arg[self::API_CALL_SHOW.$options['linkedid'].'_'.uniqid('', true)] = self::API_CALL_SHOW.'?' . http_build_query($params);
 
         return $arg;
     }

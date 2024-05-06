@@ -379,16 +379,16 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                     }
 
                     if (!empty($leadId) && !empty($userId)) {
-                        $tmpArr[] = $this->b24->crmLeadUpdate($leadId, $userId);
+                        $tmpArr[] = $this->b24->crmLeadUpdate($leadId, $userId, $data['linkedid']);
                     }
                     // Если лид добавляется вручную, до звонка методом crm.lead.add
                     if(($this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_TYPE']??'') === 'LEAD'
                        && !isset($this->tmpCallsData[$data['linkedid']]['crm-data']['ID'])){
-                        $tmpArr[] = $this->b24->crmLeadUpdate($this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_ID'], $userId);
+                        $tmpArr[] = $this->b24->crmLeadUpdate($this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_ID'], $userId, $data['linkedid']);
                     }
 
                     if (!empty($dealId) && !empty($userId)) {
-                        $tmpArr[] = $this->b24->crmDealUpdate($dealId, $userId);
+                        $tmpArr[] = $this->b24->crmDealUpdate($dealId, $userId, $data['linkedid']);
                     }
                 } elseif ('telephonyExternalCallFinish' === $data['action']) {
                     $tmpArr[] = $this->b24->telephonyExternalCallFinish($data);
