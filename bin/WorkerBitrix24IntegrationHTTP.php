@@ -268,6 +268,35 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         }
     }
 
+
+    /**
+     * Делит массив на части.
+     * @param array $array
+     * @return array
+     */
+    private function chunkAssociativeArray(array $array):array
+    {
+        $chunks = [];
+        $chunk = [];
+        $count = 0;
+
+        foreach ($array as $key => $value) {
+            if ($count >= 49) {
+                $chunks[] = $chunk;
+                $chunk = [];
+                $count = 0;
+            }
+            $chunk[$key] = $value;
+            $count++;
+        }
+
+        if ($count > 0) {
+            $chunks[] = $chunk;
+        }
+
+        return $chunks;
+    }
+
     /**
      *
      */
@@ -301,8 +330,13 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $this->q_req = array_merge($arg, $this->q_req);
         }
         if (count($this->q_req) > 0) {
-            $response = $this->b24->sendBatch($this->q_req);
-            $result = $response['result']['result'] ?? [];
+            $chunks = $this->chunkAssociativeArray($this->q_req);
+            $finalResult = [];
+            foreach ($chunks as $chunk) {
+                $response = $this->b24->sendBatch($chunk);
+                $finalResult[] = $response['result']['result'] ?? [];
+            }
+            $result = array_merge(...$finalResult);
             // Чистим очередь запросов.
             $this->q_req = [];
             $this->postReceivingResponseProcessing($result);
