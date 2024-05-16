@@ -900,18 +900,18 @@ class Bitrix24Integration extends PbxExtensionBase
 
     /**
      * Получение списка пользователей.
-     *
+     * @param bool $fromCache
      * @return array
      */
-    public function userGet(): array
+    public function userGet(bool $fromCache = false): array
     {
+        // Пробуем получить кэшированные записи
         if($this->mainProcess === false){
             $res_data = max($this->getCache(__FUNCTION__."_LONG"), $this->getCache(__FUNCTION__));
         }else{
             $res_data = $this->getCache(__FUNCTION__);
         }
-        // Пробуем получить кэшированные записи
-        if ($res_data === null && !empty($this->portal)) {
+        if ($fromCache === false && $res_data === null && !empty($this->portal)) {
             // Кэш не пуст / истекло время жизни.
             $url      = 'https://' . $this->portal . '/rest/user.get';
 
@@ -957,7 +957,7 @@ class Bitrix24Integration extends PbxExtensionBase
         if (count($res_data) > 1) {
             $res_data = array_merge(... $res_data);
         } elseif (count($res_data) === 1) {
-            $res_data = $res_data[0];
+            $res_data = $res_data[0]??[];
         }
 
         // Объединяем массивы данных в один и возвращаем результат.
