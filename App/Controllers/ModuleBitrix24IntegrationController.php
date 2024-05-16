@@ -130,7 +130,7 @@ class ModuleBitrix24IntegrationController extends BaseController
             Bitrix24Integration::OPEN_CARD_ANSWERED
         ];
 
-        $usersB24 = (new Bitrix24Integration())->userGet();
+        $usersB24 = (new Bitrix24Integration())->userGet(true);
         if ( is_array($usersB24['result']) ) {
             $usersB24['users'] = [];
             foreach ($usersB24['result'] as $userB24){
