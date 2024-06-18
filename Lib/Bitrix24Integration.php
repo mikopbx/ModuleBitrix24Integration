@@ -1466,9 +1466,9 @@ class Bitrix24Integration extends PbxExtensionBase
         }elseif (self::API_CRM_LIST_LEAD === $action){
             $this->lastLeadId = $maxId;
         }
-        $settings->lastContactId = $this->lastContactId;
-        $settings->lastCompanyId = $this->lastCompanyId;
-        $settings->lastLeadId    = $this->lastLeadId;
+        $settings->lastContactId = empty($this->lastContactId)?$settings->lastContactId:$this->lastContactId;
+        $settings->lastCompanyId = empty($this->lastCompanyId)?$settings->lastCompanyId:$this->lastCompanyId;
+        $settings->lastLeadId    = empty($this->lastLeadId)?$settings->lastLeadId:$this->lastLeadId;
         $settings->save();
     }
 
