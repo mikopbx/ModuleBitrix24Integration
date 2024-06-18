@@ -131,7 +131,7 @@ class ModuleBitrix24IntegrationController extends BaseController
         ];
 
         $usersB24 = [];
-        if(!empty($settings->portal) && !empty($settings->refresh_token)){
+        if(!empty($settings->portal)){
             $usersB24 = (new Bitrix24Integration())->userGet(true);
             if ( is_array($usersB24['result']) ) {
                 $usersB24['users'] = [];
