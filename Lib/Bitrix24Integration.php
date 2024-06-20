@@ -21,6 +21,7 @@ use Modules\ModuleBitrix24Integration\Models\{B24PhoneBook,
     ModuleBitrix24CDR,
     ModuleBitrix24Users};
 use MikoPBX\Core\System\Util;
+use Modules\ModuleBitrix24Integration\Lib\Logger as MainLogger;
 use Modules\ModuleBitrix24Integration\bin\WorkerBitrix24IntegrationHTTP;
 
 class Bitrix24Integration extends PbxExtensionBase
@@ -76,6 +77,7 @@ class Bitrix24Integration extends PbxExtensionBase
     public function __construct($mainProcess=false)
     {
         parent::__construct();
+        $this->mainLogger =  new MainLogger('HttpConnection', 'ModuleBitrix24Integration');
         $this->portal = '';
         if(php_sapi_name() === "cli"){
             $this->mainProcess     = cli_get_process_title() === WorkerBitrix24IntegrationHTTP::class;
@@ -85,13 +87,13 @@ class Bitrix24Integration extends PbxExtensionBase
         try {
             $data            = ModuleBitrix24Integration::findFirst();
         }catch (\Throwable $e){
-            $this->logger->writeError($e->getLine().':'.$e->getMessage());
+            $this->mainLogger->writeError($e->getLine().':'.$e->getMessage());
             return;
         }
         if ($data === null
             || empty($data->portal)
             || empty($data->b24_region)) {
-            $this->logger->writeError('Settings not set...');
+            $this->mainLogger->writeError('Settings not set...');
             return;
         }
 
@@ -101,7 +103,7 @@ class Bitrix24Integration extends PbxExtensionBase
         }
 
         if(empty($data->refresh_token)){
-            $this->logger->writeError('refresh_token not set...');
+            $this->mainLogger->writeError('refresh_token not set...');
             return;
         }
 
@@ -291,10 +293,10 @@ class Bitrix24Integration extends PbxExtensionBase
         if (isset($query_data["access_token"])) {
             $result = true;
             $this->updateSessionData($query_data);
-            $this->logger->writeInfo('The token has been successfully updated');
+            $this->mainLogger->writeInfo('The token has been successfully updated');
 
         } else {
-            $this->logger->writeError('Refresh token: '.json_encode($query_data));
+            $this->mainLogger->writeError('Refresh token: '.json_encode($query_data));
         }
         return $result;
     }
@@ -311,7 +313,7 @@ class Bitrix24Integration extends PbxExtensionBase
         if(!empty($session)){
             $this->SESSION = $session;
             $result = true;
-            $this->logger->writeInfo('Get token from cache: '.json_encode($session));
+            $this->mainLogger->writeInfo('Get token from cache: '.json_encode($session));
         }else{
             // Только mainProcess процесс может обновлять информацию по токену.
             // Тк кэш пуст, получаем из базы данных.
@@ -373,16 +375,16 @@ class Bitrix24Integration extends PbxExtensionBase
                 // Проверяем наличие ошибки:
                 $error_name = $response['error'] ?? '';
             } elseif ('QUERY_LIMIT_EXCEEDED' === $error_name) {
-                $this->logger->writeInfo('Too many requests. Sleeping 1s ... ');
+                $this->mainLogger->writeInfo('Too many requests. Sleeping 1s ... ');
                 sleep(1);
                 $response   = $this->execCurl($url, $curlOptions, $status, $headersResponse, $totalTime);
                 $error_name = $response['error'] ?? '';
             }elseif(!empty($response['result_error'])){
-                $this->logger->writeInfo("RESPONSE-ERROR: ".json_encode($response['result_error']));
+                $this->mainLogger->writeInfo("RESPONSE-ERROR: ".json_encode($response['result_error']));
             }
 
             if (!empty($error_name)) {
-                $this->logger->writeError('Fail REST response ' . json_encode($response));
+                $this->mainLogger->writeError('Fail REST response ' . json_encode($response));
             }
         }
         if(isset( $data['cmd'])){
@@ -405,7 +407,7 @@ class Bitrix24Integration extends PbxExtensionBase
                     unset($query['auth']);
                     $queues[$index] = $query;
                 }
-                $this->logger->writeInfo("REQUEST: ".json_encode($queues, JSON_UNESCAPED_UNICODE));
+                $this->mainLogger->writeInfo("REQUEST: ".json_encode($queues, JSON_UNESCAPED_UNICODE));
                 $result = $response['result']["result"]??[];
                 // Чистым массив перед выводом в лог.
                 if(is_array($result)){
@@ -415,14 +417,14 @@ class Bitrix24Integration extends PbxExtensionBase
                         }
                     }
                 }
-                $this->logger->writeInfo("RESPONSE: ".json_encode($result, JSON_UNESCAPED_UNICODE));
+                $this->mainLogger->writeInfo("RESPONSE: ".json_encode($result, JSON_UNESCAPED_UNICODE));
             }
         }
         $this->checkErrorInResponse($response, $status);
         $delta = microtime(true) - $startTime;
         $this->logRequestData($url, $data, $response, $delta);
         if ($delta > 5 || $totalTime > 5) {
-            $this->logger->writeError(
+            $this->mainLogger->writeError(
                 "Slow response. PHP time:{$delta}s, cURL time: {$totalTime}, url:{$url}, Data:$q4Dump, Response: " . json_encode(
                     $response
                 )
@@ -477,11 +479,11 @@ class Bitrix24Integration extends PbxExtensionBase
                 $key        = "http_query_status_{$status}";
                 $cache_data = $this->getCache($key);
                 if (empty($cache_data)) {
-                    $this->logger->writeError("Fail HTTP. Status: {$status}. Can not connect to host.");
+                    $this->mainLogger->writeError("Fail HTTP. Status: {$status}. Can not connect to host.");
                     $this->saveCache($key, '1', 60);
                 }
             } else {
-                $this->logger->writeError("Fail HTTP. Status: {$status}. Response: $response");
+                $this->mainLogger->writeError("Fail HTTP. Status: {$status}. Response: $response");
             }
             $response = [];
         }
@@ -621,7 +623,7 @@ class Bitrix24Integration extends PbxExtensionBase
             }
         }
         if (!empty($arg)) {
-            $this->logger->writeInfo('Update event binding...');
+            $this->mainLogger->writeInfo('Update event binding...');
             $arg      = array_merge($arg, $this->eventOfflineGet());
             $response = $this->sendBatch($arg);
             $result   = empty($response['result']['result_error']??[]);
@@ -712,12 +714,12 @@ class Bitrix24Integration extends PbxExtensionBase
             'result' => 'ERROR',
             'data'   => $req_data,
         ];
-        $this->logger->writeInfo(json_encode($req_data));
+        $this->mainLogger->writeInfo(json_encode($req_data));
         $event = $req_data['event']??[];
         if ('ONEXTERNALCALLSTART' === $req_data['event']['EVENT_NAME']) {
             $delta = time() - strtotime($event['TIMESTAMP_X']);
             if ($delta > 15) {
-                $this->logger->writeInfo(
+                $this->mainLogger->writeInfo(
                     "An outdated response was received {$delta}s: " . json_encode($event)
                 );
             }
@@ -728,7 +730,7 @@ class Bitrix24Integration extends PbxExtensionBase
             $cache_key = 'tmp5_' . __FUNCTION__ . "_{$FROM_USER_ID}_$dst";
             $res_data  = $this->getCache($cache_key);
             if ($res_data !== null) {
-                $this->logger->writeInfo("Repeated calls to the number $dst are possible in N seconds ");
+                $this->mainLogger->writeInfo("Repeated calls to the number $dst are possible in N seconds ");
 
                 return $result;
             }
@@ -748,11 +750,11 @@ class Bitrix24Integration extends PbxExtensionBase
 
                 $dst = preg_replace("/[^0-9+]/", '', $dst);
                 Util::amiOriginate($phone_data['peer_number'], '', $dst);
-                $this->logger->writeInfo(
+                $this->mainLogger->writeInfo(
                     "ONEXTERNALCALLSTART: originate from user {$FROM_USER_ID} <{$phone_data['peer_number']}> to {$dst})"
                 );
             }else{
-                $this->logger->writeInfo('User: '.$FROM_USER_ID." - ".json_encode($req_data));
+                $this->mainLogger->writeInfo('User: '.$FROM_USER_ID." - ".json_encode($req_data));
             }
         } elseif ('ONEXTERNALCALLBACKSTART' === $req_data['event']['EVENT_NAME']) {
             $PHONE_NUMBER = preg_replace("/[^0-9+]/", '', urldecode($req_data['data']['PHONE_NUMBER']));
@@ -765,13 +767,13 @@ class Bitrix24Integration extends PbxExtensionBase
             $this->saveCache($pre_call_key, $data, 5);
 
             if(empty($this->queueUid)){
-                $this->logger->writeInfo("ONEXTERNALCALLBACKSTART: default action for incoming rout is not queue)");
+                $this->mainLogger->writeInfo("ONEXTERNALCALLBACKSTART: default action for incoming rout is not queue)");
             }else{
                 $channel        = "Local/{$this->queueExtension}@internal-originate";
                 $variable       = "pt1c_cid={$PHONE_NUMBER},SRC_QUEUE={$this->queueUid}";
                 $am       = Util::getAstManager('off');
                 $am->Originate($channel, $PHONE_NUMBER, 'all_peers', '1', null, null, null, null, $variable, null, true);
-                $this->logger->writeInfo("ONEXTERNALCALLBACKSTART: originate from queue {$data['extension']} to {$PHONE_NUMBER})");
+                $this->mainLogger->writeInfo("ONEXTERNALCALLBACKSTART: originate from queue {$data['extension']} to {$PHONE_NUMBER})");
             }
         }
 
@@ -1144,7 +1146,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $id = $options['linkedid']??'';
         $res_data = $this->getCache($cache_key);
         if ($res_data) {
-            $this->logger->writeInfo("Igonre $id 'telephonyExternalCallRegister' id dublicate...");
+            $this->mainLogger->writeInfo("Igonre $id 'telephonyExternalCallRegister' id dublicate...");
             return [];
         }
         // Сохраним кэш.
