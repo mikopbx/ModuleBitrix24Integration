@@ -302,6 +302,8 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
      */
     public function executeTasks(): void
     {
+        $this->b24->mainLogger->rotate();
+
         $delta = time() - $this->last_update_inner_num;
         if ($delta > 10) {
             // Обновляем список внутренних номеров. Обновляем кэш внутренних номеров.
