@@ -65,7 +65,7 @@ class Bitrix24Integration extends PbxExtensionBase
     private string $queueExtension = '';
     private string $queueUid = '';
     private bool $backgroundUpload = false;
-    private MainLogger $mainLogger;
+    public MainLogger $mainLogger;
     private bool $mainProcess = false;
     private int $updateTokenTime;
 
