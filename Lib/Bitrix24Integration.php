@@ -65,7 +65,7 @@ class Bitrix24Integration extends PbxExtensionBase
     private string $queueExtension = '';
     private string $queueUid = '';
     private bool $backgroundUpload = false;
-    private Logger $requestLogger;
+    private MainLogger $mainLogger;
     private bool $mainProcess = false;
     private int $updateTokenTime;
 
@@ -422,7 +422,6 @@ class Bitrix24Integration extends PbxExtensionBase
         }
         $this->checkErrorInResponse($response, $status);
         $delta = microtime(true) - $startTime;
-        $this->logRequestData($url, $data, $response, $delta);
         if ($delta > 5 || $totalTime > 5) {
             $this->mainLogger->writeError(
                 "Slow response. PHP time:{$delta}s, cURL time: {$totalTime}, url:{$url}, Data:$q4Dump, Response: " . json_encode(
@@ -432,43 +431,6 @@ class Bitrix24Integration extends PbxExtensionBase
         }
 
         return $response;
-    }
-
-    /**
-     * Запись данных запроса в файловый лог.
-     *
-     * @param $url
-     * @param $data
-     * @param $response
-     * @param $delta
-     * @return void
-     */
-    private function logRequestData($url, $data, $response, $delta):void
-    {
-        if(!file_exists('/tmp/b24-req-debug')){
-            return;
-        }
-        if(isset($this->requestLogger) && isset($data['cmd']) ){
-            $logData = [
-                'url' => $url,
-                'data' => [],
-                'delta' => $delta
-            ];
-
-            foreach ($data['cmd'] as $reqName => $reqData){
-                $logData['data'][$reqName] = [
-                    'request' => $reqData,
-                    'response'=> $response['result']['result'][$reqName]??[],
-                ];
-            }
-
-            $eventOffline = $logData['data']['event.offline.get']??[];
-            if(!empty($eventOffline)
-                && empty($eventOffline["response"]["events"][0]["MESSAGE_ID"]??'') && count($logData['data']) === 1){
-                return;
-            }
-            $this->requestLogger->writeInfo(json_encode($logData, JSON_UNESCAPED_SLASHES));
-        }
     }
 
     private function checkErrorInResponse(&$response, $status)
