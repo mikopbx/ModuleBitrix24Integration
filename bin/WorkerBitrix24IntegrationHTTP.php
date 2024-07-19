@@ -25,7 +25,6 @@ use Exception;
 use MikoPBX\Core\System\Util;
 use MikoPBX\Core\Workers\WorkerBase;
 use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
-use Modules\ModuleBitrix24Integration\Models\B24PhoneBook;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24CDR;
 
 class WorkerBitrix24IntegrationHTTP extends WorkerBase
@@ -255,7 +254,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $eventData = $event['EVENT_DATA'];
             if (isset($eventActionsDelete[$event['EVENT_NAME']])) {
                 $id = array_values($eventData['FIELDS']);
-                $this->b24->deletePhoneContact($eventActionsDelete[$event['EVENT_NAME']], $id);
+                ConnectorDb::invoke(ConnectorDb::FUNC_DELETE_CONTACT_DATA, [$eventActionsDelete[$event['EVENT_NAME']], $id],false);
             }
             if (isset($eventActionsUpdate[$event['EVENT_NAME']])){
                 $id = array_values($eventData['FIELDS']);
@@ -349,8 +348,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $tmpArr = [$this->q_req];
             foreach ($this->q_pre_req as $data) {
                 if ('action_hangup_chan' === $data['action']) {
-                    /** @var ModuleBitrix24CDR $cdr */
-                    $cdr = ModuleBitrix24CDR::findFirst("uniq_id='{$data['UNIQUEID']}'");
+                    $cdr = ConnectorDb::invoke(ConnectorDb::FUNC_FIND_CDR_BY_UID,[$data['UNIQUEID']]);
                     if ($cdr) {
                         $data['CALL_ID'] = $cdr->call_id;
                         $data['USER_ID'] = (int)$cdr->user_id;
@@ -365,8 +363,9 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                         "linkedid='{$data['linkedid']}'",
                         'order' => 'uniq_id'
                     ];
-                    $b24CdrRows = ModuleBitrix24CDR::find($filter);
-                    foreach ($b24CdrRows as $row) {
+                    $b24CdrRows = ConnectorDb::invoke(ConnectorDb::FUNC_GET_CDR_BY_FILTER, [$filter]);
+                    foreach ($b24CdrRows as $cdrData) {
+                        $row = (object)$cdrData;
                         if ($row->uniq_id === $data['UNIQUEID']) {
                             $cdr = $row;
                             if (!empty($cdr->dealId)) {
@@ -379,9 +378,9 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                             $userId = $cdr->user_id;
                             // Отмечаем вызов как отвеченный.
                             $cdr->answer = 1;
-                            $cdr->save();
+                            ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_FROM_ARRAY_CDR_BY_UID, [(array)$cdr]);
                         }
-                        if ($cdr->answer !== 1) {
+                        if ($row->answer !== 1) {
                             if (!empty($row->dealId)) {
                                 $dealId = max($dealId, $row->dealId);
                             }
@@ -481,14 +480,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     public function findEntitiesByPhone(string $phone, string $linkedId = ''):void
     {
         $callData = &$this->tmpCallsData[$linkedId];
-        $filter = [
-            "phoneId = :phoneId: AND statusLeadId<>'S' AND statusLeadId<>'F'",
-            'bind' => [
-                'phoneId'     => Bitrix24Integration::getPhoneIndex($phone)
-            ],
-            'order' => 'dateCreate',
-        ];
-        $data = B24PhoneBook::find($filter)->toArray();
+        $contactsData = ConnectorDb::invoke("getContactsByPhone", [$phone]);
 
         $did         = $callData['data']['did']??'';
         $chooseFirst = !isset($this->didUsers[$did]);
@@ -498,7 +490,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             if($callData['wait'] === false){
                 break;
             }
-            foreach ($data as $phoneData){
+            foreach ($contactsData as $phoneData){
                 if($phoneData['contactType'] !== $type){
                     continue;
                 }

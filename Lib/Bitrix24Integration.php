@@ -8,6 +8,7 @@
 
 namespace Modules\ModuleBitrix24Integration\Lib;
 
+use Modules\ModuleBitrix24Integration\bin\ConnectorDb;
 use Phalcon\Mvc\Model\Manager;
 use MikoPBX\Common\Models\CallQueues;
 use MikoPBX\Common\Models\IncomingRoutingTable;
@@ -15,14 +16,13 @@ use MikoPBX\Common\Models\Extensions;
 use MikoPBX\Modules\Logger;
 use MikoPBX\Modules\PbxExtensionBase;
 use MikoPBX\PBXCoreREST\Lib\PBXApiResult;
-use Modules\ModuleBitrix24Integration\Models\{B24PhoneBook,
-    ModuleBitrix24ExternalLines,
+use Modules\ModuleBitrix24Integration\Models\{
     ModuleBitrix24Integration,
-    ModuleBitrix24CDR,
     ModuleBitrix24Users};
 use MikoPBX\Core\System\Util;
 use Modules\ModuleBitrix24Integration\Lib\Logger as MainLogger;
 use Modules\ModuleBitrix24Integration\bin\WorkerBitrix24IntegrationHTTP;
+use stdClass;
 
 class Bitrix24Integration extends PbxExtensionBase
 {
@@ -74,7 +74,7 @@ class Bitrix24Integration extends PbxExtensionBase
     public $lastLeadId;
     public $lastDealId;
 
-    public function __construct($mainProcess=false)
+    public function __construct()
     {
         parent::__construct();
         $this->mainLogger =  new MainLogger('HttpConnection', 'ModuleBitrix24Integration');
@@ -84,12 +84,7 @@ class Bitrix24Integration extends PbxExtensionBase
         }
         $this->updateTokenTime = $this->mainProcess?300:150;
         $this->mem_cache = [];
-        try {
-            $data            = ModuleBitrix24Integration::findFirst();
-        }catch (\Throwable $e){
-            $this->mainLogger->writeError($e->getLine().':'.$e->getMessage());
-            return;
-        }
+        $data = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
         if ($data === null
             || empty($data->portal)
             || empty($data->b24_region)) {
@@ -97,7 +92,7 @@ class Bitrix24Integration extends PbxExtensionBase
             return;
         }
 
-        $this->SESSION          = empty($data->session) ? null : json_decode($data->session, true);
+        $this->SESSION  = empty($data->session) ? null : json_decode($data->session, true);
         if(empty($data->refresh_token) && $this->SESSION ){
             $data->refresh_token = $this->SESSION['refresh_token']??'';
         }
@@ -123,7 +118,7 @@ class Bitrix24Integration extends PbxExtensionBase
     {
         if($settings === null){
             /** @var ModuleBitrix24Integration $settings */
-            $settings = ModuleBitrix24Integration::findFirst();
+            $settings = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
         }
         if($settings === null){
             return;
@@ -176,7 +171,7 @@ class Bitrix24Integration extends PbxExtensionBase
             'conditions' => 'disabled <> 1',
             'columns'    => ['user_id,open_card_mode'],
         ];
-        $bitrix24UsersTmp = ModuleBitrix24Users::find($parameters)->toArray();
+        $bitrix24UsersTmp = ConnectorDb::invoke(ConnectorDb::FUNC_GET_USERS, [$parameters]);
         $uSettings = [];
         foreach ($bitrix24UsersTmp as $uData){
             $uSettings[$uData['user_id']] = $uData;
@@ -317,7 +312,7 @@ class Bitrix24Integration extends PbxExtensionBase
         }else{
             // Только mainProcess процесс может обновлять информацию по токену.
             // Тк кэш пуст, получаем из базы данных.
-            $data = ModuleBitrix24Integration::findFirst();
+            $data = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
             if($data){
                 $this->SESSION          = empty($data->session) ? null : json_decode($data->session, true);
                 $result = true;
@@ -538,13 +533,12 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->SESSION    = $query_data;
 
         /** @var ModuleBitrix24Integration $data */
-        $data = ModuleBitrix24Integration::findFirst();
+        $data = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
         if ($data === null) {
             return;
         }
         $data->session = json_encode($this->SESSION, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-        $data->save();
-
+        ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_GENERAL_SETTINGS, [(array)$data], true, 10);
         CacheManager::setCacheData('access_token', $this->SESSION, 3600);
     }
 
@@ -962,7 +956,7 @@ class Bitrix24Integration extends PbxExtensionBase
 
         $arg = [];
         // Обход локальных данных внешних линий MIKOPX
-        $db_data = ModuleBitrix24ExternalLines::find()->toArray();
+        $db_data = ConnectorDb::invoke(ConnectorDb::FUNC_GET_EXTERNAL_LINES, []);
         foreach ($db_data as $line) {
             $local_lines_keys[] = $line['number'];
             if (in_array($line['number'], $external_lines_keys, true)) {
@@ -1160,23 +1154,7 @@ class Bitrix24Integration extends PbxExtensionBase
             return;
         }
         unset($this->mem_cache[$key]);
-        $res = ModuleBitrix24CDR::findFirst("uniq_id='{$request['UNIQUEID']}'");
-        if ($res === null && isset($response['CALL_ID'])) {
-            $res           = new ModuleBitrix24CDR();
-            $res->uniq_id  = $request['UNIQUEID'];
-            $res->user_id  = $request['USER_ID'];
-            $res->linkedid = $request['linkedid'];
-            $res->call_id  = $response['CALL_ID'];
-            $res->lead_id  = $response['CRM_CREATED_LEAD'];
-            foreach ($response['CRM_CREATED_ENTITIES'] as $entity){
-                if($entity['ENTITY_TYPE'] === 'CONTACT'){
-                    $res->contactId = $entity['ENTITY_ID'];
-                }elseif($entity['ENTITY_TYPE'] === 'DEAL'){
-                    $res->dealId = $entity['ENTITY_ID'];
-                }
-            }
-            $res->save();
-        }
+        ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_CDR_BY_UID, [$request['UNIQUEID'], $request, $response]);
     }
 
     /**
@@ -1211,7 +1189,7 @@ class Bitrix24Integration extends PbxExtensionBase
      */
     public function telephonyExternalCallFinish($options): array
     {
-        [$CALL_DATA, $CALL_ID] = $this->getCallDataById($options);
+        [$CALL_DATA, $CALL_ID] = ConnectorDb::invoke(ConnectorDb::FUNC_GET_CDR_BY_LINKED_ID, [$options]);
         if (empty($CALL_ID)) {
             return [];
         }
@@ -1397,13 +1375,13 @@ class Bitrix24Integration extends PbxExtensionBase
                 $name  = $entData['TITLE'];
             }
             $contactType =  $contactTypes[$action]??'';
-            $this->deletePhoneContact($contactType, [$id]);
+            ConnectorDb::invoke(ConnectorDb::FUNC_DELETE_CONTACT_DATA, [$contactType, [$id]],false);
             foreach ($entData['PHONE'] as $phoneData){
                 $phoneIndex = self::getPhoneIndex($phoneData['VALUE']);
                 if(empty($phoneIndex)){
                     continue;
                 }
-                $pbRow = new B24PhoneBook();
+                $pbRow = new stdClass();
                 $pbRow->b24id = $id;
                 $pbRow->userId = $userId;
                 $pbRow->dateCreate = $dateCreate;
@@ -1413,13 +1391,13 @@ class Bitrix24Integration extends PbxExtensionBase
                 $pbRow->phone = $phoneData['VALUE'];
                 $pbRow->phoneId = $phoneIndex;
                 $pbRow->contactType = $contactType;
-                $pbRow->save();
+                ConnectorDb::invoke(ConnectorDb::FUNC_ADD_CONTACT_DATA, [$contactType, [(array)$pbRow]],false);
             }
         }
         if(empty($maxId) || $keyId === 'update'){
             return;
         }
-        $settings = ModuleBitrix24Integration::findFirst();
+        $settings = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
         if(!$settings){
             return;
         }
@@ -1433,25 +1411,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $settings->lastContactId = empty($this->lastContactId)?$settings->lastContactId:$this->lastContactId;
         $settings->lastCompanyId = empty($this->lastCompanyId)?$settings->lastCompanyId:$this->lastCompanyId;
         $settings->lastLeadId    = empty($this->lastLeadId)?$settings->lastLeadId:$this->lastLeadId;
-        $settings->save();
-    }
-
-    /**
-     * @param string $contactType
-     * @param array  $b24id
-     * @return void
-     */
-    public function deletePhoneContact(string $contactType, array $b24id):void
-    {
-        $filter = [
-            'conditions' => 'contactType = :contactType: AND b24id IN ({ids:array})',
-            'bind' => [
-                'ids' => $b24id,
-                'contactType' => $contactType,
-            ],
-        ];
-        $dataPB = B24PhoneBook::find($filter);
-        $dataPB->delete();
+        ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_GENERAL_SETTINGS, [(array)$settings], true, 10);
     }
 
     /**
@@ -1502,44 +1462,6 @@ class Bitrix24Integration extends PbxExtensionBase
         $arg['crm.lead.update_'.$linkedId.'_'. uniqid('', true)] = 'crm.lead.update?' . http_build_query($params);
 
         return $arg;
-    }
-
-    /**
-     * Получпение из базы данных идентификатора звонка.
-     */
-    private function getCallDataById($options): array
-    {
-        $rows = ModuleBitrix24CDR::find("linkedid='{$options['linkedid']}'")->toArray();
-        $result = [];
-        foreach ($rows as $row){
-            if($row['uniq_id'] === $options['UNIQUEID']){
-                $result = [$row, $row['call_id']];
-                break;
-            }
-        }
-        if(empty($result) && $options['GLOBAL_STATUS'] === 'NOANSWER'){
-            // Пропущенный вызов.
-            // Берем первую попавшуюся CDR.
-            return [$rows[0], $rows[0]['call_id']];
-        }
-        if(empty($result)){
-            return [];
-        }
-        foreach ($rows as $row){
-            if(!empty($row['dealId'])){
-                $result[0]['deal_id']      = max($row['dealId'],$result[0]['deal_id']);
-                $result[0]['deal_user']    = $row['user_id'];
-            }
-            if(!empty($row['contactId'])){
-                $result[0]['contact_id']   = max($row['contactId'],$result[0]['contact_id']);
-                $result[0]['contact_user'] = $row['user_id'];
-            }
-            if(!empty($row['lead_id'])){
-                $result[0]['lead_id'] = max($row['lead_id'],$result[0]['lead_id']);
-                $result[0]['lead_user'] = $row['user_id'];
-            }
-        }
-        return $result;
     }
 
     /**

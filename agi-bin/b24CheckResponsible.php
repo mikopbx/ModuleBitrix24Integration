@@ -22,12 +22,12 @@ use MikoPBX\Core\Asterisk\AGI;
 use Modules\ModuleBitrix24Integration\Lib\CacheManager;
 use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
 use Modules\ModuleBitrix24Integration\Lib\ModuleBitrix24GetResponsible;
-use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
+use Modules\ModuleBitrix24Integration\bin\ConnectorDb;
 
 require_once 'Globals.php';
 try {
-    $settings = ModuleBitrix24Integration::findFirst()->toArray();
-}catch (\Throwable $e){
+    $settings = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
+}catch (Throwable $e){
     return;
 }
 $useInterception = $settings['use_interception']??'0';
@@ -54,5 +54,5 @@ $agi->verbose("getResposibleNumber($number, $linkedId, $extension) -> '$respNumb
 if(!empty($respNumber)){
     $agi->set_variable('B24_RESPONSIBLE_NUMBER', $respNumber);
     $agi->set_variable('B24_RESPONSIBLE_TIMEOUT', $settings['interception_call_duration']??60);
-    $agi->exec('Gosub', "b24-interception,{$extension},1");
+    $agi->exec('Gosub', "b24-interception,$extension,1");
 }
