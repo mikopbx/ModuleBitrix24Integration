@@ -16,9 +16,7 @@ use MikoPBX\Common\Models\Extensions;
 use MikoPBX\Modules\Logger;
 use MikoPBX\Modules\PbxExtensionBase;
 use MikoPBX\PBXCoreREST\Lib\PBXApiResult;
-use Modules\ModuleBitrix24Integration\Models\{
-    ModuleBitrix24Integration,
-    ModuleBitrix24Users};
+use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use MikoPBX\Core\System\Util;
 use Modules\ModuleBitrix24Integration\Lib\Logger as MainLogger;
 use Modules\ModuleBitrix24Integration\bin\WorkerBitrix24IntegrationHTTP;
@@ -123,6 +121,7 @@ class Bitrix24Integration extends PbxExtensionBase
         if($settings === null){
             return;
         }
+        $this->b24GetPhones();
         $this->lastLeadId    = $settings->lastLeadId;
         $this->lastCompanyId = $settings->lastCompanyId;
         $this->lastContactId = $settings->lastContactId;
@@ -1287,13 +1286,14 @@ class Bitrix24Integration extends PbxExtensionBase
      * @param string $phone
      * @param string $id
      * @param string $user
+     * @param string $did
      * @return array
      */
-    public function crmAddLead(string $phone, string $id = '', string  $user = ''): array
+    public function crmAddLead(string $phone, string $id = '', string  $user = '', string $did = ''): array
     {
         $params = [
             'fields' => [
-                'TITLE' => $phone.' - Входящий звонок',
+                'TITLE' => "$phone - Входящий звонок | $did",
                 'OPENED' => "Y",
                 "STATUS_ID" => "NEW",
                 "ASSIGNED_BY_ID" => $user,

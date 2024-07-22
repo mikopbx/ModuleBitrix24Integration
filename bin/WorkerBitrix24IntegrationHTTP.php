@@ -517,7 +517,11 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             if(!empty($userNum)){
                 // Если для каждого DID описаны уточнения по сотрудникам.
                 // Нужно создать новый ЛИД.
-                $arg = $this->b24->crmAddLead($callData['data']['PHONE_NUMBER'], $callData['data']['linkedid'], $this->b24->inner_numbers[$userNum]['ID']??'');
+                $l_phone = $callData['data']['PHONE_NUMBER']??'';
+                $l_id    = $callData['data']['linkedid']??'';
+                $l_user  = $this->b24->inner_numbers[$userNum]['ID']??'';
+                $l_did   = $callData['data']['did']??'';
+                $arg = $this->b24->crmAddLead($l_phone, $l_id, $l_user, $l_did);
                 $this->q_req = array_merge($arg, $this->q_req);
             }else{
                 // Обычное поведение, доп. лид не создаем.
