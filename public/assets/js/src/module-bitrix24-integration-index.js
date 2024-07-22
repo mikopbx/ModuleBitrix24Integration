@@ -72,7 +72,7 @@ const ModuleBitrix24Integration = {
 		let data = e.originalEvent.data;
 		if(typeof data !== 'string' && data.code !== undefined){
 			data.region = ModuleBitrix24Integration.$elRegion.val();
-			$.post(`${Config.pbxUrl}/admin-cabinet/module-bitrix24-integration/activateCode`, data, function( result ) {
+			$.post(`${globalRootUrl}module-bitrix24-integration/activateCode`, data, function( result ) {
 				console.log(result);
 			});
 			ModuleBitrix24Integration.popup.close();

@@ -21,10 +21,8 @@ namespace Modules\ModuleBitrix24Integration\App\Controllers;
 
 use MikoPBX\AdminCabinet\Controllers\BaseController;
 use MikoPBX\Common\Models\Users;
-use MikoPBX\Core\System\BeanstalkClient;
+use MikoPBX\Core\System\Util;
 use MikoPBX\Modules\PbxExtensionUtils;
-use MikoPBX\PBXCoreREST\Lib\PbxExtensionsProcessor;
-use MikoPBX\PBXCoreREST\Workers\WorkerApiCommands;
 use Modules\ModuleBitrix24Integration\App\Forms\ModuleBitrix24IntegrationForm;
 use Modules\ModuleBitrix24Integration\bin\ConnectorDb;
 use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
@@ -208,20 +206,26 @@ class ModuleBitrix24IntegrationController extends BaseController
             return;
         }
         $data   = $this->request->getPost();
-        $input              = file_get_contents('php://input');
-        $request            = json_encode([
-                                              'data' => $data,
-                                              'module' => 'ModuleBitrix24Integration',
-                                              'input' => $input,     // Параметры запроса.
-                                              'action' => 'ACTIVATE-CODE',
-                                              'REQUEST_METHOD' => $_SERVER['REQUEST_METHOD'],
-                                              'processor' => PbxExtensionsProcessor::class,
-                                          ], JSON_THROW_ON_ERROR);
+        $b24 = new Bitrix24Integration();
+        $this->view->result = $b24->authByCode($data['code'], $data['region']);
+    }
 
-        $client = new BeanstalkClient(WorkerApiCommands::class);
-        $response   = $client->request($request, 30, 0);
-        if ($response !== false) {
-            $this->view->data = json_decode($response, true);
+    /**
+     * Возвращает статус работы модуля
+     * @return void
+     */
+    public function checkStateAction():void
+    {
+        $moduleEnable = PbxExtensionUtils::isEnabled('ModuleBitrix24Integration');
+        $module = new Bitrix24Integration();
+        if ($moduleEnable && $module->initialized) {
+            $state = $module->getScope();
+            $this->view->result = $state->success;
+            $this->view->data = $state->data;
+            $this->view->messages = $state->messages;
+        } else {
+            $this->view->result = false;
+            $this->view->messages[] = Util::translate('mod_b24_i_NoSettings');
         }
     }
 

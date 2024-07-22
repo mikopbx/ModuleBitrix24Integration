@@ -53,7 +53,7 @@ const ModuleBitrix24IntegrationStatusWorker = {
 	 */
 	testConnection() {
 		$.api({
-			url: `${Config.pbxUrl}/pbxcore/api/modules/ModuleBitrix24Integration/check`,
+			url: `${globalRootUrl}module-bitrix24-integration/checkState`,
 			on: 'now',
 			successTest: PbxApi.successTest,
 			onComplete() {

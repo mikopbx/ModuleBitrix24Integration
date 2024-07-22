@@ -85,19 +85,7 @@ class Bitrix24IntegrationConf extends ConfigClass
     {
         $res = new PBXApiResult();
         $action = strtoupper($request['action']);
-        if($action === 'CHECK') {
-            $module = new Bitrix24Integration();
-            if ($module->initialized) {
-                $res = $module->getScope();
-            } else {
-                $res->messages[] = Util::translate('mod_b24_i_NoSettings');
-            }
-        }elseif ($action === 'ACTIVATE-CODE'){
-            $b24    = new Bitrix24Integration();
-            $res->success = $b24->authByCode($request['data']['code'], $request['data']['region']);
-        }else{
-            $res->messages[] = 'API action not found in moduleRestAPICallback ModuleBitrix24Integration;';
-        }
+        $res->messages[] = "API action '$action' not found in moduleRestAPICallback ModuleBitrix24Integration";
         return $res;
     }
 
