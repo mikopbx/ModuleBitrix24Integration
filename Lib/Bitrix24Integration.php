@@ -1359,7 +1359,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $contactTypes = [
             self::API_CRM_LIST_CONTACT => 'CONTACT',
             self::API_CRM_LIST_COMPANY => 'COMPANY',
-            self::API_CRM_LIST_LEAD => 'LEAD',
+            self::API_CRM_LIST_LEAD    => 'LEAD',
         ];
         $maxId = '';
         foreach ($data as $entData){
@@ -1382,16 +1382,16 @@ class Bitrix24Integration extends PbxExtensionBase
                     continue;
                 }
                 $pbRow = new stdClass();
-                $pbRow->b24id = $id;
-                $pbRow->userId = $userId;
-                $pbRow->dateCreate = $dateCreate;
-                $pbRow->dateModify = $dateModify;
+                $pbRow->b24id        = $id;
+                $pbRow->userId       = $userId;
+                $pbRow->dateCreate   = $dateCreate;
+                $pbRow->dateModify   = $dateModify;
                 $pbRow->statusLeadId = $statusLeadId;
-                $pbRow->name = $name;
-                $pbRow->phone = $phoneData['VALUE'];
-                $pbRow->phoneId = $phoneIndex;
-                $pbRow->contactType = $contactType;
-                ConnectorDb::invoke(ConnectorDb::FUNC_ADD_CONTACT_DATA, [$contactType, [(array)$pbRow]],false);
+                $pbRow->name         = $name;
+                $pbRow->phone        = $phoneData['VALUE'];
+                $pbRow->phoneId      = $phoneIndex;
+                $pbRow->contactType  = $contactType;
+                ConnectorDb::invoke(ConnectorDb::FUNC_ADD_CONTACT_DATA, [(array)$pbRow],false);
             }
         }
         if(empty($maxId) || $keyId === 'update'){

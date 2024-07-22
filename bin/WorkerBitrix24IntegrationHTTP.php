@@ -496,7 +496,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 }
                 $innerPhone = $this->b24->b24Users[$phoneData['userId']]??'';
                 if ($chooseFirst || in_array($innerPhone, $users, true)) {
-                    $this->b24->logger->writeInfo("findContactByPhone: $type id:". $phoneData['b24id']. ', TITLE: '.$phoneData['name']. 'responsible id: '.$phoneData['userId'].', responsible number: '. $innerPhone);
+                    $this->b24->logger->writeInfo("findContactByPhone: $type id:". $phoneData['b24id']. ', TITLE: '.$phoneData['name']. ', responsible id: '.$phoneData['userId'].', responsible number: '. $innerPhone);
                     $callData['crm-data']    = [
                         'ID' => $phoneData['b24id'],
                         'CRM_ENTITY_TYPE' => $type,

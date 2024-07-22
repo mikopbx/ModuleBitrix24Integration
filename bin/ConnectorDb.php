@@ -153,6 +153,90 @@ class ConnectorDb extends WorkerBase
 
     }
 
+    /**
+     * Сериализует данные и сохраняет их во временный файл.
+     * @param $data
+     * @return string
+     */
+    private function saveResultInTmpFile($data):string
+    {
+        try {
+            $res_data = json_encode($data, JSON_THROW_ON_ERROR);
+        }catch (\JsonException $e){
+            return '';
+        }
+        $dirsConfig = $this->di->getShared('config');
+        $tmoDirName = $dirsConfig->path('core.tempDir') . '/'.self::MODULE_ID;
+        Util::mwMkdir($tmoDirName, true);
+        if (file_exists($tmoDirName)) {
+            $tmpDir = $tmoDirName;
+        }else{
+            $tmpDir = '/tmp/';
+        }
+        $downloadCacheDir = $dirsConfig->path('www.downloadCacheDir');
+        if (!file_exists($downloadCacheDir)) {
+            $downloadCacheDir = '';
+        }
+        $fileBaseName = md5(microtime(true));
+        // "temp-" in the filename is necessary for the file to be automatically deleted after 5 minutes.
+        $filename = $tmpDir . '/temp-' . $fileBaseName;
+        file_put_contents($filename, $res_data);
+        if (!empty($downloadCacheDir)) {
+            $linkName = $downloadCacheDir . '/' . $fileBaseName;
+            // For automatic file deletion.
+            // A file with such a symlink will be deleted after 5 minutes by cron.
+            Util::createUpdateSymlink($filename, $linkName, true);
+        }
+        $findPath   = Util::which('find');
+        shell_exec("$findPath $tmoDirName -mmin +5 -type f -delete");
+        chown($filename, 'www');
+        return $filename;
+    }
+
+    /**
+     * Метод следует вызывать при работе с API из прочих процессов.
+     * @param string $function
+     * @param array $args
+     * @param bool $retVal
+     * @param int $timeout
+     * @return array|bool|mixed
+     */
+    public static function invoke(string $function, array $args = [], bool $retVal = true, int $timeout = 5){
+        $req = [
+            'action'   => 'invoke',
+            'function' => $function,
+            'args'     => $args
+        ];
+        $client = new BeanstalkClient(self::class);
+        $object = [];
+        try {
+            if($retVal){
+                $req['need-ret'] = true;
+                $result = $client->request(json_encode($req, JSON_THROW_ON_ERROR), $timeout);
+            }else{
+                $client->publish(json_encode($req, JSON_THROW_ON_ERROR));
+                return true;
+            }
+            if(file_exists($result)){
+                $object = json_decode(file_get_contents($result), true, 512, JSON_THROW_ON_ERROR);
+                unlink($result);
+            }
+        } catch (\Throwable $e) {
+            $object = [];
+        }
+
+        if(self::FUNC_GET_GENERAL_SETTINGS === $function){
+            if(empty($result)){
+                $object = ModuleBitrix24Integration::findFirst();
+            }else{
+                $object = (object)$object;
+            }
+        }elseif (self::FUNC_FIND_CDR_BY_UID === $function){
+            $object = empty($object)?null:(object)$object;
+        }
+        return $object;
+    }
+
     // USERS
 
     /**
@@ -287,6 +371,33 @@ class ConnectorDb extends WorkerBase
     }
 
     /**
+     * Обновление настроек по данным db.
+     * @param array $data
+     * @return bool
+     */
+    public function updateGeneralSettings(array $data):bool
+    {
+        $record = ModuleBitrix24Integration::findFirst();
+        if($record === null){
+            $record = new ModuleBitrix24Integration();
+        }
+        foreach ($record as $key => $value) {
+            if (array_key_exists($key, $data)) {
+                $record->$key = $data[$key];
+            }
+        }
+        $result = false;
+        try {
+            $result = $record->save();
+        }catch (\Throwable $e){
+            $this->logger->writeError($e->getMessage());
+        }
+        return $result;
+    }
+
+    // CONTACTS
+
+    /**
      * Возвращает данные контактов по номеру телефона.
      * @param $phone
      * @return array
@@ -335,71 +446,6 @@ class ConnectorDb extends WorkerBase
             }
         }
         return $record->save();
-    }
-
-    /**
-     * Обновление настроек по данным db.
-     * @param array $data
-     * @return bool
-     */
-    public function updateGeneralSettings(array $data):bool
-    {
-        $record = ModuleBitrix24Integration::findFirst();
-        if($record === null){
-            $record = new ModuleBitrix24Integration();
-        }
-        foreach ($record as $key => $value) {
-            if (array_key_exists($key, $data)) {
-                $record->$key = $data[$key];
-            }
-        }
-        $result = false;
-        try {
-            $result = $record->save();
-        }catch (\Throwable $e){
-            $this->logger->writeError($e->getMessage());
-        }
-        return $result;
-    }
-
-    /**
-     * Сериализует данные и сохраняет их во временный файл.
-     * @param $data
-     * @return string
-     */
-    private function saveResultInTmpFile($data):string
-    {
-        try {
-            $res_data = json_encode($data, JSON_THROW_ON_ERROR);
-        }catch (\JsonException $e){
-            return '';
-        }
-        $dirsConfig = $this->di->getShared('config');
-        $tmoDirName = $dirsConfig->path('core.tempDir') . '/'.self::MODULE_ID;
-        Util::mwMkdir($tmoDirName, true);
-        if (file_exists($tmoDirName)) {
-            $tmpDir = $tmoDirName;
-        }else{
-            $tmpDir = '/tmp/';
-        }
-        $downloadCacheDir = $dirsConfig->path('www.downloadCacheDir');
-        if (!file_exists($downloadCacheDir)) {
-            $downloadCacheDir = '';
-        }
-        $fileBaseName = md5(microtime(true));
-        // "temp-" in the filename is necessary for the file to be automatically deleted after 5 minutes.
-        $filename = $tmpDir . '/temp-' . $fileBaseName;
-        file_put_contents($filename, $res_data);
-        if (!empty($downloadCacheDir)) {
-            $linkName = $downloadCacheDir . '/' . $fileBaseName;
-            // For automatic file deletion.
-            // A file with such a symlink will be deleted after 5 minutes by cron.
-            Util::createUpdateSymlink($filename, $linkName, true);
-        }
-        $findPath   = Util::which('find');
-        shell_exec("$findPath $tmoDirName -mmin +5 -type f -delete");
-        chown($filename, 'www');
-        return $filename;
     }
 
     // B24 CDR
@@ -509,49 +555,6 @@ class ConnectorDb extends WorkerBase
         return ModuleBitrix24CDR::find($filter)->toArray();
     }
 
-    /**
-     * Метод следует вызывать при работе с API из прочих процессов.
-     * @param string $function
-     * @param array $args
-     * @param bool $retVal
-     * @param int $timeout
-     * @return array|bool|mixed
-     */
-    public static function invoke(string $function, array $args = [], bool $retVal = true, int $timeout = 5){
-        $req = [
-            'action'   => 'invoke',
-            'function' => $function,
-            'args'     => $args
-        ];
-        $client = new BeanstalkClient(self::class);
-        $object = [];
-        try {
-            if($retVal){
-                $req['need-ret'] = true;
-                $result = $client->request(json_encode($req, JSON_THROW_ON_ERROR), $timeout);
-            }else{
-                $client->publish(json_encode($req, JSON_THROW_ON_ERROR));
-                return true;
-            }
-            if(file_exists($result)){
-                $object = json_decode(file_get_contents($result), true, 512, JSON_THROW_ON_ERROR);
-                unlink($result);
-            }
-        } catch (\Throwable $e) {
-            $object = [];
-        }
-
-        if(self::FUNC_GET_GENERAL_SETTINGS === $function){
-            if(empty($result)){
-                $object = ModuleBitrix24Integration::findFirst();
-            }else{
-                $object = (object)$object;
-            }
-        }elseif (self::FUNC_FIND_CDR_BY_UID === $function){
-            $object = empty($object)?null:(object)$object;
-        }
-        return $object;
-    }
 }
 
 if(isset($argv) && count($argv) !== 1

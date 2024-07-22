@@ -26,7 +26,7 @@ use Modules\ModuleBitrix24Integration\bin\ConnectorDb;
 
 require_once 'Globals.php';
 try {
-    $settings = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
+    $settings = (array)ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
 }catch (Throwable $e){
     return;
 }
