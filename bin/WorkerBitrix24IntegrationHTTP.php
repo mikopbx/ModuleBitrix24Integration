@@ -378,7 +378,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                             $userId = $cdr->user_id;
                             // Отмечаем вызов как отвеченный.
                             $cdr->answer = 1;
-                            ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_FROM_ARRAY_CDR_BY_UID, [(array)$cdr]);
+                            ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_FROM_ARRAY_CDR_BY_UID, [$row->uniq_id, (array)$cdr]);
                         }
                         if ($row->answer !== 1) {
                             if (!empty($row->dealId)) {

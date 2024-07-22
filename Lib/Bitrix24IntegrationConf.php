@@ -164,9 +164,10 @@ class Bitrix24IntegrationConf extends ConfigClass
         }
         return  $conf.PHP_EOL.
                 '[b24-interception]'.PHP_EOL.
-                'exten => _[0-9*#+]!,1,ExecIf($["${B24_RESPONSIBLE_NUMBER}x" == "x" && "${B24_RESPONSIBLE_TIMEOUT}x" == "x"]?return)'."\n\t".
+                'exten => _[0-9*#+a-zA-Z]!,1,ExecIf($["${B24_RESPONSIBLE_NUMBER}x" == "x" && "${B24_RESPONSIBLE_TIMEOUT}x" == "x"]?return)'."\n\t".
 	            'same => n,Dial(Local/${B24_RESPONSIBLE_NUMBER}@internal/n,${B24_RESPONSIBLE_TIMEOUT},${TRANSFER_OPTIONS}Kg)'."\n\t".
-	            'same => n,return'.PHP_EOL;
+	            'same => n,return'.PHP_EOL.
+                'exten => _[hit],1,Hangup()'.PHP_EOL.PHP_EOL;
     }
 
     /**
