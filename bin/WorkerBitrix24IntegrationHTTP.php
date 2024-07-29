@@ -25,7 +25,7 @@ use Exception;
 use MikoPBX\Core\System\Util;
 use MikoPBX\Core\Workers\WorkerBase;
 use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
-use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24CDR;
+use Modules\ModuleBitrix24Integration\Lib\CacheManager;
 
 class WorkerBitrix24IntegrationHTTP extends WorkerBase
 {
@@ -333,15 +333,19 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         if (count($this->q_req) > 0) {
             $chunks = $this->chunkAssociativeArray($this->q_req);
             $finalResult = [];
+            $errors = [];
             foreach ($chunks as $chunk) {
                 $response = $this->b24->sendBatch($chunk);
                 $finalResult[] = $response['result']['result'] ?? [];
+                $errors[]      = $response['result']['result_error']??[];
             }
             $result = array_merge(...$finalResult);
             // Чистим очередь запросов.
             $this->q_req = [];
             $this->postReceivingResponseProcessing($result);
             $this->handleEvent($result);
+
+            CacheManager::setCacheData('module_state', array_merge(...$errors), 60);
         }
 
         if (count($this->q_pre_req) > 0) {

@@ -65,7 +65,7 @@ class Bitrix24Integration extends PbxExtensionBase
     private bool $backgroundUpload = false;
     public MainLogger $mainLogger;
     private bool $mainProcess = false;
-    private int $updateTokenTime;
+    private int $updateTokenTime = 300;
 
     public $lastContactId;
     public $lastCompanyId;
@@ -80,7 +80,6 @@ class Bitrix24Integration extends PbxExtensionBase
         if(php_sapi_name() === "cli"){
             $this->mainProcess     = cli_get_process_title() === WorkerBitrix24IntegrationHTTP::class;
         }
-        $this->updateTokenTime = $this->mainProcess?300:150;
         $this->mem_cache = [];
         $data = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
         if ($data === null
@@ -218,8 +217,10 @@ class Bitrix24Integration extends PbxExtensionBase
     {
         $s_refresh_token = $this->SESSION["refresh_token"] ?? '';
         $s_access_token  = $this->SESSION["access_token"] ?? '';
+        $expires         = (int)($this->SESSION['expires']??0);
 
-        if (empty($s_refresh_token) || empty($s_access_token)) {
+        if (empty($s_refresh_token) || empty($s_access_token)
+            || ($expires - time()) < $this->updateTokenTime) {
             $this->SESSION = ['refresh_token' => $this->refresh_token];
             $this->updateToken();
         }
@@ -263,7 +264,6 @@ class Bitrix24Integration extends PbxExtensionBase
             'authorization_code' => 'code',
             'refresh_token' => 'refresh_token',
         ];
-
         $result = false;
         $oAuthToken = ModuleBitrix24Integration::getAvailableRegions()[$region];
         if(empty($oAuthToken['CLIENT_ID'])){
@@ -288,7 +288,6 @@ class Bitrix24Integration extends PbxExtensionBase
             $result = true;
             $this->updateSessionData($query_data);
             $this->mainLogger->writeInfo('The token has been successfully updated');
-
         } else {
             $this->mainLogger->writeError('Refresh token: '.json_encode($query_data));
         }
@@ -332,11 +331,10 @@ class Bitrix24Integration extends PbxExtensionBase
     private function query(string $url, array $data, $needBuildQuery = true): array
     {
         if(($data['grant_type']??'') !== 'refresh_token'){
-            $expires = $this->SESSION["expires"]??false;
-            if($expires && $expires - time() < $this->updateTokenTime){
+            $expires = (int)($this->SESSION['expires']??0);
+            if($expires - time() < $this->updateTokenTime){
                 // Запрос обновленного token.
                 $this->updateToken();
-                // Только главный процесс может обновлять токен.
             }
         }
         if (parse_url($url) === false) {

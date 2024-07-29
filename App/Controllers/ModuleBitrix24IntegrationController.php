@@ -26,6 +26,7 @@ use MikoPBX\Modules\PbxExtensionUtils;
 use Modules\ModuleBitrix24Integration\App\Forms\ModuleBitrix24IntegrationForm;
 use Modules\ModuleBitrix24Integration\bin\ConnectorDb;
 use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
+use Modules\ModuleBitrix24Integration\Lib\CacheManager;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use MikoPBX\Common\Models\Extensions;
 use function MikoPBX\Common\Config\appPath;
@@ -69,15 +70,6 @@ class ModuleBitrix24IntegrationController extends BaseController
             ->addCss('css/vendor/semantic/list.min.css', true)
             ->addCss('css/vendor/datatable/dataTables.semanticui.min.css', true);
 
-        $moduleEnable = PbxExtensionUtils::isEnabled('ModuleBitrix24Integration');
-        if($moduleEnable){
-            $settings = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
-        }else{
-            $settings = ModuleBitrix24Integration::findFirst();
-        }
-        if ($settings === null) {
-            $settings = new ModuleBitrix24Integration();
-        }
         // Получим список пользователей для отображения в фильтре
         $parameters = [
             'models'     => [
@@ -114,25 +106,39 @@ class ModuleBitrix24IntegrationController extends BaseController
                 'open_card_mode',
             ],
         ];
-        $bitrix24Users    = ConnectorDb::invoke(ConnectorDb::FUNC_GET_USERS, [$parameters]);
-        $bitrix24UsersIds = array_column($bitrix24Users, 'user_id');
         $this->view->cardMods = [
             Bitrix24Integration::OPEN_CARD_DIRECTLY,
             Bitrix24Integration::OPEN_CARD_NONE,
             Bitrix24Integration::OPEN_CARD_ANSWERED
         ];
 
+        $bitrix24Users = [];
+        $bitrix24UsersIds = [];
         $usersB24 = [];
-        if($moduleEnable && !empty($settings->portal)){
-            $usersB24 = (new Bitrix24Integration())->userGet(true);
-            if ( is_array($usersB24['result']) ) {
-                $usersB24['users'] = [];
-                foreach ($usersB24['result'] as $userB24){
-                    $usersB24['users'][$userB24['UF_PHONE_INNER']] = "{$userB24['LAST_NAME']} {$userB24['NAME']}";
+
+        $moduleEnable = PbxExtensionUtils::isEnabled('ModuleBitrix24Integration');
+        if($moduleEnable){
+            $settings = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
+            if(empty($settings->portal)){
+                $bitrix24Users    = ConnectorDb::invoke(ConnectorDb::FUNC_GET_USERS, [$parameters]);
+                $bitrix24UsersIds = array_column($bitrix24Users, 'user_id');
+
+                $usersB24 = (new Bitrix24Integration())->userGet(true);
+                if ( is_array($usersB24['result']) ) {
+                    $usersB24['users'] = [];
+                    foreach ($usersB24['result'] as $userB24){
+                        $usersB24['users'][$userB24['UF_PHONE_INNER']] = "{$userB24['LAST_NAME']} {$userB24['NAME']}";
+                    }
+                    $usersB24 = $usersB24['users'];
                 }
-                $usersB24 = $usersB24['users'];
             }
+        }else{
+            $settings = ModuleBitrix24Integration::findFirst();
         }
+        if (!$settings) {
+            $settings = new ModuleBitrix24Integration();
+        }
+
         $extensionTable = [];
         foreach ($extensions as $extension) {
             switch ($extension->type) {
@@ -171,7 +177,6 @@ class ModuleBitrix24IntegrationController extends BaseController
             }
         }
         $this->view->extensions     = $extensionTable;
-        $this->view->externalLines  = (object)ConnectorDb::invoke(ConnectorDb::FUNC_GET_EXTERNAL_LINES, []);
 
         $options = [
             'queues' => [ '' => $this->translation->_('ex_SelectNumber') ],
@@ -217,12 +222,11 @@ class ModuleBitrix24IntegrationController extends BaseController
     public function checkStateAction():void
     {
         $moduleEnable = PbxExtensionUtils::isEnabled('ModuleBitrix24Integration');
-        $module = new Bitrix24Integration();
-        if ($moduleEnable && $module->initialized) {
-            $state = $module->getScope();
-            $this->view->result = $state->success;
-            $this->view->data = $state->data;
-            $this->view->messages = $state->messages;
+        if ($moduleEnable) {
+            $cacheData = CacheManager::getCacheData('module_state');
+            $this->view->result = empty($cacheData);
+            $this->view->data = [];
+            $this->view->messages = $cacheData;
         } else {
             $this->view->result = false;
             $this->view->messages[] = Util::translate('mod_b24_i_NoSettings');
@@ -395,5 +399,4 @@ class ModuleBitrix24IntegrationController extends BaseController
         }
         $this->view->data      = $records;
     }
-
 }

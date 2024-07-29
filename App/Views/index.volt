@@ -8,7 +8,6 @@
         <a class="item active" data-tab="general">{{ t._('mod_b24_i_GeneralSettings') }}</a>
         <a class="item" data-tab="users">{{ t._('mod_b24_i_UsersFilter') }}</a>
         <a class="item" data-tab="external_lines">{{ t._('mod_b24_i_ExternalLines') }}</a>
-<!--         <a class="item" data-tab="docs">{{ t._('mod_b24_i_Docs') }}</a> -->
         <a class="item" data-tab="other">{{ t._('mod_b24_i_Other') }}</a>
     </div>
     <div class="ui bottom attached tab segment" data-tab="other">
@@ -179,14 +178,6 @@
             </thead>
             <tbody>
         </table>
-    </div>
-
-    <div class="ui bottom attached tab segment" data-tab="docs">
-        <div class="ui bulleted link list">
-            <a class="item" href="https://wiki.mikopbx.com/module-bitrix24-integration">{{ t._('mod_b24_i_WikiDocsRussian') }}</a>
-            <a class="item" href="https://youtu.be/y9E1dPFQpHk">{{ t._('mod_b24_i_WebinarLinkRussian') }}</a>
-            <a class="item" href="https://qa.askozia.ru/интеграции/интеграция-с-bitrix24" target="_blank">{{ t._('mod_b24_i_QaGroupRussian') }}</a>
-        </div>
     </div>
 
     {{ partial("partials/submitbutton",['indexurl':'pbx-extension-modules/index/']) }}
