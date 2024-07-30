@@ -35,7 +35,6 @@ use MikoPBX\Core\Workers\WorkerBase;
 use MikoPBX\Common\Models\Extensions;
 use MikoPBX\Core\Workers\WorkerCdr;
 use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
-use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24ExternalLines;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use MikoPBX\Core\System\Util;
 use Modules\ModuleBitrix24Integration\Lib\Logger;
@@ -192,7 +191,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         }
 
         /** @var ModuleBitrix24Integration $settings */
-        $settings = ModuleBitrix24Integration::findFirst();
+        $settings = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
         if ($settings !== null) {
             $this->export_records         = ($settings->export_records === '1');
             $this->export_cdr             = ($settings->export_cdr === '1');
@@ -202,7 +201,6 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             $responsible       = $this->b24->inner_numbers[$settings->responsibleMissedCalls]??[];
             $this->responsibleMissedCalls = empty($responsible)?'':$responsible['ID'];
         }
-
         $this->updateExternalLines();
     }
 
@@ -212,7 +210,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     private function updateExternalLines(): void
     {
         $this->external_lines = [];
-        $lines = ModuleBitrix24ExternalLines::find()->toArray();
+        $lines = ConnectorDb::invoke(ConnectorDb::FUNC_GET_EXTERNAL_LINES, []);
         foreach ($lines as $line){
             $this->external_lines[$line['number']] = $line['number'];
             if(empty($line['alias'])){

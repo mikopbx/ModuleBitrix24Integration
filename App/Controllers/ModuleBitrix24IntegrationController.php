@@ -17,32 +17,23 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-/*
- * Copyright © MIKO LLC - All Rights Reserved
- * Unauthorized copying of this file, via any medium is strictly prohibited
- * Proprietary and confidential
- * Written by Alexey Portnov, 10 2020
- */
-
 namespace Modules\ModuleBitrix24Integration\App\Controllers;
 
 use MikoPBX\AdminCabinet\Controllers\BaseController;
 use MikoPBX\Common\Models\Users;
-use MikoPBX\Core\System\BeanstalkClient;
+use MikoPBX\Core\System\Util;
 use MikoPBX\Modules\PbxExtensionUtils;
-use MikoPBX\PBXCoreREST\Lib\PbxExtensionsProcessor;
-use MikoPBX\PBXCoreREST\Workers\WorkerApiCommands;
 use Modules\ModuleBitrix24Integration\App\Forms\ModuleBitrix24IntegrationForm;
+use Modules\ModuleBitrix24Integration\bin\ConnectorDb;
 use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
+use Modules\ModuleBitrix24Integration\Lib\CacheManager;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
-use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Users;
-use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24ExternalLines;
 use MikoPBX\Common\Models\Extensions;
 use function MikoPBX\Common\Config\appPath;
 
 class ModuleBitrix24IntegrationController extends BaseController
 {
-    private $moduleDir;
+    private string $moduleDir;
     private string $moduleUniqueID = 'ModuleBitrix24Integration';
 
     /**
@@ -50,7 +41,7 @@ class ModuleBitrix24IntegrationController extends BaseController
      */
     public function initialize(): void
     {
-        $this->moduleDir           = PbxExtensionUtils::getModuleDir($this->moduleUniqueID);
+        $this->moduleDir = PbxExtensionUtils::getModuleDir($this->moduleUniqueID);
         if ($this->request->isAjax() === false) {
             $this->view->logoImagePath = "{$this->url->get()}assets/img/cache/{$this->moduleUniqueID}/logo.svg";
             $this->view->submitMode    = null;
@@ -78,11 +69,6 @@ class ModuleBitrix24IntegrationController extends BaseController
         $headerCollectionCSS
             ->addCss('css/vendor/semantic/list.min.css', true)
             ->addCss('css/vendor/datatable/dataTables.semanticui.min.css', true);
-
-        $settings = ModuleBitrix24Integration::findFirst();
-        if ($settings === null) {
-            $settings = new ModuleBitrix24Integration();
-        }
 
         // Получим список пользователей для отображения в фильтре
         $parameters = [
@@ -113,33 +99,44 @@ class ModuleBitrix24IntegrationController extends BaseController
         $extensions = $query->execute();
 
 
-        // Получим список пользователей для отображения в фильтре
-        $parameters       = [
-            'columns' => [
-                'user_id',
-                'disabled',
-                'open_card_mode',
-            ],
-        ];
-        $bitrix24Users    = ModuleBitrix24Users::find($parameters)->toArray();
-        $bitrix24UsersIds = array_column($bitrix24Users, 'user_id');
-
         $this->view->cardMods = [
             Bitrix24Integration::OPEN_CARD_DIRECTLY,
             Bitrix24Integration::OPEN_CARD_NONE,
             Bitrix24Integration::OPEN_CARD_ANSWERED
         ];
 
+        $bitrix24Users = [];
+        $bitrix24UsersIds = [];
         $usersB24 = [];
-        if(!empty($settings->portal)){
-            $usersB24 = (new Bitrix24Integration())->userGet(true);
-            if ( is_array($usersB24['result']) ) {
-                $usersB24['users'] = [];
-                foreach ($usersB24['result'] as $userB24){
-                    $usersB24['users'][$userB24['UF_PHONE_INNER']] = "{$userB24['LAST_NAME']} {$userB24['NAME']}";
+
+        $moduleEnable = PbxExtensionUtils::isEnabled('ModuleBitrix24Integration');
+        if($moduleEnable){
+            $settings = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
+            if(!empty($settings->portal)){
+                // Получим список пользователей для отображения в фильтре
+                $parameters       = [
+                    'columns' => [
+                        'user_id',
+                        'disabled',
+                        'open_card_mode',
+                    ],
+                ];
+                $bitrix24Users    = (array)ConnectorDb::invoke(ConnectorDb::FUNC_GET_USERS, [$parameters]);
+                $bitrix24UsersIds = array_column($bitrix24Users, 'user_id');
+                $usersB24 = (new Bitrix24Integration())->userGet(true);
+                if ( is_array($usersB24['result']) ) {
+                    $usersB24['users'] = [];
+                    foreach ($usersB24['result'] as $userB24){
+                        $usersB24['users'][$userB24['UF_PHONE_INNER']] = "{$userB24['LAST_NAME']} {$userB24['NAME']}";
+                    }
+                    $usersB24 = $usersB24['users'];
                 }
-                $usersB24 = $usersB24['users'];
             }
+        }else{
+            $settings = ModuleBitrix24Integration::findFirst();
+        }
+        if (!$settings) {
+            $settings = new ModuleBitrix24Integration();
         }
 
         $extensionTable = [];
@@ -153,7 +150,7 @@ class ModuleBitrix24IntegrationController extends BaseController
                     $extensionTable[$extension->userid]['username'] = $extension->username;
                     $extensionTable[$extension->userid]['b24Name']  = $usersB24[$extension->number]??'';
 
-                    if ( ! array_key_exists('mobile', $extensionTable[$extension->userid])) {
+                    if (!array_key_exists('mobile', $extensionTable[$extension->userid])) {
                         $extensionTable[$extension->userid]['mobile'] = '';
                     }
 
@@ -181,8 +178,6 @@ class ModuleBitrix24IntegrationController extends BaseController
         }
         $this->view->extensions     = $extensionTable;
 
-        $this->view->externalLines  = ModuleBitrix24ExternalLines::find();
-
         $options = [
             'queues' => [ '' => $this->translation->_('ex_SelectNumber') ],
             'users'  => [ '' => $this->translation->_('ex_SelectNumber') ],
@@ -208,6 +203,7 @@ class ModuleBitrix24IntegrationController extends BaseController
     /**
      * Аутентификация, активация code, получение token.
      * @return void
+     * @throws \JsonException
      */
     public function activateCodeAction(): void
     {
@@ -215,20 +211,25 @@ class ModuleBitrix24IntegrationController extends BaseController
             return;
         }
         $data   = $this->request->getPost();
-        $input              = file_get_contents('php://input');
-        $request            = json_encode([
-                                              'data' => $data,
-                                              'module' => 'ModuleBitrix24Integration',
-                                              'input' => $input,     // Параметры запроса.
-                                              'action' => 'ACTIVATE-CODE',
-                                              'REQUEST_METHOD' => $_SERVER['REQUEST_METHOD'],
-                                              'processor' => PbxExtensionsProcessor::class,
-                                          ], JSON_THROW_ON_ERROR);
+        $b24 = new Bitrix24Integration();
+        $this->view->result = $b24->authByCode($data['code'], $data['region']);
+    }
 
-        $client = new BeanstalkClient(WorkerApiCommands::class);
-        $response   = $client->request($request, 30, 0);
-        if ($response !== false) {
-            $this->view->data = json_decode($response, true);
+    /**
+     * Возвращает статус работы модуля
+     * @return void
+     */
+    public function checkStateAction():void
+    {
+        $moduleEnable = PbxExtensionUtils::isEnabled('ModuleBitrix24Integration');
+        if ($moduleEnable) {
+            $cacheData = CacheManager::getCacheData('module_state');
+            $this->view->result = empty($cacheData);
+            $this->view->data = [];
+            $this->view->messages = $cacheData;
+        } else {
+            $this->view->result = false;
+            $this->view->messages[] = Util::translate('mod_b24_i_NoSettings');
         }
     }
 
@@ -252,18 +253,20 @@ class ModuleBitrix24IntegrationController extends BaseController
      */
     public function saveAction(): void
     {
-        if ( ! $this->request->isPost()) {
+        if (!$this->request->isPost()) {
             return;
         }
-        $data   = $this->request->getPost();
-        $record = ModuleBitrix24Integration::findFirst();
-
-        if ( ! $record) {
+        $data = $this->request->getPost();
+        $moduleEnable = PbxExtensionUtils::isEnabled('ModuleBitrix24Integration');
+        if($moduleEnable){
+            $record = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
+        }else{
+            $record = ModuleBitrix24Integration::findFirst();
+        }
+        if (!$record) {
             $record = new ModuleBitrix24Integration();
         }
-        $this->db->begin();
         $old_refresh_token = $record->refresh_token;
-
         // General settings
         foreach ($record as $key => $value) {
             switch ($key) {
@@ -294,84 +297,30 @@ class ModuleBitrix24IntegrationController extends BaseController
                     }
             }
         }
-        if ($record->save() === false) {
-            $errors = $record->getMessages();
-            $this->flash->error(implode('<br>', $errors));
+        if ($moduleEnable){
+            $resultSave = ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_GENERAL_SETTINGS, [(array)$record], true, 10);
+        }else{
+            $resultSave = $record->save();
+        }
+        if ($resultSave === false) {
             $this->view->success = false;
-            $this->db->rollback();
-
+            return;
+        }
+        $arrUsersPost = json_decode($data['arrUsers'],true);
+        $resultSaveUsers = ConnectorDb::invoke(ConnectorDb::FUNC_SAVE_USERS, [$arrUsersPost]);
+        if ($resultSaveUsers === false) {
+            $this->view->success = false;
             return;
         }
 
-        // Users filter
-        $arrUsersPost = json_decode($data['arrUsers'],true);
-        foreach ($arrUsersPost as $rowData) {
-            $userId         = $rowData['user_id'];
-            $parameters   = [
-                'conditions' => 'user_id=:userId:',
-                'bind'       => [
-                    'userId' => $userId,
-                ],
-            ];
-            $userSettings = ModuleBitrix24Users::findFirst($parameters);
-            if ( ! $userSettings) {
-                $userSettings          = new ModuleBitrix24Users();
-                $userSettings->user_id = $userId;
-            }
-            $userSettings->open_card_mode = $rowData['open_card_mode'];
-            $userSettings->disabled       = $rowData['disabled'] ? '1' : '0';
-            if ($userSettings->save() === false) {
-                $errors = $userSettings->getMessages();
-                $this->flash->error(implode('<br>', $errors));
-                $this->view->success = false;
-                $this->db->rollback();
-                return;
-            }
-        }
-
-        // External lines
-        $externalLines = ModuleBitrix24ExternalLines::find();
         $externalLinesPost = json_decode($data['externalLines'],true);
-        // Delete all not exists in POST data
-        foreach ($externalLines as $externalLine){
-            if (! in_array($externalLine->id, array_column($externalLinesPost, 'id'), true)){
-                $externalLine->delete();
-            }
+        $resultSaveLines   = ConnectorDb::invoke(ConnectorDb::FUNC_SAVE_EXTERNAL_LINES, [$externalLinesPost]);
+        if(!$resultSaveLines){
+            $this->view->success = false;
+            return;
         }
-        // Add or change exists
-        foreach ($externalLinesPost as $record) {
-            if (!isset($record['id']) && empty($record['id'])){
-                continue;
-            }
-            $externalLine = ModuleBitrix24ExternalLines::findFirstById($record['id']);
-            if ($externalLine===null){
-                $externalLine = new ModuleBitrix24ExternalLines();
-            }
-            foreach ($externalLine as $key => $value){
-                switch ($key) {
-                    case 'id':
-                        break;
-                    default:
-                        if ( ! array_key_exists($key, $record)) {
-                            $externalLine->$key = '';
-                        } else {
-                            $externalLine->$key = $record[$key];
-                        }
-                }
-            }
-            if ($externalLine->save() === false) {
-                $errors = $externalLine->getMessages();
-                $this->flash->error(implode('<br>', $errors));
-                $this->view->success = false;
-                $this->db->rollback();
-
-                return;
-            }
-        }
-
         $this->flash->success($this->translation->_('ms_SuccessfulSaved'));
         $this->view->success = true;
-        $this->db->commit();
     }
 
     /**
@@ -380,7 +329,7 @@ class ModuleBitrix24IntegrationController extends BaseController
     public function enableAction(): bool
     {
         $result = true;
-        $record = ModuleBitrix24Integration::findFirst();
+        $record = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
         if ( ! $record || empty($record->portal)) {
             $result = false;
             $this->flash->error($this->translation->_('mod_b24_i_ValidatePortalEmpty'));
@@ -389,22 +338,17 @@ class ModuleBitrix24IntegrationController extends BaseController
             $this->flash->error($this->translation->_('mod_b24_i_ValidateClientRefreshTokenEmpty'));
         }
         $this->view->success = $result;
-
         return $result;
     }
 
     /**
-     * Delete phonebook record
-     *
      * @param string $id record ID
      */
     public function deleteExternalLineAction($id = null): void
     {
-        $record = ModuleBitrix24ExternalLines::findFirstById($id);
-        if ($record !== null && ! $record->delete()) {
-            $this->flash->error(implode('<br>', $record->getMessages()));
+        $record = ConnectorDb::invoke(ConnectorDb::FUNC_DELETE_EXTERNAL_LINE, [$id]);
+        if (!$record) {
             $this->view->success = false;
-
             return;
         }
         $this->view->success = true;
@@ -425,15 +369,14 @@ class ModuleBitrix24IntegrationController extends BaseController
 
         // Посчитаем количество уникальных записей в таблице телефонов
         $parameters['columns'] = 'COUNT(*) as rows';
-        $recordsTotalReq       = ModuleBitrix24ExternalLines::findFirst($parameters);
+        $recordsTotalReq       = (object)ConnectorDb::invoke(ConnectorDb::FUNC_GET_FIRST_EXTERNAL_LINES, [$parameters]);
         if ($recordsTotalReq !== null) {
             $recordsTotal             = $recordsTotalReq->rows;
             $this->view->recordsTotal = $recordsTotal;
         } else {
             return;
         }
-
-        $recordsFilteredReq = ModuleBitrix24ExternalLines::findFirst($parameters);
+        $recordsFilteredReq    = (object)ConnectorDb::invoke(ConnectorDb::FUNC_GET_FIRST_EXTERNAL_LINES, [$parameters]);
         if ($recordsFilteredReq !== null) {
             $recordsFiltered             = $recordsFilteredReq->rows;
             $this->view->recordsFiltered = $recordsFiltered;
@@ -449,8 +392,11 @@ class ModuleBitrix24IntegrationController extends BaseController
         ];
         $parameters['limit']   = $recordsPerPage;
         $parameters['offset']  = $position;
-        $records               = ModuleBitrix24ExternalLines::find($parameters);
-        $this->view->data      = $records->toArray();
+        $records               = [];
+        $tmpRecords = ConnectorDb::invoke(ConnectorDb::FUNC_GET_EXTERNAL_LINES, [$parameters]);
+        foreach ($tmpRecords as $extLine){
+            $records[] = (object) $extLine;
+        }
+        $this->view->data      = $records;
     }
-
 }

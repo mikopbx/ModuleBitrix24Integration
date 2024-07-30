@@ -25,8 +25,7 @@ use Exception;
 use MikoPBX\Core\System\Util;
 use MikoPBX\Core\Workers\WorkerBase;
 use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
-use Modules\ModuleBitrix24Integration\Models\B24PhoneBook;
-use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24CDR;
+use Modules\ModuleBitrix24Integration\Lib\CacheManager;
 
 class WorkerBitrix24IntegrationHTTP extends WorkerBase
 {
@@ -255,7 +254,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $eventData = $event['EVENT_DATA'];
             if (isset($eventActionsDelete[$event['EVENT_NAME']])) {
                 $id = array_values($eventData['FIELDS']);
-                $this->b24->deletePhoneContact($eventActionsDelete[$event['EVENT_NAME']], $id);
+                ConnectorDb::invoke(ConnectorDb::FUNC_DELETE_CONTACT_DATA, [$eventActionsDelete[$event['EVENT_NAME']], $id],false);
             }
             if (isset($eventActionsUpdate[$event['EVENT_NAME']])){
                 $id = array_values($eventData['FIELDS']);
@@ -334,23 +333,26 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         if (count($this->q_req) > 0) {
             $chunks = $this->chunkAssociativeArray($this->q_req);
             $finalResult = [];
+            $errors = [];
             foreach ($chunks as $chunk) {
                 $response = $this->b24->sendBatch($chunk);
                 $finalResult[] = $response['result']['result'] ?? [];
+                $errors[]      = $response['result']['result_error']??[];
             }
             $result = array_merge(...$finalResult);
             // Чистим очередь запросов.
             $this->q_req = [];
             $this->postReceivingResponseProcessing($result);
             $this->handleEvent($result);
+
+            CacheManager::setCacheData('module_state', array_merge(...$errors), 60);
         }
 
         if (count($this->q_pre_req) > 0) {
             $tmpArr = [$this->q_req];
             foreach ($this->q_pre_req as $data) {
                 if ('action_hangup_chan' === $data['action']) {
-                    /** @var ModuleBitrix24CDR $cdr */
-                    $cdr = ModuleBitrix24CDR::findFirst("uniq_id='{$data['UNIQUEID']}'");
+                    $cdr = ConnectorDb::invoke(ConnectorDb::FUNC_FIND_CDR_BY_UID,[$data['UNIQUEID']]);
                     if ($cdr) {
                         $data['CALL_ID'] = $cdr->call_id;
                         $data['USER_ID'] = (int)$cdr->user_id;
@@ -365,8 +367,9 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                         "linkedid='{$data['linkedid']}'",
                         'order' => 'uniq_id'
                     ];
-                    $b24CdrRows = ModuleBitrix24CDR::find($filter);
-                    foreach ($b24CdrRows as $row) {
+                    $b24CdrRows = ConnectorDb::invoke(ConnectorDb::FUNC_GET_CDR_BY_FILTER, [$filter]);
+                    foreach ($b24CdrRows as $cdrData) {
+                        $row = (object)$cdrData;
                         if ($row->uniq_id === $data['UNIQUEID']) {
                             $cdr = $row;
                             if (!empty($cdr->dealId)) {
@@ -379,9 +382,9 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                             $userId = $cdr->user_id;
                             // Отмечаем вызов как отвеченный.
                             $cdr->answer = 1;
-                            $cdr->save();
+                            ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_FROM_ARRAY_CDR_BY_UID, [$row->uniq_id, (array)$cdr]);
                         }
-                        if ($cdr->answer !== 1) {
+                        if ($row->answer !== 1) {
                             if (!empty($row->dealId)) {
                                 $dealId = max($dealId, $row->dealId);
                             }
@@ -481,14 +484,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     public function findEntitiesByPhone(string $phone, string $linkedId = ''):void
     {
         $callData = &$this->tmpCallsData[$linkedId];
-        $filter = [
-            "phoneId = :phoneId: AND statusLeadId<>'S' AND statusLeadId<>'F'",
-            'bind' => [
-                'phoneId'     => Bitrix24Integration::getPhoneIndex($phone)
-            ],
-            'order' => 'dateCreate',
-        ];
-        $data = B24PhoneBook::find($filter)->toArray();
+        $contactsData = ConnectorDb::invoke("getContactsByPhone", [$phone]);
 
         $did         = $callData['data']['did']??'';
         $chooseFirst = !isset($this->didUsers[$did]);
@@ -498,13 +494,13 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             if($callData['wait'] === false){
                 break;
             }
-            foreach ($data as $phoneData){
+            foreach ($contactsData as $phoneData){
                 if($phoneData['contactType'] !== $type){
                     continue;
                 }
                 $innerPhone = $this->b24->b24Users[$phoneData['userId']]??'';
                 if ($chooseFirst || in_array($innerPhone, $users, true)) {
-                    $this->b24->logger->writeInfo("findContactByPhone: $type id:". $phoneData['b24id']. ', TITLE: '.$phoneData['name']. 'responsible id: '.$phoneData['userId'].', responsible number: '. $innerPhone);
+                    $this->b24->logger->writeInfo("findContactByPhone: $type id:". $phoneData['b24id']. ', TITLE: '.$phoneData['name']. ', responsible id: '.$phoneData['userId'].', responsible number: '. $innerPhone);
                     $callData['crm-data']    = [
                         'ID' => $phoneData['b24id'],
                         'CRM_ENTITY_TYPE' => $type,
@@ -525,7 +521,11 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             if(!empty($userNum)){
                 // Если для каждого DID описаны уточнения по сотрудникам.
                 // Нужно создать новый ЛИД.
-                $arg = $this->b24->crmAddLead($callData['data']['PHONE_NUMBER'], $callData['data']['linkedid'], $this->b24->inner_numbers[$userNum]['ID']??'');
+                $l_phone = $callData['data']['PHONE_NUMBER']??'';
+                $l_id    = $callData['data']['linkedid']??'';
+                $l_user  = $this->b24->inner_numbers[$userNum]['ID']??'';
+                $l_did   = $callData['data']['did']??'';
+                $arg = $this->b24->crmAddLead($l_phone, $l_id, $l_user, $l_did);
                 $this->q_req = array_merge($arg, $this->q_req);
             }else{
                 // Обычное поведение, доп. лид не создаем.

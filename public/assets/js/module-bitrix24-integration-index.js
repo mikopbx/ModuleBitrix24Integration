@@ -66,7 +66,7 @@ var ModuleBitrix24Integration = {
 
     if (typeof data !== 'string' && data.code !== undefined) {
       data.region = ModuleBitrix24Integration.$elRegion.val();
-      $.post("".concat(Config.pbxUrl, "/admin-cabinet/module-bitrix24-integration/activateCode"), data, function (result) {
+      $.post("".concat(globalRootUrl, "module-bitrix24-integration/activateCode"), data, function (result) {
         console.log(result);
       });
       ModuleBitrix24Integration.popup.close();
@@ -317,11 +317,15 @@ var ModuleBitrix24Integration = {
   checkStatusToggle: function checkStatusToggle() {
     if (ModuleBitrix24Integration.$statusToggle.checkbox('is checked')) {
       $('[data-tab = "general"] .disability').removeClass('disabled');
+      $('[data-tab = "users"]').removeClass('disabled');
+      $('[data-tab = "external_lines"]').removeClass('disabled');
       ModuleBitrix24Integration.$moduleStatus.show();
       ModuleBitrix24IntegrationStatusWorker.initialize();
     } else {
       ModuleBitrix24Integration.$moduleStatus.hide();
       $('[data-tab = "general"] .disability').addClass('disabled');
+      $('[data-tab = "users"]').addClass('disabled');
+      $('[data-tab = "external_lines"]').addClass('disabled');
     }
   },
 

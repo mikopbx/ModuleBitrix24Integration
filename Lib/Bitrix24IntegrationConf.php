@@ -14,6 +14,7 @@ use MikoPBX\Core\System\Util;
 use MikoPBX\Modules\Config\ConfigClass;
 use MikoPBX\Core\Workers\Cron\WorkerSafeScriptsCore;
 use MikoPBX\PBXCoreREST\Lib\PBXApiResult;
+use Modules\ModuleBitrix24Integration\bin\ConnectorDb;
 use Modules\ModuleBitrix24Integration\bin\UploaderB24;
 use Modules\ModuleBitrix24Integration\bin\WorkerBitrix24IntegrationAMI;
 use Modules\ModuleBitrix24Integration\bin\WorkerBitrix24IntegrationHTTP;
@@ -66,6 +67,10 @@ class Bitrix24IntegrationConf extends ConfigClass
                 'type'           => WorkerSafeScriptsCore::CHECK_BY_AMI,
                 'worker'         => WorkerBitrix24IntegrationAMI::class,
             ],
+            [
+                'type'           => WorkerSafeScriptsCore::CHECK_BY_BEANSTALK,
+                'worker'         => ConnectorDb::class,
+            ],
         ];
     }
 
@@ -80,19 +85,7 @@ class Bitrix24IntegrationConf extends ConfigClass
     {
         $res = new PBXApiResult();
         $action = strtoupper($request['action']);
-        if($action === 'CHECK') {
-            $module = new Bitrix24Integration();
-            if ($module->initialized) {
-                $res = $module->getScope();
-            } else {
-                $res->messages[] = Util::translate('mod_b24_i_NoSettings');
-            }
-        }elseif ($action === 'ACTIVATE-CODE'){
-            $b24    = new Bitrix24Integration();
-            $res->success = $b24->authByCode($request['data']['code'], $request['data']['region']);
-        }else{
-            $res->messages[] = 'API action not found in moduleRestAPICallback ModuleBitrix24Integration;';
-        }
+        $res->messages[] = "API action '$action' not found in moduleRestAPICallback ModuleBitrix24Integration";
         return $res;
     }
 
@@ -136,7 +129,7 @@ class Bitrix24IntegrationConf extends ConfigClass
         }
 
         $disabledDid = [];
-        $lines = ModuleBitrix24ExternalLines::find()->toArray();
+        $lines = ConnectorDb::invoke(ConnectorDb::FUNC_GET_EXTERNAL_LINES, []);
         foreach ($lines as $line){
             $aliases = explode(' ', $line['alias']);
             foreach ($aliases as $alias){
@@ -159,9 +152,10 @@ class Bitrix24IntegrationConf extends ConfigClass
         }
         return  $conf.PHP_EOL.
                 '[b24-interception]'.PHP_EOL.
-                'exten => _[0-9*#+]!,1,ExecIf($["${B24_RESPONSIBLE_NUMBER}x" == "x" && "${B24_RESPONSIBLE_TIMEOUT}x" == "x"]?return)'."\n\t".
+                'exten => _[0-9*#+a-zA-Z]!,1,ExecIf($["${B24_RESPONSIBLE_NUMBER}x" == "x" && "${B24_RESPONSIBLE_TIMEOUT}x" == "x"]?return)'."\n\t".
 	            'same => n,Dial(Local/${B24_RESPONSIBLE_NUMBER}@internal/n,${B24_RESPONSIBLE_TIMEOUT},${TRANSFER_OPTIONS}Kg)'."\n\t".
-	            'same => n,return'.PHP_EOL;
+	            'same => n,return'.PHP_EOL.
+                'exten => _[hit],1,Hangup()'.PHP_EOL.PHP_EOL;
     }
 
     /**
@@ -179,5 +173,15 @@ class Bitrix24IntegrationConf extends ConfigClass
         return "\t".'same => n,ExecIf($["${DIALPLAN_EXISTS(b24-disabled-did,${EXTEN},1)}" == "1"]?Set(B24_DISABLE_INTERCEPTION=1))'."\n".
                "\t".'same => n,ExecIf($["${DIALPLAN_EXISTS(b24-inner-mobile,${CALLERID(num):-'.$len.'},1)}" == "1"]?Set(B24_DISABLE_INTERCEPTION=1))'."\n".
                "\t".'same => n,ExecIf($["${B24_DISABLE_INTERCEPTION}" != "1"]?AGI('.$scriptFile.'))'."\n\t";
+    }
+
+    /**
+     * @param array $tasks
+     */
+    public function createCronTasks(array &$tasks): void
+    {
+        $tmpDir = $this->di->getShared('config')->path('core.tempDir') . '/ModuleBitrix24Integration';
+        $findPath   = Util::which('find');
+        $tasks[]    = "*/5 * * * * $findPath $tmpDir -mmin +1 -type f -delete> /dev/null 2>&1".PHP_EOL;
     }
 }
