@@ -98,14 +98,7 @@ class ModuleBitrix24IntegrationController extends BaseController
         $query      = $this->di->get('modelsManager')->createBuilder($parameters)->getQuery();
         $extensions = $query->execute();
 
-        // Получим список пользователей для отображения в фильтре
-        $parameters       = [
-            'columns' => [
-                'user_id',
-                'disabled',
-                'open_card_mode',
-            ],
-        ];
+
         $this->view->cardMods = [
             Bitrix24Integration::OPEN_CARD_DIRECTLY,
             Bitrix24Integration::OPEN_CARD_NONE,
@@ -119,10 +112,17 @@ class ModuleBitrix24IntegrationController extends BaseController
         $moduleEnable = PbxExtensionUtils::isEnabled('ModuleBitrix24Integration');
         if($moduleEnable){
             $settings = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
-            if(empty($settings->portal)){
-                $bitrix24Users    = ConnectorDb::invoke(ConnectorDb::FUNC_GET_USERS, [$parameters]);
+            if(!empty($settings->portal)){
+                // Получим список пользователей для отображения в фильтре
+                $parameters       = [
+                    'columns' => [
+                        'user_id',
+                        'disabled',
+                        'open_card_mode',
+                    ],
+                ];
+                $bitrix24Users    = (array)ConnectorDb::invoke(ConnectorDb::FUNC_GET_USERS, [$parameters]);
                 $bitrix24UsersIds = array_column($bitrix24Users, 'user_id');
-
                 $usersB24 = (new Bitrix24Integration())->userGet(true);
                 if ( is_array($usersB24['result']) ) {
                     $usersB24['users'] = [];
@@ -150,7 +150,7 @@ class ModuleBitrix24IntegrationController extends BaseController
                     $extensionTable[$extension->userid]['username'] = $extension->username;
                     $extensionTable[$extension->userid]['b24Name']  = $usersB24[$extension->number]??'';
 
-                    if ( ! array_key_exists('mobile', $extensionTable[$extension->userid])) {
+                    if (!array_key_exists('mobile', $extensionTable[$extension->userid])) {
                         $extensionTable[$extension->userid]['mobile'] = '';
                     }
 
