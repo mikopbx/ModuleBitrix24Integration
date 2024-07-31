@@ -69,6 +69,9 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         // При старте синхронизируем внешние линии.
         $externalLines = $this->b24->syncExternalLines();
         foreach ($externalLines as $line){
+            if($line['disabled'] === '1'){
+                continue;
+            }
             $nums = $this->parseInnerNumbers($line['name']);
             if(empty($nums)){
                 continue;
