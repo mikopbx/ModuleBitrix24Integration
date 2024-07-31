@@ -154,9 +154,15 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 $pre_call_key = "tmp5_ONEXTERNALCALLBACKSTART_" . Bitrix24Integration::getPhoneIndex($data['PHONE_NUMBER']);
                 $cache_data = $this->b24->getCache($pre_call_key);
                 if ($cache_data !== null) {
-                    $data['PHONE_NUMBER'] = $cache_data['PHONE_NUMBER'] ?? $data['PHONE_NUMBER'];
-                    $data['CRM_ENTITY_ID'] = $cache_data['CRM_ENTITY_ID'] ?? '';
+                    $data['PHONE_NUMBER']    = $cache_data['PHONE_NUMBER'] ?? $data['PHONE_NUMBER'];
+                    $data['CRM_ENTITY_ID']   = $cache_data['CRM_ENTITY_ID'] ?? '';
                     $data['CRM_ENTITY_TYPE'] = $cache_data['CRM_ENTITY_TYPE'] ?? '';
+                }elseif($data['TYPE'] === '1'){
+                    // Для исходящих определяем идентификатор и тип контакта.
+                    $contactsData = ConnectorDb::invoke(ConnectorDb::FUNC_GET_CONTACT_BY_PHONE_USER, [$data['PHONE_NUMBER'], $data['USER_ID']]);
+                    $data['PHONE_NUMBER']    = $contactsData['phone']??$data['PHONE_NUMBER'];
+                    $data['CRM_ENTITY_ID']   = $contactsData['b24id']??'';
+                    $data['CRM_ENTITY_TYPE'] = $contactsData['contactType']??'';
                 }
                 $arg = $this->b24->telephonyExternalCallRegister($data);
                 if (count($arg) > 0) {
@@ -484,7 +490,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     public function findEntitiesByPhone(string $phone, string $linkedId = ''):void
     {
         $callData = &$this->tmpCallsData[$linkedId];
-        $contactsData = ConnectorDb::invoke("getContactsByPhone", [$phone]);
+        $contactsData = ConnectorDb::invoke(ConnectorDb::FUNC_GET_CONTACT_BY_PHONE, [$phone]);
 
         $did         = $callData['data']['did']??'';
         $chooseFirst = !isset($this->didUsers[$did]);

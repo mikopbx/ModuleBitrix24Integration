@@ -696,16 +696,19 @@ class Bitrix24Integration extends PbxExtensionBase
                     'USER_ID'      => $req_data['data']['USER_ID'],
                     'PHONE_NUMBER' => $req_data['data']['PHONE_NUMBER'],
                 ];
-                $pre_call_key = "tmp5_{$phone_data['peer_number']}_" . self::getPhoneIndex(
-                        $req_data['data']['PHONE_NUMBER']
-                    );
+                $pre_call_key = "tmp5_{$phone_data['peer_number']}_" . self::getPhoneIndex($req_data['data']['PHONE_NUMBER']);
+                $this->saveCache($pre_call_key, $data, 5);
+                $PHONE_NUMBER = preg_replace("/[^0-9+]/", '', urldecode($req_data['data']['PHONE_NUMBER']));
+                $data         = [
+                    'CRM_ENTITY_TYPE' => $req_data['data']['CRM_ENTITY_TYPE'],
+                    'CRM_ENTITY_ID'   => $req_data['data']['CRM_ENTITY_ID'],
+                    'PHONE_NUMBER'    => $PHONE_NUMBER,
+                ];
+                $pre_call_key = "tmp5_ONEXTERNALCALLBACKSTART_" . self::getPhoneIndex($PHONE_NUMBER);
                 $this->saveCache($pre_call_key, $data, 5);
 
-                $dst = preg_replace("/[^0-9+]/", '', $dst);
-                Util::amiOriginate($phone_data['peer_number'], '', $dst);
-                $this->mainLogger->writeInfo(
-                    "ONEXTERNALCALLSTART: originate from user {$FROM_USER_ID} <{$phone_data['peer_number']}> to {$dst})"
-                );
+                Util::amiOriginate($phone_data['peer_number'], '', $PHONE_NUMBER);
+                $this->mainLogger->writeInfo("ONEXTERNALCALLSTART: originate from user {$FROM_USER_ID} <{$phone_data['peer_number']}> to $dst)");
             }else{
                 $this->mainLogger->writeInfo('User: '.$FROM_USER_ID." - ".json_encode($req_data));
             }
