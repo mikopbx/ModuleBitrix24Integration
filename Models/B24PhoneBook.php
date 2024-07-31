@@ -15,6 +15,7 @@ use MikoPBX\Modules\Models\ModulesModelsBase;
  * @Indexes(
  *     [name='contactType', columns=['contactType'], type=''],
  *     [name='phoneId', columns=['phoneId'], type=''],
+ *     [name='userid', columns=['userid'], type=''],
  *     [name='statusLeadId', columns=['statusLeadId'], type='']
  * )
  */

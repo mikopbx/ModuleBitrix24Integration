@@ -36,6 +36,8 @@ class ConnectorDb extends WorkerBase
     public const FUNC_GET_GENERAL_SETTINGS          = "getGeneralSettings";
     public const FUNC_UPDATE_GENERAL_SETTINGS       = "updateGeneralSettings";
     public const FUNC_DELETE_CONTACT_DATA           = "deletePhoneContact";
+    public const FUNC_GET_CONTACT_BY_PHONE_USER     = "getContactsByPhoneAndUser";
+    public const FUNC_GET_CONTACT_BY_PHONE          = "getContactsByPhone";
     public const FUNC_ADD_CONTACT_DATA              = "addPhoneContact";
     public const FUNC_FIND_CDR_BY_UID               = "findCdrByUID";
     public const FUNC_UPDATE_CDR_BY_UID             = "updateCdrByUID";
@@ -412,6 +414,32 @@ class ConnectorDb extends WorkerBase
             'order' => 'dateCreate',
         ];
         return B24PhoneBook::find($filter)->toArray();
+    }
+
+    /**
+     * Возвращает данные контактов по номеру телефона.
+     * @param string $phone
+     * @param string $userId
+     * @return array
+     */
+    public function getContactsByPhoneAndUser(string $phone, string $userId):array
+    {
+        $filter = [
+            "phoneId = :phoneId: AND statusLeadId<>'S' AND statusLeadId<>'F' AND userId=:userId:",
+            'bind' => [
+                'phoneId'    => Bitrix24Integration::getPhoneIndex($phone),
+                'userId'     => $userId
+            ],
+            'order' => 'contactType DESC,dateCreate',
+            'limit' => 1
+        ];
+        $contactData = B24PhoneBook::findFirst($filter);
+        if($contactData){
+            $result = $contactData->toArray();
+        }else{
+            $result = [];
+        }
+        return $result;
     }
 
     /**
