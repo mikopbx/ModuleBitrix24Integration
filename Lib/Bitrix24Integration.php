@@ -1109,7 +1109,11 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->saveCache($cache_key, '1', 180);
 
         $show_card = '0';
-        $cardOpenSetting = $this->usersSettingsB24[$options['USER_PHONE_INNER']]['open_card_mode']??'';
+        $userNumber = $this->b24Users[$options['USER_ID']]??'';
+        if(empty($userNumber)){
+            $userNumber = $options['USER_PHONE_INNER'];
+        }
+        $cardOpenSetting = $this->usersSettingsB24[$userNumber]['open_card_mode']??'';
         if ($cardOpenSetting === self::OPEN_CARD_DIRECTLY || $cardOpenSetting === '') {
             $show_card = '1';
         }
