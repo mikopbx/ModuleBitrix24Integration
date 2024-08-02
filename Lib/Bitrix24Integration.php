@@ -72,14 +72,14 @@ class Bitrix24Integration extends PbxExtensionBase
     public $lastLeadId;
     public $lastDealId;
 
-    public function __construct()
+    public function __construct(string $logPrefix = '')
     {
         parent::__construct();
-        $this->mainLogger =  new MainLogger('HttpConnection', 'ModuleBitrix24Integration');
         $this->portal = '';
         if(php_sapi_name() === "cli"){
             $this->mainProcess     = cli_get_process_title() === WorkerBitrix24IntegrationHTTP::class;
         }
+        $this->mainLogger =  new MainLogger('HttpConnection'.$logPrefix, 'ModuleBitrix24Integration');
         $this->mem_cache = [];
         $data = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
         if ($data === null
@@ -288,7 +288,7 @@ class Bitrix24Integration extends PbxExtensionBase
             $result = true;
             $this->updateSessionData($query_data);
             $this->mainLogger->writeInfo('The token has been successfully updated');
-        } else {
+        }else{
             $this->mainLogger->writeError('Refresh token: '.json_encode($query_data));
         }
         return $result;

@@ -58,6 +58,8 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     private string $crmCreateLead = '0';
     private BeanstalkClient $client;
 
+    private array $outChannels = [];
+
     private array $channelCounter = [];
     private string $responsibleMissedCalls = '';
     private Logger $logger;
@@ -88,7 +90,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
 
         $this->client = new BeanstalkClient(Bitrix24Integration::B24_INTEGRATION_CHANNEL);
         $this->am     = Util::getAstManager();
-        $this->b24    = new Bitrix24Integration();
+        $this->b24    = new Bitrix24Integration('_ami');
 
         if (!$this->b24->initialized) {
             $this->logger->writeError('Settings not set... exit');
@@ -352,6 +354,16 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         if ( ! $this->export_cdr) {
             return;
         }
+
+        if($data['action'] === 'dial' && stripos($data['src_chan'], '/'.$data['src_num'].'-') !== false){
+            // Это исходящий вызов, начальный канал.
+            $this->outChannels[$data['src_chan']] = [
+                'start'     => $data['start'],
+                'UNIQUEID'  => $data['UNIQUEID'],
+                'src_num'   => $data['src_num'],
+            ];
+        }
+
         $linkedId = $data['linkedid']??'';
 
         $dstNum = Bitrix24Integration::getPhoneIndex($data['dst_num']);
@@ -478,22 +490,42 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         }else{
             unset($this->channelCounter[$data['UNIQUEID']]);
         }
+        $outChanData = $this->outChannels[$data['agi_channel']]??[];
+        unset($this->outChannels[$data['agi_channel']]);
         // end
         if(isset($this->channelCounter[$data['UNIQUEID']])){
             // Не все каналы с этим ID были завершены.
             // Вероятно это множественная регистрация.
             return;
         }
-
         $not_local = (stripos($data['agi_channel'], 'local/') === false);
         if ($not_local) {
-            $data = [
+            $dataForSend = [
                 'UNIQUEID' => $data['UNIQUEID'],
                 'linkedid' => $data['linkedid'],
+                'channel'  => $data['agi_channel'],
                 'action'   => 'action_hangup_chan',
             ];
-            $this->Action_SendToBeanstalk($data);
+            $this->Action_SendToBeanstalk($dataForSend);
         }
+
+        $srsUserId = $this->getInnerNum($data['src_num']);
+        if(!empty($srsUserId) && !empty($outChanData) && $data['dialstatus'] !== 'ANSWERED'){
+            $this->logger->writeInfo("Send finish event from hangup...".$data['linkedid']);
+            $params = [
+                'UNIQUEID'       => $outChanData['UNIQUEID'],
+                'USER_ID'        => $srsUserId,
+                'DURATION'       => '0',
+                'FILE'           => '',
+                'GLOBAL_STATUS'  => 'NOANSWER',
+                'disposition'    => 'NOANSWER',
+                "export_records" => $this->export_records,
+                'linkedid'       => $data['linkedid'],
+                'action'         => 'telephonyExternalCallFinish',
+            ];
+            $this->Action_SendToBeanstalk($params);
+        }
+
     }
 
     /**
