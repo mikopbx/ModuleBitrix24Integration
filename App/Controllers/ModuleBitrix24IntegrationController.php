@@ -123,7 +123,7 @@ class ModuleBitrix24IntegrationController extends BaseController
                 ];
                 $bitrix24Users    = (array)ConnectorDb::invoke(ConnectorDb::FUNC_GET_USERS, [$parameters]);
                 $bitrix24UsersIds = array_column($bitrix24Users, 'user_id');
-                $usersB24 = (new Bitrix24Integration())->userGet(true);
+                $usersB24 = (new Bitrix24Integration('_www'))->userGet(true);
                 if ( is_array($usersB24['result']) ) {
                     $usersB24['users'] = [];
                     foreach ($usersB24['result'] as $userB24){
@@ -211,7 +211,7 @@ class ModuleBitrix24IntegrationController extends BaseController
             return;
         }
         $data   = $this->request->getPost();
-        $b24 = new Bitrix24Integration();
+        $b24 = new Bitrix24Integration('_www');
         $this->view->result = $b24->authByCode($data['code'], $data['region']);
     }
 

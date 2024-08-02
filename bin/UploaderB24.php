@@ -40,10 +40,10 @@ class UploaderB24 extends WorkerBase
      */
     public function start($argv):void
     {
-        $this->logger =  new Logger('UploaderB24', 'ModuleBitrix24Integration');
+        $this->logger = new Logger('UploaderB24', 'ModuleBitrix24Integration');
         $this->logger->writeInfo('Start daemon...');
 
-        $this->b24    = new Bitrix24Integration();
+        $this->b24    = new Bitrix24Integration('_uploader');
         $this->initBeanstalk();
         $this->logger->writeInfo('Start waiting...');
         while (!$this->needRestart) {

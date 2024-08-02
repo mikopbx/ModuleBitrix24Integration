@@ -90,7 +90,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
 
         $this->client = new BeanstalkClient(Bitrix24Integration::B24_INTEGRATION_CHANNEL);
         $this->am     = Util::getAstManager();
-        $this->b24    = new Bitrix24Integration();
+        $this->b24    = new Bitrix24Integration('_ami');
 
         if (!$this->b24->initialized) {
             $this->logger->writeError('Settings not set... exit');
