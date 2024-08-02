@@ -287,8 +287,10 @@ class Bitrix24Integration extends PbxExtensionBase
         if (isset($query_data["access_token"])) {
             $result = true;
             $this->updateSessionData($query_data);
-            $this->mainLogger->writeInfo('The token has been successfully updated');
-        } else {
+            if($this->mainProcess){
+                $this->mainLogger->writeInfo('The token has been successfully updated');
+            }
+        } elseif($this->mainProcess){
             $this->mainLogger->writeError('Refresh token: '.json_encode($query_data));
         }
         return $result;
