@@ -20,7 +20,6 @@ use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use MikoPBX\Core\System\Util;
 use Modules\ModuleBitrix24Integration\Lib\Logger as MainLogger;
 use Modules\ModuleBitrix24Integration\bin\WorkerBitrix24IntegrationHTTP;
-use stdClass;
 
 class Bitrix24Integration extends PbxExtensionBase
 {
@@ -1359,64 +1358,26 @@ class Bitrix24Integration extends PbxExtensionBase
         return $arg;
     }
 
+    /**
+     * Сохранение данных контактов.
+     * @param $action
+     * @param $keyId
+     * @param $data
+     * @return void
+     */
     public function crmListEntResults($action, $keyId, $data):void
     {
-        $contactTypes = [
-            self::API_CRM_LIST_CONTACT => 'CONTACT',
-            self::API_CRM_LIST_COMPANY => 'COMPANY',
-            self::API_CRM_LIST_LEAD    => 'LEAD',
-        ];
-        $maxId = '';
-        foreach ($data as $entData){
-            $id          = $entData['ID'];
-            $maxId       = max($maxId, $id);
-            $userId      = $entData['ASSIGNED_BY_ID'];
-            $dateCreate  = $entData['DATE_CREATE'];
-            $dateModify  = $entData['DATE_MODIFY'];
-            $statusLeadId= $entData['STATUS_SEMANTIC_ID']??'';
-            if(self::API_CRM_LIST_CONTACT === $action){
-                $name  = $entData['LAST_NAME'] ." " . $entData['NAME']. " " . $entData['SECOND_NAME'];
-            }else{
-                $name  = $entData['TITLE'];
-            }
-            $contactType =  $contactTypes[$action]??'';
-            ConnectorDb::invoke(ConnectorDb::FUNC_DELETE_CONTACT_DATA, [$contactType, [$id]],false);
-            foreach ($entData['PHONE'] as $phoneData){
-                $phoneIndex = self::getPhoneIndex($phoneData['VALUE']);
-                if(empty($phoneIndex)){
-                    continue;
-                }
-                $pbRow = new stdClass();
-                $pbRow->b24id        = $id;
-                $pbRow->userId       = $userId;
-                $pbRow->dateCreate   = $dateCreate;
-                $pbRow->dateModify   = $dateModify;
-                $pbRow->statusLeadId = $statusLeadId;
-                $pbRow->name         = $name;
-                $pbRow->phone        = $phoneData['VALUE'];
-                $pbRow->phoneId      = $phoneIndex;
-                $pbRow->contactType  = $contactType;
-                ConnectorDb::invoke(ConnectorDb::FUNC_ADD_CONTACT_DATA, [(array)$pbRow],false);
-            }
-        }
-        if(empty($maxId) || $keyId === 'update'){
+        if(empty($data)){
             return;
         }
-        $settings = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
-        if(!$settings){
+        $settings = ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_ENT_CONTACT, [$action, $data]);
+        if($keyId === 'update' || empty($settings)){
             return;
         }
-        if(self::API_CRM_LIST_CONTACT === $action){
-            $this->lastContactId = $maxId;
-        }elseif (self::API_CRM_LIST_COMPANY === $action){
-            $this->lastCompanyId = $maxId;
-        }elseif (self::API_CRM_LIST_LEAD === $action){
-            $this->lastLeadId = $maxId;
-        }
-        $settings->lastContactId = empty($this->lastContactId)?$settings->lastContactId:$this->lastContactId;
-        $settings->lastCompanyId = empty($this->lastCompanyId)?$settings->lastCompanyId:$this->lastCompanyId;
-        $settings->lastLeadId    = empty($this->lastLeadId)?$settings->lastLeadId:$this->lastLeadId;
-        ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_GENERAL_SETTINGS, [(array)$settings], true, 10);
+        $settings = (object)$settings;
+        $this->lastContactId = empty($settings->lastContactId)?"0":$settings->lastContactId;
+        $this->lastCompanyId = empty($settings->lastCompanyId)?"0":$settings->lastCompanyId;
+        $this->lastLeadId    = empty($settings->lastLeadId)?"0":$settings->lastLeadId;
     }
 
     /**

@@ -30,15 +30,17 @@ use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24CDR;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24ExternalLines;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Users;
+use Phalcon\Di;
+use JsonException;
 
 class ConnectorDb extends WorkerBase
 {
     public const FUNC_GET_GENERAL_SETTINGS          = "getGeneralSettings";
     public const FUNC_UPDATE_GENERAL_SETTINGS       = "updateGeneralSettings";
     public const FUNC_DELETE_CONTACT_DATA           = "deletePhoneContact";
+    public const FUNC_UPDATE_ENT_CONTACT            = "updateEntContact";
     public const FUNC_GET_CONTACT_BY_PHONE_USER     = "getContactsByPhoneAndUser";
     public const FUNC_GET_CONTACT_BY_PHONE          = "getContactsByPhone";
-    public const FUNC_ADD_CONTACT_DATA              = "addPhoneContact";
     public const FUNC_FIND_CDR_BY_UID               = "findCdrByUID";
     public const FUNC_UPDATE_CDR_BY_UID             = "updateCdrByUID";
     public const FUNC_GET_CDR_BY_LINKED_ID          = "getCdrDataByLinkedId";
@@ -53,6 +55,7 @@ class ConnectorDb extends WorkerBase
 
     private Logger  $logger;
     private const MODULE_ID = 'ModuleBitrix24Integration';
+    private int $clearTime = 0;
 
     /**
      * Handles the received signal.
@@ -140,19 +143,51 @@ class ConnectorDb extends WorkerBase
         if($data['action'] === 'invoke'){
             $funcName = $data['function']??'';
             if(method_exists($this, $funcName)){
-                if(count($data['args']) === 0){
+                $this->logger->rotate();
+                $this->logger->writeInfo(getmypid().": call function $funcName...");
+                $args = $this->getArgs($data);
+                $this->logger->writeInfo(json_encode($args));
+                if(count($args) === 0){
                     $res_data = $this->$funcName();
                 }else{
-                    $res_data = $this->$funcName(...$data['args']??[]);
+                    $res_data = $this->$funcName(...$args);
                 }
-                $res_data = $this->saveResultInTmpFile($res_data);
+                $res_data = self::saveResultInTmpFile($res_data);
             }
             if(isset($data['need-ret'])){
                 $tube->reply($res_data);
             }
         }
         $tube->reply($res_data);
+        if( (time() - $this->clearTime) > 10){
+            $findPath   = Util::which('find');
+            $tmoDirName = self::getTempDir();
+            shell_exec("$findPath $tmoDirName -mmin +5 -type f -delete");
+            $this->clearTime = time();
+        }
+    }
 
+    /**
+     * Получает сериализованные аргументы.
+     * @param $data
+     * @return array
+     */
+    private function getArgs($data):array
+    {
+        $args = $data['args']??[];
+        if(is_string($args)){
+            try {
+                $object = json_decode(file_get_contents($args), true, 512, JSON_THROW_ON_ERROR);
+            }catch (JsonException $e){
+                $object = [];
+            }
+            unlink($args);
+            $args = $object;
+        }
+        if(!is_array($args)){
+            $args = [];
+        }
+        return $args;
     }
 
     /**
@@ -160,14 +195,31 @@ class ConnectorDb extends WorkerBase
      * @param $data
      * @return string
      */
-    private function saveResultInTmpFile($data):string
+    public static function saveResultInTmpFile($data):string
     {
         try {
             $res_data = json_encode($data, JSON_THROW_ON_ERROR);
         }catch (\JsonException $e){
             return '';
         }
-        $dirsConfig = $this->di->getShared('config');
+        $tmpDir     = self::getTempDir();
+        $fileBaseName = md5(microtime(true));
+        $filename = $tmpDir . '/temp-' . $fileBaseName;
+        file_put_contents($filename, $res_data);
+        chown($filename, 'www');
+        return $filename;
+    }
+
+    /**
+     * @return string
+     */
+    public static function getTempDir():string
+    {
+        $di = Di::getDefault();
+        if(!$di){
+            return '/tmp/';
+        }
+        $dirsConfig = $di->getShared('config');
         $tmoDirName = $dirsConfig->path('core.tempDir') . '/'.self::MODULE_ID;
         Util::mwMkdir($tmoDirName, true);
         if (file_exists($tmoDirName)) {
@@ -175,24 +227,7 @@ class ConnectorDb extends WorkerBase
         }else{
             $tmpDir = '/tmp/';
         }
-        $downloadCacheDir = $dirsConfig->path('www.downloadCacheDir');
-        if (!file_exists($downloadCacheDir)) {
-            $downloadCacheDir = '';
-        }
-        $fileBaseName = md5(microtime(true));
-        // "temp-" in the filename is necessary for the file to be automatically deleted after 5 minutes.
-        $filename = $tmpDir . '/temp-' . $fileBaseName;
-        file_put_contents($filename, $res_data);
-        if (!empty($downloadCacheDir)) {
-            $linkName = $downloadCacheDir . '/' . $fileBaseName;
-            // For automatic file deletion.
-            // A file with such a symlink will be deleted after 5 minutes by cron.
-            Util::createUpdateSymlink($filename, $linkName, true);
-        }
-        $findPath   = Util::which('find');
-        shell_exec("$findPath $tmoDirName -mmin +5 -type f -delete");
-        chown($filename, 'www');
-        return $filename;
+        return $tmpDir;
     }
 
     /**
@@ -207,7 +242,7 @@ class ConnectorDb extends WorkerBase
         $req = [
             'action'   => 'invoke',
             'function' => $function,
-            'args'     => $args
+            'args'     => self::saveResultInTmpFile($args)
         ];
         $client = new BeanstalkClient(self::class);
         $object = [];
@@ -215,6 +250,50 @@ class ConnectorDb extends WorkerBase
             if($retVal){
                 $req['need-ret'] = true;
                 $result = $client->request(json_encode($req, JSON_THROW_ON_ERROR), $timeout);
+            }else{
+                $client->publish(json_encode($req, JSON_THROW_ON_ERROR));
+                return true;
+            }
+            if(file_exists($result)){
+                $object = json_decode(file_get_contents($result), true, 512, JSON_THROW_ON_ERROR);
+                unlink($result);
+            }
+        } catch (\Throwable $e) {
+            $object = [];
+        }
+
+        if(self::FUNC_GET_GENERAL_SETTINGS === $function){
+            if(empty($result)){
+                $object = ModuleBitrix24Integration::findFirst();
+            }else{
+                $object = (object)$object;
+            }
+        }elseif (self::FUNC_FIND_CDR_BY_UID === $function){
+            $object = empty($object)?null:(object)$object;
+        }
+        return $object;
+    }
+
+    /**
+     * Метод следует вызывать при работе с API из прочих процессов.
+     * @param string $function
+     * @param array $args
+     * @param bool $retVal
+     * @param int $timeout
+     * @return array|bool|mixed
+     */
+    public static function invokePriority(string $function, array $args = [], bool $retVal = true, int $timeout = 5){
+        $req = [
+            'action'   => 'invoke',
+            'function' => $function,
+            'args'     => self::saveResultInTmpFile($args)
+        ];
+        $client = new BeanstalkClient(self::class);
+        $object = [];
+        try {
+            if($retVal){
+                $req['need-ret'] = true;
+                $result = $client->request(json_encode($req, JSON_THROW_ON_ERROR), $timeout, 1);
             }else{
                 $client->publish(json_encode($req, JSON_THROW_ON_ERROR));
                 return true;
@@ -360,12 +439,13 @@ class ConnectorDb extends WorkerBase
     // GENERAL SETTINGS
 
     /**
-     * Возвращает основные настройки модуля.
+     * Возвращает основные настройки.
+     * @param array $filter
      * @return array
      */
-    public function getGeneralSettings():array
+    public function getGeneralSettings(array $filter = []):array
     {
-        $settings = ModuleBitrix24Integration::findFirst();
+        $settings = ModuleBitrix24Integration::findFirst($filter);
         if($settings === null){
             $settings = new ModuleBitrix24Integration();
         }
@@ -474,6 +554,70 @@ class ConnectorDb extends WorkerBase
             }
         }
         return $record->save();
+    }
+
+    /**
+     * Синхронизация телефонной книги.
+     * @param $action
+     * @param $data
+     * @return array
+     */
+    public function updateEntContact($action, $data):array
+    {
+        $contactTypes = [
+            Bitrix24Integration::API_CRM_LIST_CONTACT => 'CONTACT',
+            Bitrix24Integration::API_CRM_LIST_COMPANY => 'COMPANY',
+            Bitrix24Integration::API_CRM_LIST_LEAD    => 'LEAD',
+        ];
+        $idNames = [
+            Bitrix24Integration::API_CRM_LIST_CONTACT => 'lastContactId',
+            Bitrix24Integration::API_CRM_LIST_COMPANY => 'lastCompanyId',
+            Bitrix24Integration::API_CRM_LIST_LEAD    => 'lastLeadId',
+        ];
+        $maxId = '';
+        foreach ($data as $entData){
+            $id          = $entData['ID'];
+            $maxId       = max($maxId, $id);
+            $userId      = $entData['ASSIGNED_BY_ID'];
+            $dateCreate  = $entData['DATE_CREATE'];
+            $dateModify  = $entData['DATE_MODIFY'];
+            $statusLeadId= $entData['STATUS_SEMANTIC_ID']??'';
+            if(Bitrix24Integration::API_CRM_LIST_CONTACT === $action){
+                $name  = $entData['LAST_NAME'] ." " . $entData['NAME']. " " . $entData['SECOND_NAME'];
+            }else{
+                $name  = $entData['TITLE'];
+            }
+            $contactType =  $contactTypes[$action]??'';
+            $this->deletePhoneContact($contactType, [$id]);
+            foreach ($entData['PHONE'] as $phoneData){
+                $phoneIndex = Bitrix24Integration::getPhoneIndex($phoneData['VALUE']);
+                if(empty($phoneIndex)){
+                    continue;
+                }
+                $pbRow = new \stdClass();
+                $pbRow->b24id        = $id;
+                $pbRow->userId       = $userId;
+                $pbRow->dateCreate   = $dateCreate;
+                $pbRow->dateModify   = $dateModify;
+                $pbRow->statusLeadId = $statusLeadId;
+                $pbRow->name         = $name;
+                $pbRow->phone        = $phoneData['VALUE'];
+                $pbRow->phoneId      = $phoneIndex;
+                $pbRow->contactType  = $contactType;
+                $this->addPhoneContact((array)$pbRow);
+            }
+        }
+        $filter = ['columns'=> array_values($idNames)];
+        $settings = (object)$this->getGeneralSettings($filter);
+        if(!$settings){
+            return [];
+        }
+        if(!empty($maxId)){
+            $idName = $idNames[$action];
+            $settings->$idName = $maxId;
+            $this->updateGeneralSettings((array)$settings);
+        }
+        return $this->getGeneralSettings($filter);
     }
 
     // B24 CDR
