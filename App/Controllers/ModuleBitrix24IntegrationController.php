@@ -111,7 +111,7 @@ class ModuleBitrix24IntegrationController extends BaseController
 
         $moduleEnable = PbxExtensionUtils::isEnabled('ModuleBitrix24Integration');
         if($moduleEnable){
-            $settings = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
+            $settings = ConnectorDb::invokePriority(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
             if(!empty($settings->portal)){
                 // Получим список пользователей для отображения в фильтре
                 $parameters       = [
@@ -121,7 +121,7 @@ class ModuleBitrix24IntegrationController extends BaseController
                         'open_card_mode',
                     ],
                 ];
-                $bitrix24Users    = (array)ConnectorDb::invoke(ConnectorDb::FUNC_GET_USERS, [$parameters]);
+                $bitrix24Users    = (array)ConnectorDb::invokePriority(ConnectorDb::FUNC_GET_USERS, [$parameters]);
                 $bitrix24UsersIds = array_column($bitrix24Users, 'user_id');
                 $usersB24 = (new Bitrix24Integration('_www'))->userGet(true);
                 if ( is_array($usersB24['result']) ) {
@@ -259,7 +259,7 @@ class ModuleBitrix24IntegrationController extends BaseController
         $data = $this->request->getPost();
         $moduleEnable = PbxExtensionUtils::isEnabled('ModuleBitrix24Integration');
         if($moduleEnable){
-            $record = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
+            $record = ConnectorDb::invokePriority(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
         }else{
             $record = ModuleBitrix24Integration::findFirst();
         }
@@ -298,7 +298,7 @@ class ModuleBitrix24IntegrationController extends BaseController
             }
         }
         if ($moduleEnable){
-            $resultSave = ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_GENERAL_SETTINGS, [(array)$record], true, 10);
+            $resultSave = ConnectorDb::invokePriority(ConnectorDb::FUNC_UPDATE_GENERAL_SETTINGS, [(array)$record], true, 10);
         }else{
             $resultSave = $record->save();
         }
@@ -307,14 +307,14 @@ class ModuleBitrix24IntegrationController extends BaseController
             return;
         }
         $arrUsersPost = json_decode($data['arrUsers'],true);
-        $resultSaveUsers = ConnectorDb::invoke(ConnectorDb::FUNC_SAVE_USERS, [$arrUsersPost]);
+        $resultSaveUsers = ConnectorDb::invokePriority(ConnectorDb::FUNC_SAVE_USERS, [$arrUsersPost]);
         if ($resultSaveUsers === false) {
             $this->view->success = false;
             return;
         }
 
         $externalLinesPost = json_decode($data['externalLines'],true);
-        $resultSaveLines   = ConnectorDb::invoke(ConnectorDb::FUNC_SAVE_EXTERNAL_LINES, [$externalLinesPost]);
+        $resultSaveLines   = ConnectorDb::invokePriority(ConnectorDb::FUNC_SAVE_EXTERNAL_LINES, [$externalLinesPost]);
         if(!$resultSaveLines){
             $this->view->success = false;
             return;
@@ -329,7 +329,7 @@ class ModuleBitrix24IntegrationController extends BaseController
     public function enableAction(): bool
     {
         $result = true;
-        $record = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
+        $record = ConnectorDb::invokePriority(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
         if ( ! $record || empty($record->portal)) {
             $result = false;
             $this->flash->error($this->translation->_('mod_b24_i_ValidatePortalEmpty'));
@@ -346,7 +346,7 @@ class ModuleBitrix24IntegrationController extends BaseController
      */
     public function deleteExternalLineAction($id = null): void
     {
-        $record = ConnectorDb::invoke(ConnectorDb::FUNC_DELETE_EXTERNAL_LINE, [$id]);
+        $record = ConnectorDb::invokePriority(ConnectorDb::FUNC_DELETE_EXTERNAL_LINE, [$id]);
         if (!$record) {
             $this->view->success = false;
             return;
@@ -369,14 +369,14 @@ class ModuleBitrix24IntegrationController extends BaseController
 
         // Посчитаем количество уникальных записей в таблице телефонов
         $parameters['columns'] = 'COUNT(*) as rows';
-        $recordsTotalReq       = (object)ConnectorDb::invoke(ConnectorDb::FUNC_GET_FIRST_EXTERNAL_LINES, [$parameters]);
+        $recordsTotalReq       = (object)ConnectorDb::invokePriority(ConnectorDb::FUNC_GET_FIRST_EXTERNAL_LINES, [$parameters]);
         if ($recordsTotalReq !== null) {
             $recordsTotal             = $recordsTotalReq->rows;
             $this->view->recordsTotal = $recordsTotal;
         } else {
             return;
         }
-        $recordsFilteredReq    = (object)ConnectorDb::invoke(ConnectorDb::FUNC_GET_FIRST_EXTERNAL_LINES, [$parameters]);
+        $recordsFilteredReq    = (object)ConnectorDb::invokePriority(ConnectorDb::FUNC_GET_FIRST_EXTERNAL_LINES, [$parameters]);
         if ($recordsFilteredReq !== null) {
             $recordsFiltered             = $recordsFilteredReq->rows;
             $this->view->recordsFiltered = $recordsFiltered;
@@ -393,7 +393,7 @@ class ModuleBitrix24IntegrationController extends BaseController
         $parameters['limit']   = $recordsPerPage;
         $parameters['offset']  = $position;
         $records               = [];
-        $tmpRecords = ConnectorDb::invoke(ConnectorDb::FUNC_GET_EXTERNAL_LINES, [$parameters]);
+        $tmpRecords = ConnectorDb::invokePriority(ConnectorDb::FUNC_GET_EXTERNAL_LINES, [$parameters]);
         foreach ($tmpRecords as $extLine){
             $records[] = (object) $extLine;
         }
