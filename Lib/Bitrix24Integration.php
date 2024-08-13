@@ -421,6 +421,7 @@ class Bitrix24Integration extends PbxExtensionBase
             );
         }
 
+        $this->mainLogger->rotate();
         return $response;
     }
 

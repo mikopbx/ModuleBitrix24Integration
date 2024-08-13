@@ -164,6 +164,7 @@ class ConnectorDb extends WorkerBase
             $tmoDirName = self::getTempDir();
             shell_exec("$findPath $tmoDirName -mmin +5 -type f -delete");
             $this->clearTime = time();
+            $this->logger->rotate();
         }
     }
 
