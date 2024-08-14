@@ -18,7 +18,8 @@
  */
 
 namespace Modules\ModuleBitrix24Integration\Lib;
-use MikoPBX\Core\System\System;
+use MikoPBX\Core\System\Directories;
+use MikoPBX\Core\System\SystemMessages;
 use MikoPBX\Core\System\Util;
 use Phalcon\Logger\Adapter\Stream;
 use Cesargb\Log\Rotation;
@@ -44,12 +45,25 @@ class Logger
     {
         $this->module_name = $module_name;
         $this->debug    = true;
-        $logPath        = System::getLogDir() . '/' . $this->module_name . '/';
-        if (!is_dir($logPath)){
+        $logPath        = Directories::getDir(Directories::CORE_LOGS_DIR) . '/' . $this->module_name . '/';
+        if (!file_exists($logPath)){
             Util::mwMkdir($logPath);
             Util::addRegularWWWRights($logPath);
         }
         $this->logFile  = $logPath . $class . '.log';
+        $this->initLogger();
+    }
+
+    /**
+     * Инициализация логгера.
+     * @return void
+     */
+    private function initLogger():void
+    {
+        if(!file_exists($this->logFile)){
+            file_put_contents($this->logFile, '');
+        }
+        Util::addRegularWWWRights($this->logFile);
         $adapter       = new Stream($this->logFile);
         $this->logger  = new \Phalcon\Logger(
             'messages',
@@ -62,15 +76,17 @@ class Logger
     public function rotate(): void
     {
         $rotation = new Rotation([
-             'files' => 5,
+             'files' => 9,
              'compress' => false,
              'min-size' => 10*1024*1024,
              'truncate' => false,
              'catch' => function (RotationFailed $exception) {
-                Util::sysLogMsg($this->module_name, $exception->getMessage());
+                 SystemMessages::sysLogMsg($this->module_name, $exception->getMessage());
              },
         ]);
-        $rotation->rotate($this->logFile);
+        if($rotation->rotate($this->logFile)){
+            $this->initLogger();
+        }
     }
 
     public function writeError($data): void
@@ -97,5 +113,4 @@ class Logger
         }
         return $result;
     }
-
 }
