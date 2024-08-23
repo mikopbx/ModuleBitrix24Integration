@@ -133,9 +133,8 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     public function invokeRestCheckResponse($response,$tube, $partResponse): void
     {
         if(!empty($tube)){
-            print_r($tube.PHP_EOL);
-            print_r($partResponse);
-            $this->queueAgent->publish(json_encode($partResponse), $tube);
+            $resFile = ConnectorDb::saveResultInTmpFile($partResponse);
+            $this->queueAgent->publish($resFile, $tube);
         }
     }
 

@@ -20,6 +20,7 @@
 namespace Modules\ModuleBitrix24Integration\Lib;
 use MikoPBX\Core\System\BeanstalkClient;
 use MikoPBX\Core\System\Util;
+use JsonException;
 
 class Bitrix24InvokeRest{
     private BeanstalkClient $queueAgent;
@@ -54,7 +55,14 @@ class Bitrix24InvokeRest{
 
     public function callback($client):void
     {
-        $this->data = json_decode($client->getBody(), true);
+        $resFile = trim($client->getBody());
+        try {
+            $object = json_decode(file_get_contents($resFile), true, 512, JSON_THROW_ON_ERROR);
+        }catch (JsonException $e){
+            $object = [];
+        }
+        unlink($resFile);
+        $this->data = $object;
     }
 
     public function timeOutCallback():void
