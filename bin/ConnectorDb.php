@@ -148,17 +148,18 @@ class ConnectorDb extends WorkerBase
                 $args = $this->getArgs($data);
                 $this->logger->writeInfo(json_encode($args));
                 if(count($args) === 0){
-                    $res_data = $this->$funcName();
+                    if(self::FUNC_UPDATE_ENT_CONTACT !== $funcName){
+                        $res_data = $this->$funcName();
+                    }
                 }else{
                     $res_data = $this->$funcName(...$args);
                 }
                 $res_data = self::saveResultInTmpFile($res_data);
             }
-            if(isset($data['need-ret'])){
-                $tube->reply($res_data);
-            }
         }
-        $tube->reply($res_data);
+        if(isset($data['need-ret'])){
+            $tube->reply($res_data);
+        }
         if( (time() - $this->clearTime) > 10){
             $findPath   = Util::which('find');
             $tmoDirName = self::getTempDir();
