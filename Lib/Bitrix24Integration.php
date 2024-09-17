@@ -45,7 +45,8 @@ class Bitrix24Integration extends PbxExtensionBase
     public const OPEN_CARD_ANSWERED  = 'ANSWERED';
 
     public const B24_INTEGRATION_CHANNEL = 'b24_integration_channel';
-    public const B24_SEARCH_CHANNEL = 'b24_search_channel';
+    public const B24_SEARCH_CHANNEL      = 'b24_search_channel';
+    public const B24_INVOKE_REST_CHANNEL = 'b24.invoke.channel';
 
     public array $b24Users;
     public array $inner_numbers;
@@ -1051,6 +1052,23 @@ class Bitrix24Integration extends PbxExtensionBase
         }
 
         return $res;
+    }
+
+    /**
+     * Скрыть карточку звонка для пользователя.
+     *
+     * @param string $tubeName
+     *
+     * @return array
+     */
+    public function getScopeAsync(string $tubeName=''): array
+    {
+        $params = [
+            'auth'    => $this->getAccessToken(),
+        ];
+        $arg                   = [];
+        $arg['scope'.'_'.uniqid('', true)."_$tubeName"] = 'scope?' . http_build_query($params);
+        return $arg;
     }
 
     private function checkScope($res_data):PBXApiResult

@@ -101,7 +101,41 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $this->queueAgent->subscribe($this->makePingTubeName(self::class), [$this, 'pingCallBack']);
         $this->queueAgent->subscribe(Bitrix24Integration::B24_INTEGRATION_CHANNEL, [$this, 'b24ChannelCallBack']);
         $this->queueAgent->subscribe(Bitrix24Integration::B24_SEARCH_CHANNEL, [$this, 'b24ChannelSearch']);
+        $this->queueAgent->subscribe(Bitrix24Integration::B24_INVOKE_REST_CHANNEL, [$this, 'invokeRest']);
         $this->queueAgent->setTimeoutHandler([$this, 'executeTasks']);
+    }
+
+    /**
+     * Обращение к API из внешнего скрипта.
+     * @param $client
+     * @return void
+     */
+    public function invokeRest($client): void
+    {
+        $data = json_decode($client->getBody(), true);
+        $action = $data['action']??'';
+        $arg = [];
+        if($action === 'scope'){
+            $arg = $this->b24->getScopeAsync($data['inbox_tube']??'');
+        }
+        if(!empty($arg)){
+            $this->q_req = array_merge($arg, $this->q_req);
+        }
+    }
+
+    /**
+     * Обработка ответа API внешнему скрипту.
+     * @param $response
+     * @param $tube
+     * @param $partResponse
+     * @return void
+     */
+    public function invokeRestCheckResponse($response,$tube, $partResponse): void
+    {
+        if(!empty($tube)){
+            $resFile = ConnectorDb::saveResultInTmpFile($partResponse);
+            $this->queueAgent->publish($resFile, $tube);
+        }
     }
 
     public function b24ChannelSearch($client): void
@@ -460,7 +494,11 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     {
         $tmpArr = [];
         foreach ($result as $key => $partResponse) {
-            [$actionName, $id] = explode('_', $key);
+            [$actionName, $id, $tube] = explode('_', $key);
+            if(!empty($tube)){
+                $this->invokeRestCheckResponse($key, $tube, $partResponse);
+                continue;
+            }
             if ($actionName === Bitrix24Integration::API_CALL_REGISTER) {
                 $this->b24->telephonyExternalCallPostRegister($key, $partResponse);
             } elseif (in_array($id,['init', 'update'], true)
