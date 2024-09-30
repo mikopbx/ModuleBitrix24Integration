@@ -19,10 +19,10 @@
 
 namespace Modules\ModuleBitrix24Integration\Lib;
 
+use MikoPBX\Common\Models\PbxSettings;
 use MikoPBX\Common\Providers\ConfigProvider;
 use MikoPBX\Core\System\Util;
 use Phalcon\Cache\Adapter\Redis;
-use Phalcon\Di;
 use Phalcon\Storage\SerializerFactory;
 
 class CacheManager
@@ -36,7 +36,14 @@ class CacheManager
     public static function cacheAdapter():Redis
     {
         $serializerFactory = new SerializerFactory();
-        $di     = Di::getDefault();
+
+        $pbxVersion = PbxSettings::getValueByKey('PBXVersion');
+        if (version_compare($pbxVersion, '2024.2.30', '>')) {
+            $di     = \Phalcon\Di\Di::getDefault();
+        } else {
+            $di     = \Phalcon\Di::getDefault();
+        }
+
         $options = [
             'defaultSerializer' => 'Php',
             'lifetime'          => 86400,

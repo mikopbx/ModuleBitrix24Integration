@@ -2,7 +2,8 @@
     "name": "mikopbx/modulebitrix24integration",
     "description": "ModuleBitrix24Integration",
     "require": {
-        "mikopbx/core": ">=2020.2.757"
+        "php": ">=7.4.6",
+        "mikopbx/core": ">=2024.1.114"
     },
     "autoload": {
         "psr-4": {
@@ -56,7 +57,7 @@
     "config": {
         "sort-packages": true,
         "platform": {
-            "php": "7.4.6"
+            "php": ">=7.4.6"
         }
     }
 }

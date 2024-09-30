@@ -18,6 +18,7 @@
  */
 
 namespace Modules\ModuleBitrix24Integration\Lib;
+use MikoPBX\Common\Models\PbxSettings;
 use MikoPBX\Core\System\Directories;
 use MikoPBX\Core\System\SystemMessages;
 use MikoPBX\Core\System\Util;
@@ -31,7 +32,7 @@ require_once(dirname(__DIR__).'/vendor/autoload.php');
 class Logger
 {
     public bool $debug;
-    private \Phalcon\Logger $logger;
+    private $logger;
     private string $module_name;
     private string $logFile;
 
@@ -65,12 +66,24 @@ class Logger
         }
         Util::addRegularWWWRights($this->logFile);
         $adapter       = new Stream($this->logFile);
-        $this->logger  = new \Phalcon\Logger(
-            'messages',
-            [
-                'main' => $adapter,
-            ]
-        );
+
+        $pbxVersion = PbxSettings::getValueByKey('PBXVersion');
+        if (version_compare($pbxVersion, '2024.2.30', '>')) {
+            $this->logger  = new \Phalcon\Logger\Logger(
+                'messages',
+                [
+                    'main' => $adapter,
+                ]
+            );
+        } else {
+            $this->logger  = new \Phalcon\Logger(
+                'messages',
+                [
+                    'main' => $adapter,
+                ]
+            );
+        }
+
     }
 
     public function rotate(): void

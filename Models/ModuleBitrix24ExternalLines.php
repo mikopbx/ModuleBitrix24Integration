@@ -9,7 +9,6 @@
 namespace Modules\ModuleBitrix24Integration\Models;
 
 use MikoPBX\Modules\Models\ModulesModelsBase;
-use Phalcon\Mvc\Model\Relation;
 
 class ModuleBitrix24ExternalLines extends ModulesModelsBase
 {

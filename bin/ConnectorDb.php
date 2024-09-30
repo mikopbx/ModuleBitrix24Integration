@@ -20,6 +20,7 @@
 namespace Modules\ModuleBitrix24Integration\bin;
 require_once 'Globals.php';
 
+use MikoPBX\Common\Models\PbxSettings;
 use MikoPBX\Core\System\BeanstalkClient;
 use MikoPBX\Core\System\Util;
 use MikoPBX\Core\Workers\WorkerBase;
@@ -30,7 +31,6 @@ use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24CDR;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24ExternalLines;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Users;
-use Phalcon\Di;
 use JsonException;
 
 class ConnectorDb extends WorkerBase
@@ -217,7 +217,12 @@ class ConnectorDb extends WorkerBase
      */
     public static function getTempDir():string
     {
-        $di = Di::getDefault();
+        $pbxVersion = PbxSettings::getValueByKey('PBXVersion');
+        if (version_compare($pbxVersion, '2024.2.30', '>')) {
+            $di     = \Phalcon\Di\Di::getDefault();
+        } else {
+            $di     = \Phalcon\Di::getDefault();
+        }
         if(!$di){
             return '/tmp/';
         }

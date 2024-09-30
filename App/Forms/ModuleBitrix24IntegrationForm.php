@@ -9,7 +9,6 @@ namespace Modules\ModuleBitrix24Integration\App\Forms;
 
 use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
-use Phalcon\Forms\Element\AbstractElement;
 use Phalcon\Forms\Element\Check;
 use Phalcon\Forms\Element\Hidden;
 use Phalcon\Forms\Element\Numeric;

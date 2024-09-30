@@ -30,7 +30,6 @@ namespace Modules\ModuleBitrix24Integration\Setup;
 use MikoPBX\Common\Models\PbxSettings;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use MikoPBX\Modules\Setup\PbxExtensionSetupBase;
-use Phalcon\Mvc\Model;
 
 class PbxExtensionSetup extends PbxExtensionSetupBase
 {
