@@ -18,16 +18,16 @@
  */
 
 namespace Modules\ModuleBitrix24Integration\Lib;
-use MikoPBX\Common\Models\PbxSettings;
+
+use Cesargb\Log\Exceptions\RotationFailed;
+use Cesargb\Log\Rotation;
 use MikoPBX\Core\System\Directories;
 use MikoPBX\Core\System\SystemMessages;
 use MikoPBX\Core\System\Util;
 use Phalcon\Logger\Adapter\Stream;
-use Cesargb\Log\Rotation;
-use Cesargb\Log\Exceptions\RotationFailed;
 
 require_once('Globals.php');
-require_once(dirname(__DIR__).'/vendor/autoload.php');
+require_once(dirname(__DIR__) . '/vendor/autoload.php');
 
 class Logger
 {
@@ -45,13 +45,13 @@ class Logger
     public function __construct(string $class, string $module_name)
     {
         $this->module_name = $module_name;
-        $this->debug    = true;
-        $logPath        = Directories::getDir(Directories::CORE_LOGS_DIR) . '/' . $this->module_name . '/';
-        if (!file_exists($logPath)){
+        $this->debug = true;
+        $logPath = Directories::getDir(Directories::CORE_LOGS_DIR) . '/' . $this->module_name . '/';
+        if (!file_exists($logPath)) {
             Util::mwMkdir($logPath);
             Util::addRegularWWWRights($logPath);
         }
-        $this->logFile  = $logPath . $class . '.log';
+        $this->logFile = $logPath . $class . '.log';
         $this->initLogger();
     }
 
@@ -59,45 +59,39 @@ class Logger
      * Инициализация логгера.
      * @return void
      */
-    private function initLogger():void
+    private function initLogger(): void
     {
-        if(!file_exists($this->logFile)){
+        if (!file_exists($this->logFile)) {
             file_put_contents($this->logFile, '');
         }
         Util::addRegularWWWRights($this->logFile);
-        $adapter       = new Stream($this->logFile);
+        $adapter = new Stream($this->logFile);
 
-        $pbxVersion = PbxSettings::getValueByKey('PBXVersion');
-        if (version_compare($pbxVersion, '2024.2.30', '>')) {
-            $this->logger  = new \Phalcon\Logger\Logger(
-                'messages',
-                [
-                    'main' => $adapter,
-                ]
-            );
-        } else {
-            $this->logger  = new \Phalcon\Logger(
-                'messages',
-                [
-                    'main' => $adapter,
-                ]
-            );
-        }
+        $loggerClass = MikoPBXVersion::getLoggerClass();
+
+
+        $this->logger = new $loggerClass(
+            'messages',
+            [
+                'main' => $adapter,
+            ]
+        );
+
 
     }
 
     public function rotate(): void
     {
         $rotation = new Rotation([
-             'files' => 9,
-             'compress' => false,
-             'min-size' => 10*1024*1024,
-             'truncate' => false,
-             'catch' => function (RotationFailed $exception) {
-                 SystemMessages::sysLogMsg($this->module_name, $exception->getMessage());
-             },
+            'files' => 9,
+            'compress' => false,
+            'min-size' => 10 * 1024 * 1024,
+            'truncate' => false,
+            'catch' => function (RotationFailed $exception) {
+                SystemMessages::sysLogMsg($this->module_name, $exception->getMessage());
+            },
         ]);
-        if($rotation->rotate($this->logFile)){
+        if ($rotation->rotate($this->logFile)) {
             $this->initLogger();
         }
     }
@@ -116,12 +110,12 @@ class Logger
         }
     }
 
-    private function getDecodedString($data):string
+    private function getDecodedString($data): string
     {
         $printedData = print_r($data, true);
-        if(is_bool($printedData)){
+        if (is_bool($printedData)) {
             $result = '';
-        }else{
+        } else {
             $result = urldecode($printedData);
         }
         return $result;
