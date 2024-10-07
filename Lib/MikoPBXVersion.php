@@ -1,6 +1,24 @@
 <?php
 
+/*
+ * MikoPBX - free phone system for small business
+ * Copyright © 2017-2024 Alexey Portnov and Nikolay Beketov
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with this program.
+ * If not, see <https://www.gnu.org/licenses/>.
+ */
 namespace Modules\ModuleBitrix24Integration\Lib;
+
 use MikoPBX\Common\Models\PbxSettings;
 
 class MikoPBXVersion
@@ -9,7 +27,7 @@ class MikoPBXVersion
      * Return true if current version of PBX based on Phalcon 5+
      * @return bool
      */
-    public static function isPhalcon5Version():bool
+    public static function isPhalcon5Version(): bool
     {
         $pbxVersion = PbxSettings::getValueByKey('PBXVersion');
         return version_compare($pbxVersion, '2024.2.30', '>');
@@ -19,7 +37,7 @@ class MikoPBXVersion
      * Return Di interface for the current version of PBX
      * @return \Phalcon\Di\DiInterface|null
      */
-    public static function getDefaultDi():\Phalcon\Di\DiInterface|null
+    public static function getDefaultDi()
     {
         if (self::isPhalcon5Version()) {
             return  \Phalcon\Di\Di::getDefault();
@@ -32,7 +50,7 @@ class MikoPBXVersion
      * Return Validation class for the current version of PBX
      * @return class-string<\Phalcon\Filter\Validation>|class-string<\Phalcon\Validation>
      */
-    public static function getValidationClass():string
+    public static function getValidationClass(): string
     {
         if (self::isPhalcon5Version()) {
             return  \Phalcon\Filter\Validation::class;
@@ -45,7 +63,7 @@ class MikoPBXVersion
      * Return Uniqueness class for the current version of PBX
      * @return class-string<\Phalcon\Filter\Validation\Validator\Uniqueness>|class-string<\Phalcon\Validation\Validator\Uniqueness>
      */
-    public static function getUniquenessClass():string
+    public static function getUniquenessClass(): string
     {
         if (self::isPhalcon5Version()) {
             return  \Phalcon\Filter\Validation\Validator\Uniqueness::class;
@@ -59,7 +77,7 @@ class MikoPBXVersion
      *
      * @return class-string<\MikoPBX\Common\Library\Text>|class-string<\Phalcon\Text>
      */
-    public static function getTextClass():string
+    public static function getTextClass(): string
     {
         if (self::isPhalcon5Version()) {
             return   \MikoPBX\Common\Library\Text::class;
@@ -73,7 +91,7 @@ class MikoPBXVersion
      *
      * @return class-string<\Phalcon\Logger\Logger>|class-string<\Phalcon\Logger>
      */
-    public static function getLoggerClass():string
+    public static function getLoggerClass(): string
     {
         if (self::isPhalcon5Version()) {
             return  \Phalcon\Logger\Logger::class;
