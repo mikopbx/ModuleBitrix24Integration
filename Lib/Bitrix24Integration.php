@@ -1213,6 +1213,8 @@ class Bitrix24Integration extends PbxExtensionBase
     {
         [$CALL_DATA, $CALL_ID] = ConnectorDb::invoke(ConnectorDb::FUNC_GET_CDR_BY_LINKED_ID, [$options]);
         if (empty($CALL_ID)) {
+            $this->mainLogger->writeInfo("ConnectorDb did not return a reply. CALL_ID is empty");
+            $this->mainLogger->writeInfo($options);
             return [];
         }
         $userId = ($CALL_DATA['answer'] === '1') ? $CALL_DATA['user_id'] : '';
