@@ -787,10 +787,10 @@ class Bitrix24Integration extends PbxExtensionBase
                 $user                    = [];
                 $user['NAME']            = '' . $value['NAME'] . ' ' . $value['LAST_NAME'];
                 $user['ID']              = $value['ID'];
-                $user['PERSONAL_MOBILE'] = preg_replace('/(\D)/', '', $value['PERSONAL_MOBILE']);
-                $user['WORK_PHONE']      = preg_replace('/(\D)/', '', $value['WORK_PHONE']);
+                $user['PERSONAL_MOBILE'] = preg_replace('/(\D)/', '', $value['PERSONAL_MOBILE']??'');
+                $user['WORK_PHONE']      = preg_replace('/(\D)/', '', $value['WORK_PHONE']??'');
                 $user['EMAIL']           = $value['EMAIL'];
-                $user['UF_PHONE_INNER']  = preg_replace('/(\D)/', '', $value['UF_PHONE_INNER']);
+                $user['UF_PHONE_INNER']  = preg_replace('/(\D)/', '', $value['UF_PHONE_INNER']??'');
 
                 if (!empty($user['PERSONAL_MOBILE'])) {
                     $mobile_key                        = self::getPhoneIndex($user['PERSONAL_MOBILE']);
@@ -910,6 +910,10 @@ class Bitrix24Integration extends PbxExtensionBase
             $this->saveCache(__FUNCTION__, $res_data, 90);
             $this->saveCache(__FUNCTION__."_LONG", $res_data);
         }elseif ($res_data === null ){
+            $res_data = [];
+        }
+
+        if(!is_array($res_data)){
             $res_data = [];
         }
 
@@ -1213,6 +1217,8 @@ class Bitrix24Integration extends PbxExtensionBase
     {
         [$CALL_DATA, $CALL_ID] = ConnectorDb::invoke(ConnectorDb::FUNC_GET_CDR_BY_LINKED_ID, [$options]);
         if (empty($CALL_ID)) {
+            $this->mainLogger->writeInfo("ConnectorDb did not return a reply. CALL_ID is empty");
+            $this->mainLogger->writeInfo($options);
             return [];
         }
         $userId = ($CALL_DATA['answer'] === '1') ? $CALL_DATA['user_id'] : '';

@@ -6,12 +6,6 @@
  * Written by Alexey Portnov, 8 2019
  */
 
-/**
- * Created by PhpStorm.
- * User: Alexey
- * Date: 2019-02-18
- * Time: 15:47
- */
 
 namespace Modules\ModuleBitrix24Integration\Models;
 

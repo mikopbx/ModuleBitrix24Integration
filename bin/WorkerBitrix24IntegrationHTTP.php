@@ -65,6 +65,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         if (!$this->b24->initialized) {
             die('Settings not set...');
         }
+        $this->b24->logger->writeInfo('Starting...');
         $this->b24->checkNeedUpdateToken();
         // При старте синхронизируем внешние линии.
         $externalLines = $this->b24->syncExternalLines();
@@ -103,6 +104,11 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $this->queueAgent->subscribe(Bitrix24Integration::B24_SEARCH_CHANNEL, [$this, 'b24ChannelSearch']);
         $this->queueAgent->subscribe(Bitrix24Integration::B24_INVOKE_REST_CHANNEL, [$this, 'invokeRest']);
         $this->queueAgent->setTimeoutHandler([$this, 'executeTasks']);
+    }
+    public function pingCallBack(BeanstalkClient $message): void
+    {
+        $this->b24->logger->writeInfo('Get ping event...');
+        parent::pingCallBack($message);
     }
 
     /**

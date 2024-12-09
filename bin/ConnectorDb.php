@@ -25,12 +25,12 @@ use MikoPBX\Core\System\Util;
 use MikoPBX\Core\Workers\WorkerBase;
 use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
 use Modules\ModuleBitrix24Integration\Lib\Logger;
+use Modules\ModuleBitrix24Integration\Lib\MikoPBXVersion;
 use Modules\ModuleBitrix24Integration\Models\B24PhoneBook;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24CDR;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24ExternalLines;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Users;
-use Phalcon\Di;
 use JsonException;
 
 class ConnectorDb extends WorkerBase
@@ -217,7 +217,7 @@ class ConnectorDb extends WorkerBase
      */
     public static function getTempDir():string
     {
-        $di = Di::getDefault();
+        $di = MikoPBXVersion::getDefaultDi();
         if(!$di){
             return '/tmp/';
         }
