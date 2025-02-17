@@ -22,6 +22,7 @@ require_once 'Globals.php';
 
 use MikoPBX\Core\System\BeanstalkClient;
 use Exception;
+use MikoPBX\Core\System\Processes;
 use MikoPBX\Core\System\Util;
 use MikoPBX\Core\Workers\WorkerBase;
 use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
@@ -30,6 +31,9 @@ use Modules\ModuleBitrix24Integration\Lib\CacheManager;
 class WorkerBitrix24IntegrationHTTP extends WorkerBase
 {
     private Bitrix24Integration $b24;
+
+    private $pidSyncProcContacts;
+    private $timeSyncProcContacts;
     private array $q_req = [];
     private array $q_pre_req = [];
     private array $q_pre_req2 = [];
@@ -345,6 +349,57 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         return $chunks;
     }
 
+    private function syncProcContacts()
+    {
+        if(!empty($this->pidSyncProcContacts) && file_exists("/proc/$this->pidSyncProcContacts")){
+            if(time() - $this->timeSyncProcContacts > 40){
+                posix_kill($this->pidSyncProcContacts, SIGKILL);
+                pcntl_waitpid($this->pidSyncProcContacts, $status);
+            }
+            return;
+        }
+        $this->timeSyncProcContacts = time();
+        $this->pidSyncProcContacts = pcntl_fork();
+        if ($this->pidSyncProcContacts == -1) {
+            $this->b24->logger->writeError('Fail fork sync contacts... ');
+            return;
+        } elseif ($this->pidSyncProcContacts) {
+            $this->b24->logger->writeInfo('Start sync contacts... '.$this->pidSyncProcContacts);
+            usleep(100000);
+            return;
+        }
+        $this->needRestart = true;
+        set_time_limit(50);
+        cli_set_process_title(cli_get_process_title()."_SYNC_CONTACTS");
+        $syncProcReq = [];
+        $arg = $this->b24->crmListEnt(Bitrix24Integration::API_CRM_LIST_CONTACT);
+        $syncProcReq = array_merge($arg, $syncProcReq);
+
+        $arg = $this->b24->crmListEnt(Bitrix24Integration::API_CRM_LIST_COMPANY);
+        $syncProcReq = array_merge($arg, $syncProcReq);
+
+        $arg = $this->b24->crmListEnt(Bitrix24Integration::API_CRM_LIST_LEAD);
+        $syncProcReq = array_merge($arg, $syncProcReq);
+
+        $response = $this->b24->sendBatch($syncProcReq);
+        $result = $response['result']['result'] ?? [];
+        foreach ($result as $key => $partResponse) {
+            [$actionName, $id] = explode('_', $key);
+            if (in_array($actionName,
+                         [
+                             Bitrix24Integration::API_CRM_LIST_CONTACT,
+                             Bitrix24Integration::API_CRM_LIST_COMPANY,
+                             Bitrix24Integration::API_CRM_LIST_LEAD
+                         ],
+                         true
+            )) {
+                $this->b24->crmListEntResults($actionName, $id, $partResponse);
+            }
+        }
+        // Это дочерний процесс, завершаем его.
+        exit(0);
+    }
+
     /**
      *
      */
@@ -360,6 +415,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $this->last_update_inner_num = time();
             // Очистка $this->tmpCallsData
             $this->checkActiveChannels();
+            $this->syncProcContacts();
         }
 
         // Получать новые события будем каждое 2ое обращение к этой функции ~ 1.2 секунды.
@@ -368,15 +424,6 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         if ($this->need_get_events) {
             // Запрос на получение offline событий.
             $arg = $this->b24->eventOfflineGet();
-            $this->q_req = array_merge($arg, $this->q_req);
-
-            $arg = $this->b24->crmListEnt(Bitrix24Integration::API_CRM_LIST_CONTACT);
-            $this->q_req = array_merge($arg, $this->q_req);
-
-            $arg = $this->b24->crmListEnt(Bitrix24Integration::API_CRM_LIST_COMPANY);
-            $this->q_req = array_merge($arg, $this->q_req);
-
-            $arg = $this->b24->crmListEnt(Bitrix24Integration::API_CRM_LIST_LEAD);
             $this->q_req = array_merge($arg, $this->q_req);
         }
         if (count($this->q_req) > 0) {
@@ -507,8 +554,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             }
             if ($actionName === Bitrix24Integration::API_CALL_REGISTER) {
                 $this->b24->telephonyExternalCallPostRegister($key, $partResponse);
-            } elseif (in_array($id,['init', 'update'], true)
-                   && in_array($actionName, [Bitrix24Integration::API_CRM_LIST_CONTACT, Bitrix24Integration::API_CRM_LIST_COMPANY, Bitrix24Integration::API_CRM_LIST_LEAD], true)) {
+            } elseif (in_array($id,['init', 'update'], true)){
                 $this->b24->crmListEntResults($actionName, $id, $partResponse);
             } elseif ($actionName === Bitrix24Integration::API_ATTACH_RECORD) {
                 $uploadUrl = $partResponse["uploadUrl"] ?? '';

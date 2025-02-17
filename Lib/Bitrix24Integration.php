@@ -395,7 +395,7 @@ class Bitrix24Integration extends PbxExtensionBase
             if(!empty($queues)){
                 foreach ($queues as $index => $queue){
                     $query = [];
-                    parse_str(parse_url(rawurldecode($queue), PHP_URL_QUERY), $query);
+                    parse_str(parse_url(rawurldecode($queue), PHP_URL_QUERY)??'', $query);
                     unset($query['auth']);
                     $queues[$index] = $query;
                 }
