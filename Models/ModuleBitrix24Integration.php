@@ -85,7 +85,7 @@ class ModuleBitrix24Integration extends ModulesModelsBase
 
     /**
      *
-     * @Column(type="integer", nullable=true)
+     * @Column(type="string", nullable=true)
      */
     public $callbackQueue = '';
 

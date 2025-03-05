@@ -20,6 +20,7 @@
 namespace Modules\ModuleBitrix24Integration\App\Controllers;
 
 use MikoPBX\AdminCabinet\Controllers\BaseController;
+use MikoPBX\Common\Models\CallQueues;
 use MikoPBX\Common\Models\Users;
 use MikoPBX\Core\System\Util;
 use MikoPBX\Modules\PbxExtensionUtils;
@@ -186,17 +187,21 @@ class ModuleBitrix24IntegrationController extends BaseController
         $parameters               = [
             'conditions' => 'type IN ({types:array})',
             'bind'       => [
-                'types' => [Extensions::TYPE_QUEUE, Extensions::TYPE_SIP],
+                'types' => [Extensions::TYPE_SIP],
             ],
         ];
         $extensions               = Extensions::find($parameters);
         foreach ($extensions as $record) {
-            if($record->type === Extensions::TYPE_QUEUE){
-                $options['queues'][$record->number] = $record ? $record->getRepresent() ." <$record->number>": '';
-            }else{
-                $options['users'][$record->number] = $record ? $record->getRepresent() : '';
-            }
+            $options['users'][$record->number] = $record ? $record->getRepresent() : '';
         }
+        $queues = CallQueues::find();
+        foreach ($queues as $record) {
+            if(trim($settings->callbackQueue) === $record->extension){
+                $settings->callbackQueue = $record->uniqid;
+            }
+            $options['queues'][$record->uniqid] = $record->getRepresent();
+        }
+
         $this->view->form = new ModuleBitrix24IntegrationForm($settings, $options);
         $this->view->pick("{$this->moduleDir}/App/Views/index");
     }
@@ -278,6 +283,9 @@ class ModuleBitrix24IntegrationController extends BaseController
         foreach ($record as $key => $value) {
             switch ($key) {
                 case 'id':
+                    break;
+                case 'callbackQueue':
+                    $record->$key = trim($data[$key]);
                     break;
                 case 'session':
                     $refresh_token = $data['refresh_token'] ?? '';
