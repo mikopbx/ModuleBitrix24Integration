@@ -129,6 +129,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $arg = $this->b24->getScopeAsync($data['inbox_tube']??'');
         }
         if(!empty($arg)){
+            $this->b24->logger->writeInfo("Add action $action in queue...");
             $this->q_req = array_merge($arg, $this->q_req);
         }
     }
@@ -142,10 +143,9 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
      */
     public function invokeRestCheckResponse($response,$tube, $partResponse): void
     {
-        if(!empty($tube)){
-            $resFile = ConnectorDb::saveResultInTmpFile($partResponse);
-            $this->queueAgent->publish($resFile, $tube);
-        }
+        $this->b24->logger->writeInfo("start response $response, $tube");
+        $resFile = ConnectorDb::saveResultInTmpFile($partResponse);
+        $this->queueAgent->publish($resFile, $tube);
     }
 
     public function b24ChannelSearch($client): void
@@ -547,10 +547,18 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     {
         $tmpArr = [];
         foreach ($result as $key => $partResponse) {
-            [$actionName, $id, $tube] = explode('_', $key);
-            if(!empty($tube)){
-                $this->invokeRestCheckResponse($key, $tube, $partResponse);
-                continue;
+            $id = '';
+            $keyData = explode('_', $key);
+            if(count($keyData) === 3){
+                [$actionName, $id, $tube] = $keyData;
+                if(!empty($tube)){
+                    $this->invokeRestCheckResponse($key, $tube, $partResponse);
+                    continue;
+                }
+            }elseif(count($keyData) === 2){
+                [$actionName, $id] = $keyData;
+            }else{
+                $actionName = $key;
             }
             if ($actionName === Bitrix24Integration::API_CALL_REGISTER) {
                 $this->b24->telephonyExternalCallPostRegister($key, $partResponse);
