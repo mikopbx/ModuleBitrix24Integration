@@ -85,7 +85,7 @@ class ModuleBitrix24Integration extends ModulesModelsBase
 
     /**
      *
-     * @Column(type="integer", nullable=true)
+     * @Column(type="string", nullable=true)
      */
     public $callbackQueue = '';
 
@@ -155,9 +155,14 @@ class ModuleBitrix24Integration extends ModulesModelsBase
                 'CLIENT_SECRET'=>Constants::VAL_CLIENT_SECRET_RU,
             ],
             'BELARUS'=>[
-                'CLIENT_ID'=>Constants::VAL_CLIENT_ID_W,
-                'CLIENT_SECRET'=>Constants::VAL_CLIENT_SECRET_W,
+                'CLIENT_ID'=>Constants::VAL_CLIENT_ID_BEL,
+                'CLIENT_SECRET'=>Constants::VAL_CLIENT_SECRET_BEL,
             ],
+            'KAZAKHSTAN'=>[
+                'CLIENT_ID'=>Constants::VAL_CLIENT_ID_KZ,
+                'CLIENT_SECRET'=>Constants::VAL_CLIENT_SECRET_KZ,
+            ],
+            /*
             'UKRAINE'=>[
                 'CLIENT_ID'=>Constants::VAL_CLIENT_ID_W,
                 'CLIENT_SECRET'=>Constants::VAL_CLIENT_SECRET_W,
@@ -165,7 +170,7 @@ class ModuleBitrix24Integration extends ModulesModelsBase
             'WORLD'=>[
                 'CLIENT_ID'=>Constants::VAL_CLIENT_ID_W,
                 'CLIENT_SECRET'=>Constants::VAL_CLIENT_SECRET_W,
-            ],
+            ],//*/
             'REST_API'=>[
                 'CLIENT_ID'=>'',
                 'CLIENT_SECRET'=>'',

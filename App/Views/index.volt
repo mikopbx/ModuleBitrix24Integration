@@ -48,14 +48,6 @@
             <label>{{ t._('mod_b24_i_Region') }}</label>
             {{ form.render('b24_region') }}
         </div>
-        <div class="ui message" id="RU-INFO">
-            <i class="close icon"></i>
-            <div class="header">
-                Внимание:
-            </div>
-            <p>Если на вашем портале bitrix24 установлено приложение c типом цены "<b>подписка</b>", то регион выбран верно.</p>
-            <p>Если тип цены "<b>бесплатно</b>", укажите регион "<b>Весь мир</b>".</p>
-        </div>
         <div id="b24-app-data">
             <div class="field">
                 <label>{{ t._('mod_b24_i_client_id') }}</label>

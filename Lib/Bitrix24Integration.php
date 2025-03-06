@@ -130,7 +130,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $default_action = IncomingRoutingTable::findFirst('priority = 9999');
         if(!empty($settings->callbackQueue)){
             $filter =  [
-                'conditions' => 'extension = :id:',
+                'conditions' => 'extension = :id: OR uniqid = :id:',
                 'columns'    => ['extension,uniqid'],
                 'bind'       => [
                     'id' => $settings->callbackQueue,

@@ -20,12 +20,14 @@
 namespace Modules\ModuleBitrix24Integration\App\Controllers;
 
 use MikoPBX\AdminCabinet\Controllers\BaseController;
+use MikoPBX\Common\Models\CallQueues;
 use MikoPBX\Common\Models\Users;
 use MikoPBX\Core\System\Util;
 use MikoPBX\Modules\PbxExtensionUtils;
 use Modules\ModuleBitrix24Integration\App\Forms\ModuleBitrix24IntegrationForm;
 use Modules\ModuleBitrix24Integration\bin\ConnectorDb;
 use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
+use Modules\ModuleBitrix24Integration\Lib\Bitrix24InvokeRest;
 use Modules\ModuleBitrix24Integration\Lib\CacheManager;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use MikoPBX\Common\Models\Extensions;
@@ -185,17 +187,21 @@ class ModuleBitrix24IntegrationController extends BaseController
         $parameters               = [
             'conditions' => 'type IN ({types:array})',
             'bind'       => [
-                'types' => [Extensions::TYPE_QUEUE, Extensions::TYPE_SIP],
+                'types' => [Extensions::TYPE_SIP],
             ],
         ];
         $extensions               = Extensions::find($parameters);
         foreach ($extensions as $record) {
-            if($record->type === Extensions::TYPE_QUEUE){
-                $options['queues'][$record->number] = $record ? $record->getRepresent() ." <$record->number>": '';
-            }else{
-                $options['users'][$record->number] = $record ? $record->getRepresent() : '';
-            }
+            $options['users'][$record->number] = $record ? $record->getRepresent() : '';
         }
+        $queues = CallQueues::find();
+        foreach ($queues as $record) {
+            if(trim($settings->callbackQueue) === $record->extension){
+                $settings->callbackQueue = $record->uniqid;
+            }
+            $options['queues'][$record->uniqid] = $record->getRepresent();
+        }
+
         $this->view->form = new ModuleBitrix24IntegrationForm($settings, $options);
         $this->view->pick("{$this->moduleDir}/App/Views/index");
     }
@@ -213,6 +219,7 @@ class ModuleBitrix24IntegrationController extends BaseController
         $data   = $this->request->getPost();
         $b24 = new Bitrix24Integration('_www');
         $this->view->result = $b24->authByCode($data['code'], $data['region']);
+        CacheManager::setCacheData('module_scope', []);
     }
 
     /**
@@ -221,12 +228,17 @@ class ModuleBitrix24IntegrationController extends BaseController
      */
     public function checkStateAction():void
     {
+        $result = CacheManager::getCacheData('module_scope');
         $moduleEnable = PbxExtensionUtils::isEnabled('ModuleBitrix24Integration');
         if ($moduleEnable) {
-            $cacheData = CacheManager::getCacheData('module_state');
-            $this->view->result = empty($cacheData);
+            $ir = new Bitrix24InvokeRest();
+            if(empty($result)){
+                $result = $ir->invoke('scope', []);
+            }
+            $this->view->result = !empty($result);
             $this->view->data = [];
-            $this->view->messages = $cacheData;
+            $this->view->messages = $result;
+            CacheManager::setCacheData('module_scope', $result, 30);
         } else {
             $this->view->result = false;
             $this->view->messages[] = Util::translate('mod_b24_i_NoSettings');
@@ -271,6 +283,9 @@ class ModuleBitrix24IntegrationController extends BaseController
         foreach ($record as $key => $value) {
             switch ($key) {
                 case 'id':
+                    break;
+                case 'callbackQueue':
+                    $record->$key = trim($data[$key]);
                     break;
                 case 'session':
                     $refresh_token = $data['refresh_token'] ?? '';
