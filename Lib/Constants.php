@@ -22,7 +22,14 @@ namespace Modules\ModuleBitrix24Integration\Lib;
 class Constants
 {
     public const VAL_CLIENT_ID_RU = '-CLIENT_ID_RU-';
-    public const VAL_CLIENT_ID_W = '-CLIENT_ID_W-';
     public const VAL_CLIENT_SECRET_RU = '-CLIENT_SECRET_RU-';
+
+    public const VAL_CLIENT_ID_KZ = '-CLIENT_ID_KZ-';
+    public const VAL_CLIENT_SECRET_KZ = '-CLIENT_SECRET_KZ-';
+
+    public const VAL_CLIENT_ID_BEL = '-CLIENT_ID_BEL-';
+    public const VAL_CLIENT_SECRET_BEL = '-CLIENT_SECRET_BEL-';
+
+    public const VAL_CLIENT_ID_W = '-CLIENT_ID_W-';
     public const VAL_CLIENT_SECRET_W = '-CLIENT_SECRET_W-';
 }
