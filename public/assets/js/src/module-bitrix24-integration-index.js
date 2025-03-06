@@ -80,11 +80,6 @@ const ModuleBitrix24Integration = {
 	},
 
 	onChangeField(){
-		if('RUSSIA' === ModuleBitrix24Integration.$elRegion.val()){
-			$('#RU-INFO').show();
-		}else{
-			$('#RU-INFO').hide();
-		}
 		if($('#create-lead').checkbox('is checked')){
 			$('#lead-type').show()
 		}else{
