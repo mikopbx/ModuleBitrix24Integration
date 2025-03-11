@@ -393,7 +393,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                          ],
                          true
             )) {
-                $this->b24->crmListEntResults($actionName, $id, $partResponse);
+                $this->b24->crmListEntResults($actionName, $id, $partResponse, false);
             }
         }
         // Это дочерний процесс, завершаем его.
