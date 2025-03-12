@@ -111,6 +111,11 @@ class Bitrix24Integration extends PbxExtensionBase
         unset($data);
     }
 
+    public function setIsNotMainProcess():void
+    {
+        $this->mainProcess = false;
+    }
+
     public function updateSettings($settings=null):void
     {
         if($settings === null){
@@ -289,7 +294,7 @@ class Bitrix24Integration extends PbxExtensionBase
             $this->updateSessionData($query_data);
             $this->mainLogger->writeInfo('The token has been successfully updated');
         }else{
-            $this->mainLogger->writeError('Refresh token: '.json_encode($query_data));
+            $this->mainLogger->writeError('Refresh token: response: '.json_encode($query_data).', params:'.json_encode($params));
         }
         return $result;
     }
@@ -354,28 +359,31 @@ class Bitrix24Integration extends PbxExtensionBase
         $response  = $this->execCurl($url, $curlOptions, $status, $headersResponse, $totalTime);
 
          if (is_array($response)) {
-            $error_name = $response['error'] ?? '';
-            if ('expired_token' === $error_name) {
-                $this->updateToken();
-                // Обновляем параметры запроса:
-                $data['auth']                    = $this->getAccessToken();
-                $curlOptions[CURLOPT_POSTFIELDS] = http_build_query($data);
-                // Передышка. Сохраняем требование к кол-ву запросов в секунду (2шт.)
-                usleep(500000);
-                // Отправляем запрос повторно:
-                $response = $this->execCurl($url, $curlOptions, $status, $headersResponse, $totalTime);
-                // Проверяем наличие ошибки:
-                $error_name = $response['error'] ?? '';
-            } elseif ('QUERY_LIMIT_EXCEEDED' === $error_name) {
-                $this->mainLogger->writeInfo('Too many requests. Sleeping 1s ... ');
-                sleep(1);
-                $response   = $this->execCurl($url, $curlOptions, $status, $headersResponse, $totalTime);
-                $error_name = $response['error'] ?? '';
-            }elseif(!empty($response['result_error'])){
-                $this->mainLogger->writeInfo("RESPONSE-ERROR: ".json_encode($response['result_error']));
-            }
+             $error_name = $response['error'] ?? '';
+             if ('expired_token' === $error_name) {
+                 $this->updateToken();
+                 // Обновляем параметры запроса:
+                 $data['auth']                    = $this->getAccessToken();
+                 $curlOptions[CURLOPT_POSTFIELDS] = http_build_query($data);
+                 // Передышка. Сохраняем требование к кол-ву запросов в секунду (2шт.)
+                 usleep(500000);
+                 // Отправляем запрос повторно:
+                 $response = $this->execCurl($url, $curlOptions, $status, $headersResponse, $totalTime);
+                 // Проверяем наличие ошибки:
+                 $error_name = $response['error'] ?? '';
+             } elseif (in_array($error_name,['wrong_client','NO_AUTH_FOUND'], true)) {
+                 $this->mainLogger->writeError('Fail REST response ' . json_encode($response));
+                 $this->mainLogger->writeError("$error_name: session: ".json_encode($this->SESSION));
+             } elseif ('QUERY_LIMIT_EXCEEDED' === $error_name) {
+                 $this->mainLogger->writeInfo('Too many requests. Sleeping 1s ... ');
+                 sleep(1);
+                 $response   = $this->execCurl($url, $curlOptions, $status, $headersResponse, $totalTime);
+                 $error_name = $response['error'] ?? '';
+             }elseif(!empty($response['result_error'])){
+                 $this->mainLogger->writeInfo("RESPONSE-ERROR: ".json_encode($response['result_error']));
+             }
 
-            if (!empty($error_name)) {
+             if (!empty($error_name)) {
                 $this->mainLogger->writeError('Fail REST response ' . json_encode($response));
             }
         }
@@ -1388,15 +1396,17 @@ class Bitrix24Integration extends PbxExtensionBase
      * @param $action
      * @param $keyId
      * @param $data
+     * @param $waitSave
      * @return void
      */
-    public function crmListEntResults($action, $keyId, $data):void
+    public function crmListEntResults($action, $keyId, $data, $waitSave = true):void
     {
         if(empty($data)){
             return;
         }
-        $settings = ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_ENT_CONTACT, [$action, $data]);
-        if($keyId === 'update' || empty($settings)){
+
+        $settings = ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_ENT_CONTACT, [$action, $data], $waitSave);
+        if($waitSave === false || $keyId === 'update' || empty($settings)){
             return;
         }
         $settings = (object)$settings;

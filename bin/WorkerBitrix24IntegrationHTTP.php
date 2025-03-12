@@ -369,6 +369,8 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             return;
         }
         $this->needRestart = true;
+        $this->b24->setIsNotMainProcess();
+
         set_time_limit(50);
         cli_set_process_title(cli_get_process_title()."_SYNC_CONTACTS");
         $syncProcReq = [];
@@ -393,7 +395,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                          ],
                          true
             )) {
-                $this->b24->crmListEntResults($actionName, $id, $partResponse);
+                $this->b24->crmListEntResults($actionName, $id, $partResponse, false);
             }
         }
         // Это дочерний процесс, завершаем его.
