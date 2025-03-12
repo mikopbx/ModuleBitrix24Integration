@@ -166,11 +166,11 @@ class ModuleBitrix24Integration extends ModulesModelsBase
             'UKRAINE'=>[
                 'CLIENT_ID'=>Constants::VAL_CLIENT_ID_W,
                 'CLIENT_SECRET'=>Constants::VAL_CLIENT_SECRET_W,
-            ],
-            'WORLD'=>[
-                'CLIENT_ID'=>Constants::VAL_CLIENT_ID_W,
-                'CLIENT_SECRET'=>Constants::VAL_CLIENT_SECRET_W,
             ],//*/
+            'WORLD'=>[
+                'CLIENT_ID'=>Constants::VAL_CLIENT_ID_RU,
+                'CLIENT_SECRET'=>Constants::VAL_CLIENT_SECRET_RU,
+            ],
             'REST_API'=>[
                 'CLIENT_ID'=>'',
                 'CLIENT_SECRET'=>'',
