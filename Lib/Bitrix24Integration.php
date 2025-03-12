@@ -111,6 +111,11 @@ class Bitrix24Integration extends PbxExtensionBase
         unset($data);
     }
 
+    public function setIsNotMainProcess():void
+    {
+        $this->mainProcess = false;
+    }
+
     public function updateSettings($settings=null):void
     {
         if($settings === null){
@@ -289,7 +294,7 @@ class Bitrix24Integration extends PbxExtensionBase
             $this->updateSessionData($query_data);
             $this->mainLogger->writeInfo('The token has been successfully updated');
         }else{
-            $this->mainLogger->writeError('Refresh token: '.json_encode($query_data));
+            $this->mainLogger->writeError('Refresh token: response: '.json_encode($query_data).', params:'.json_encode($params));
         }
         return $result;
     }
