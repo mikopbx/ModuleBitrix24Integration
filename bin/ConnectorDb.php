@@ -58,6 +58,9 @@ class ConnectorDb extends WorkerBase
     private const MODULE_ID = 'ModuleBitrix24Integration';
     private int $clearTime = 0;
 
+    private Bitrix24Integration $b24;
+    private array $b24Users = [];
+
     /**
      * Handles the received signal.
      *
@@ -83,6 +86,7 @@ class ConnectorDb extends WorkerBase
         $this->logger->writeInfo(getmypid().': pingCallBack ...');
         $this->logger->rotate();
         parent::pingCallBack($message);
+        $this->updateUsers();
     }
 
     /**
@@ -97,9 +101,23 @@ class ConnectorDb extends WorkerBase
         $beanstalk      = new BeanstalkClient(self::class);
         $beanstalk->subscribe(self::class, [$this, 'onEvents']);
         $beanstalk->subscribe($this->makePingTubeName(self::class), [$this, 'pingCallBack']);
+
+        $this->b24 = new Bitrix24Integration('_www');
+        $this->updateUsers();
         while ($this->needRestart === false) {
             $beanstalk->wait();
         }
+    }
+
+    public function updateUsers()
+    {
+        $this->b24Users = [];
+        $usersB24 = $this->b24->userGet(true)['result']??[];
+        foreach ($usersB24 as $userB24){
+            $this->b24Users[$userB24['ID']??''] = $userB24['UF_PHONE_INNER']??'';
+        }
+        $this->logger->writeInfo('------');
+        $this->logger->writeInfo(json_encode($this->b24Users));
     }
 
     /**
@@ -549,6 +567,10 @@ class ConnectorDb extends WorkerBase
                 return $priorityA - $priorityB;
             });
         }
+        foreach ($data as $index => $rawData){
+            $data[$index]['userPhone'] = $this->b24Users[$rawData['userId']]??'';
+        }
+
         return $data;
     }
 
