@@ -763,8 +763,8 @@ class Bitrix24Integration extends PbxExtensionBase
         if ($user_id) {
             foreach ($users_list['result'] as $value) {
                 if ($value['ID'] === $user_id) {
-                    $peer_number = preg_replace('/(\D)/', '', $value['UF_PHONE_INNER']);
-                    $peer_mobile = preg_replace('/(\D)/', '', $value['PERSONAL_MOBILE']);
+                    $peer_number = preg_replace('/(\D)/', '', $value['UF_PHONE_INNER']??'');
+                    $peer_mobile = preg_replace('/(\D)/', '', $value['PERSONAL_MOBILE']??'');
 
                     // Проверим, существуют ли номера в разрешенных.
                     /** @var Extensions $ext_data */
