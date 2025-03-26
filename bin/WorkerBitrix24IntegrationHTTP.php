@@ -92,7 +92,6 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 $this->queueAgent->wait(1);
             } catch (Exception $e) {
                 sleep(1);
-                $this->b24->logger->writeError([$e->getMessage(),$e->getTrace()]);
                 $this->initBeanstalk();
             }
         }
