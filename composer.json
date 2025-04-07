@@ -2,7 +2,7 @@
     "name": "mikopbx/modulebitrix24integration",
     "description": "ModuleBitrix24Integration",
     "require": {
-        "php": "^7.4 || ^8.0"
+        "php": "7.4"
     },
     "autoload": {
         "psr-4": {
@@ -56,7 +56,7 @@
     "config": {
         "sort-packages": true,
         "platform": {
-            "php": "^7.4 || ^8.0"
+            "php": "7.4"
         }
     }
 }
