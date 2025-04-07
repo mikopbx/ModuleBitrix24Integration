@@ -426,12 +426,13 @@ class ConnectorDb extends WorkerBase
      */
     public function saveExternalLinesData(array $externalLinesPost):bool
     {
-        $externalLines = ModuleBitrix24ExternalLines::find();
-        // Delete all not exists in POST data
+        $filter = [
+            'conditions' => 'id NOT IN ({ids:array})',
+            'bind' => ['ids' => array_column($externalLinesPost, 'id')]
+        ];
+        $externalLines = ModuleBitrix24ExternalLines::find($filter);
         foreach ($externalLines as $externalLine){
-            if (! in_array($externalLine->id, array_column($externalLinesPost, 'id'), true)){
-                $externalLine->delete();
-            }
+            $externalLine->delete();
         }
         foreach ($externalLinesPost as $record) {
             if (!isset($record['id']) && empty($record['id'])){
