@@ -377,7 +377,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             $this->logger->writeInfo("the internal number is not involved in the integration. $linkedId");
             return;
         }
-        if(in_array($data['did'],$this->disabledDid, true)){
+        if(in_array($data['did'], $this->disabledDid, true)){
             $this->b24->saveCache('finish-cdr-'.$data['UNIQUEID'], true, 3600);
             $this->b24->saveCache('finish-cdr-'.$data['linkedid'], true, 3600);
             $this->logger->writeInfo("Integration is disabled for this DID $linkedId");
@@ -582,7 +582,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             // Рандомно назначаем ответственного для пропущенного.
             $responsible = $USER_ID;
         }else{
-            $this->logger->writeInfo("The responsible person was not found. cancellation".$linkedId);
+            $this->logger->writeInfo("The responsible person was not found. cancellation ".$linkedId);
             return;
         }
 
