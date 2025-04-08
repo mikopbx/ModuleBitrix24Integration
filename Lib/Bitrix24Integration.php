@@ -1223,7 +1223,11 @@ class Bitrix24Integration extends PbxExtensionBase
      */
     public function telephonyExternalCallFinish($options): array
     {
-        [$CALL_DATA, $CALL_ID] = ConnectorDb::invoke(ConnectorDb::FUNC_GET_CDR_BY_LINKED_ID, [$options]);
+        $CALL_ID = '';
+        $result = ConnectorDb::invoke(ConnectorDb::FUNC_GET_CDR_BY_LINKED_ID, [$options]);
+        if(!empty($result)){
+            [$CALL_DATA, $CALL_ID] = $result;
+        }
         if (empty($CALL_ID)) {
             $this->mainLogger->writeInfo("ConnectorDb did not return a reply. CALL_ID is empty");
             $this->mainLogger->writeInfo($options);

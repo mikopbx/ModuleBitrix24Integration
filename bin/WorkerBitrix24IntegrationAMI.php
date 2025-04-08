@@ -55,7 +55,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     private string $leadType = Bitrix24Integration::API_LEAD_TYPE_ALL;
     private array $external_lines = [];
     private array $disabledDid = [];
-    private string $crmCreateLead = '0';
+    private bool $crmCreateLead = false;
     private BeanstalkClient $client;
 
     private array $outChannels = [];
@@ -195,15 +195,16 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         /** @var ModuleBitrix24Integration $settings */
         $settings = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
         if ($settings !== null) {
-            $this->export_records         = ($settings->export_records === '1');
-            $this->export_cdr             = ($settings->export_cdr === '1');
-            $this->crmCreateLead          = ($settings->crmCreateLead !== '0')?'1':'0';
+            $this->export_records         = (intval($settings->export_records) === 1);
+            $this->export_cdr             = (intval($settings->export_cdr) === 1);
+            $this->crmCreateLead          = (intval($settings->crmCreateLead) !== 0);
             $this->leadType               = (empty($settings->leadType))?Bitrix24Integration::API_LEAD_TYPE_ALL:$settings->leadType;
 
             $responsible       = $this->b24->inner_numbers[$settings->responsibleMissedCalls]??[];
             $this->responsibleMissedCalls = empty($responsible)?'':$responsible['ID'];
         }
         $this->updateExternalLines();
+        $this->b24->updateSettings();
     }
 
     /**
@@ -305,7 +306,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
      * @param $data
      */
     private function actionDial($data):void {
-        $general_src_num = null;
+        $general_src_num = '';
         if ($data['transfer'] === '1') {
             $linkedId = $data['linkedid']??'';
             // Попробуем выяснить кого переадресуют.
@@ -386,7 +387,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         if (isset($this->inner_numbers[$data['src_num']]) && strlen($general_src_num) <= $this->extensionLength) {
             $this->logger->writeInfo("This is an outgoing call from an internal number. $linkedId");
             if (strlen($data['dst_num']) > $this->extensionLength && ! in_array($data['dst_num'], $this->extensions, true)) {
-                $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_IN && $this->crmCreateLead === '1')?'1':"0";
+                $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_IN && $this->crmCreateLead)?'1':"0";
                 $req_data = [
                     'CALL_START_DATE'  => date(\DateTimeInterface::ATOM, strtotime($data['start'])),
                     'USER_ID'          => $this->inner_numbers[$data['src_num']]['ID'],
@@ -414,7 +415,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             }
             $inner  = $data['dst_num'];
             $this->logger->writeInfo("This is an incoming call to an employee's internal number. $linkedId");
-            $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_OUT && $this->crmCreateLead === '1')?'1':'0';
+            $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_OUT && $this->crmCreateLead)?'1':'0';
             if (strlen($general_src_num) > $this->extensionLength && ! in_array($general_src_num, $this->extensions, true)) {
                 $this->logger->writeInfo("This is transfer... $linkedId");
                 $req_data = [
@@ -591,7 +592,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             if(!$isOutgoing && strlen($data['src_num']) > $this->extensionLength
                 && !$this->b24->getCache('reg-cdr-'.$data['linkedid'])){
                 $this->logger->writeInfo("Send Register event... For incoming users only. If it is a missed one, then you need to register it first.".$linkedId);
-                $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_OUT && $this->crmCreateLead === '1')?'1':'0';
+                $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_OUT && $this->crmCreateLead)?'1':'0';
                 $LINE_NUMBER = $this->external_lines[$data['did']]??'';
                 $req_data = [
                     'UNIQUEID'         => $data['UNIQUEID'],
