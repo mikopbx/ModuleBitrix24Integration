@@ -224,7 +224,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     continue;
                 }
                 $this->external_lines[$alias] = $line['number'];
-                if($line['disabled'] === '1'){
+                if(intval($line['disabled']) === 1){
                     $this->disabledDid[] = $alias;
                 }
             }
@@ -537,7 +537,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     {
         $linkedId = $data['linkedid']??'';
         if(in_array($data['did'],$this->disabledDid, true)){
-            $this->logger->writeInfo("Integration is disabled for this DID".$linkedId);
+            $this->logger->writeInfo("Integration is disabled for this DID ".$linkedId);
             return;
         }
 
