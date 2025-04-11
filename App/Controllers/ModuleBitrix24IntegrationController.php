@@ -31,6 +31,8 @@ use Modules\ModuleBitrix24Integration\Lib\Bitrix24InvokeRest;
 use Modules\ModuleBitrix24Integration\Lib\CacheManager;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use MikoPBX\Common\Models\Extensions;
+use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Users;
+
 use function MikoPBX\Common\Config\appPath;
 
 class ModuleBitrix24IntegrationController extends BaseController
@@ -107,24 +109,14 @@ class ModuleBitrix24IntegrationController extends BaseController
             Bitrix24Integration::OPEN_CARD_ANSWERED
         ];
 
-        $bitrix24Users = [];
-        $bitrix24UsersIds = [];
         $usersB24 = [];
-
         $moduleEnable = PbxExtensionUtils::isEnabled('ModuleBitrix24Integration');
+        $filter24Users       = [ 'columns' => [ 'user_id', 'disabled', 'open_card_mode'] ];
         if($moduleEnable){
-            $settings = ConnectorDb::invokePriority(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
+            // Получим список пользователей для отображения в фильтре
+            $settings       = ConnectorDb::invokePriority(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
+            $bitrix24Users    = (array)ConnectorDb::invokePriority(ConnectorDb::FUNC_GET_USERS, [$filter24Users]);
             if(!empty($settings->portal)){
-                // Получим список пользователей для отображения в фильтре
-                $parameters       = [
-                    'columns' => [
-                        'user_id',
-                        'disabled',
-                        'open_card_mode',
-                    ],
-                ];
-                $bitrix24Users    = (array)ConnectorDb::invokePriority(ConnectorDb::FUNC_GET_USERS, [$parameters]);
-                $bitrix24UsersIds = array_column($bitrix24Users, 'user_id');
                 $usersB24 = (new Bitrix24Integration('_www'))->userGet(true);
                 if ( is_array($usersB24['result']) ) {
                     $usersB24['users'] = [];
@@ -135,8 +127,11 @@ class ModuleBitrix24IntegrationController extends BaseController
                 }
             }
         }else{
+            $bitrix24Users = ModuleBitrix24Users::find($filter24Users)->toArray();
             $settings = ModuleBitrix24Integration::findFirst();
         }
+        $bitrix24UsersIds = array_column($bitrix24Users, 'user_id');
+
         if (!$settings) {
             $settings = new ModuleBitrix24Integration();
         }

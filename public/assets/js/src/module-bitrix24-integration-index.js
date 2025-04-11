@@ -206,7 +206,7 @@ const ModuleBitrix24Integration = {
 			 */
 			createdRow(row, data) {
 				const templateDisable = '<div class="ui fitted toggle checkbox">\n' +
-					'                <input type="checkbox" '+((data.disabled==='0')?'checked=""':'')+' tabindex="0" class="hidden"> <label></label>\n' +
+					'                <input type="checkbox" '+(((''+data.disabled)==='0')?'checked=""':'')+' tabindex="0" class="hidden"> <label></label>\n' +
 					'                </div>';
 				const templateName =
 					'<div class="ui transparent fluid input inline-edit">' +
@@ -297,7 +297,7 @@ const ModuleBitrix24Integration = {
 			$('.dataTables_empty').remove();
 			const id = `new${Math.floor(Math.random() * Math.floor(500))}`;
 			const rowTemplate = `<tr id="${id}" class="ext-line-row">` +
-				'<td><i class="ui user circle icon"></i></td>' +
+				'<td><div class="ui fitted toggle checkbox"><input type="checkbox" checked="" tabindex="0" class="hidden"> <label></label></div></td>' +
 				'<td><div class="ui fluid input inline-edit changed-field"><input class="external-name" type="text" data-value="" value=""></div></td>' +
 				'<td><div class="ui input inline-edit changed-field"><input class="external-number" type="text" data-value="" value=""></div></td>' +
 				'<td><div class="ui input inline-edit changed-field"><input class="external-aliases" type="text" data-value="" value=""></div></td>' +

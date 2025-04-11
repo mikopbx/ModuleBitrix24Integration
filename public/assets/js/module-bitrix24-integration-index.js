@@ -195,7 +195,7 @@ var ModuleBitrix24Integration = {
        * @param data
        */
       createdRow: function createdRow(row, data) {
-        var templateDisable = '<div class="ui fitted toggle checkbox">\n' + '                <input type="checkbox" ' + (data.disabled === '0' ? 'checked=""' : '') + ' tabindex="0" class="hidden"> <label></label>\n' + '                </div>';
+        var templateDisable = '<div class="ui fitted toggle checkbox">\n' + '                <input type="checkbox" ' + ('' + data.disabled === '0' ? 'checked=""' : '') + ' tabindex="0" class="hidden"> <label></label>\n' + '                </div>';
         var templateName = '<div class="ui transparent fluid input inline-edit">' + "<input class=\"external-name\" type=\"text\" data-value=\"".concat(data.name, "\" value=\"").concat(data.name, "\">") + '</div>';
         var templateNumber = '<div class="ui transparent fluid input inline-edit">' + "<input class=\"external-number\" type=\"text\" data-value=\"".concat(data.number, "\" value=\"").concat(data.number, "\">") + '</div>';
         var templateDid = '<div class="ui transparent input inline-edit">' + "<input class=\"external-aliases\" type=\"text\" data-value=\"".concat(data.alias, "\" value=\"").concat(data.alias, "\">") + '</div>';
@@ -259,7 +259,7 @@ var ModuleBitrix24Integration = {
       e.preventDefault();
       $('.dataTables_empty').remove();
       var id = "new".concat(Math.floor(Math.random() * Math.floor(500)));
-      var rowTemplate = "<tr id=\"".concat(id, "\" class=\"ext-line-row\">") + '<td><i class="ui user circle icon"></i></td>' + '<td><div class="ui fluid input inline-edit changed-field"><input class="external-name" type="text" data-value="" value=""></div></td>' + '<td><div class="ui input inline-edit changed-field"><input class="external-number" type="text" data-value="" value=""></div></td>' + '<td><div class="ui input inline-edit changed-field"><input class="external-aliases" type="text" data-value="" value=""></div></td>' + '<td><div class="ui small basic icon buttons action-buttons">' + "<a href=\"#\" class=\"ui button delete two-steps-delete popuped\" data-value = \"new\" data-content=\"".concat(globalTranslate.bt_ToolTipDelete, "\">") + '<i class="icon trash red"></i></a></div></td>' + '</tr>';
+      var rowTemplate = "<tr id=\"".concat(id, "\" class=\"ext-line-row\">") + '<td><div class="ui fitted toggle checkbox"><input type="checkbox" checked="" tabindex="0" class="hidden"> <label></label></div></td>' + '<td><div class="ui fluid input inline-edit changed-field"><input class="external-name" type="text" data-value="" value=""></div></td>' + '<td><div class="ui input inline-edit changed-field"><input class="external-number" type="text" data-value="" value=""></div></td>' + '<td><div class="ui input inline-edit changed-field"><input class="external-aliases" type="text" data-value="" value=""></div></td>' + '<td><div class="ui small basic icon buttons action-buttons">' + "<a href=\"#\" class=\"ui button delete two-steps-delete popuped\" data-value = \"new\" data-content=\"".concat(globalTranslate.bt_ToolTipDelete, "\">") + '<i class="icon trash red"></i></a></div></td>' + '</tr>';
       ModuleBitrix24Integration.$recordsTable.find('tbody > tr:first').before(rowTemplate);
       $("tr#".concat(id, " input")).transition('glow');
       $("tr#".concat(id, " .external-name")).focus();

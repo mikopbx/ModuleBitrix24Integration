@@ -200,7 +200,7 @@ class ConnectorDb extends WorkerBase
         if(is_string($args)){
             try {
                 $object = json_decode(file_get_contents($args), true, 512, JSON_THROW_ON_ERROR);
-            }catch (JsonException $e){
+            }catch (\Throwable $e){
                 $object = [];
             }
             unlink($args);
@@ -426,12 +426,13 @@ class ConnectorDb extends WorkerBase
      */
     public function saveExternalLinesData(array $externalLinesPost):bool
     {
-        $externalLines = ModuleBitrix24ExternalLines::find();
-        // Delete all not exists in POST data
+        $filter = [
+            'conditions' => 'id NOT IN ({ids:array})',
+            'bind' => ['ids' => array_column($externalLinesPost, 'id')]
+        ];
+        $externalLines = ModuleBitrix24ExternalLines::find($filter);
         foreach ($externalLines as $externalLine){
-            if (! in_array($externalLine->id, array_column($externalLinesPost, 'id'), true)){
-                $externalLine->delete();
-            }
+            $externalLine->delete();
         }
         foreach ($externalLinesPost as $record) {
             if (!isset($record['id']) && empty($record['id'])){
@@ -780,11 +781,11 @@ class ConnectorDb extends WorkerBase
         }
         foreach ($rows as $row){
             if(!empty($row['dealId'])){
-                $result[0]['deal_id']      = max($row['dealId'],$result[0]['deal_id']);
+                $result[0]['deal_id']      = max($row['dealId'],$result[0]['dealId']);
                 $result[0]['deal_user']    = $row['user_id'];
             }
             if(!empty($row['contactId'])){
-                $result[0]['contact_id']   = max($row['contactId'],$result[0]['contact_id']);
+                $result[0]['contact_id']   = max($row['contactId'],$result[0]['contactId']);
                 $result[0]['contact_user'] = $row['user_id'];
             }
             if(!empty($row['lead_id'])){
