@@ -179,7 +179,7 @@ var ModuleBitrix24Integration = {
       }, {
         data: null
       }],
-      paging: true,
+      paging: false,
       // scrollY: $(window).height() - ModuleBitrix24Integration.$recordsTable.offset().top-200,
       // stateSave: true,
       sDom: 'rtip',

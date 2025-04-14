@@ -189,7 +189,7 @@ const ModuleBitrix24Integration = {
 				{ data: 'alias' },
 				{ data: null },
 			],
-			paging: true,
+			paging: false,
 			// scrollY: $(window).height() - ModuleBitrix24Integration.$recordsTable.offset().top-200,
 			// stateSave: true,
 			sDom: 'rtip',
