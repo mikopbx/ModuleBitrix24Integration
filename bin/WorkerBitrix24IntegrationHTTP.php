@@ -414,15 +414,11 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
 
         $response = $this->b24->sendBatch($syncProcReqCompany);
         if(!empty($response)){
-            $this->b24->logger->writeInfo('syncProcReqCompany');
-            $this->b24->logger->writeInfo($response);
             ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_LINKS, [$response['result']['result']??[]], false);
         }
 
         $response = $this->b24->sendBatch($syncProcReqContact);
         if(!empty($response)) {
-            $this->b24->logger->writeInfo('syncProcReqContact');
-            $this->b24->logger->writeInfo($response);
             ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_LINKS, [$response['result']['result']??[]], false);
         }
 
