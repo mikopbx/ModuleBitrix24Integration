@@ -17,14 +17,6 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-/**
- * Copyright © MIKO LLC - All Rights Reserved
- * Unauthorized copying of this file, via any medium is strictly prohibited
- * Proprietary and confidential
- * Written by Alexey Portnov, 4 2020
- */
-
-
 namespace Modules\ModuleBitrix24Integration\Setup;
 
 use MikoPBX\Common\Models\PbxSettings;
