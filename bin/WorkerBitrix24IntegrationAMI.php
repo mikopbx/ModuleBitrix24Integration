@@ -205,6 +205,8 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         }
         $this->updateExternalLines();
         $this->b24->updateSettings();
+        $this->logger->writeInfo(['usersSettingsB24'=> $this->b24->usersSettingsB24]);
+
     }
 
     /**
@@ -374,7 +376,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             && !isset($this->b24->usersSettingsB24[$dstUserShotNum])){
             // Вызов по этому звонку не следует грузить в b24, внутренний номер не участвует в интеграции.
             // Или тут нет внутреннего номера.
-            $this->logger->writeInfo("the internal number is not involved in the integration. $linkedId");
+            $this->logger->writeInfo("the internal number ($data[src_num] -> $data[dst_num], $dstUserShotNum) is not involved in the integration. $linkedId");
             return;
         }
         if(in_array($data['did'], $this->disabledDid, true)){

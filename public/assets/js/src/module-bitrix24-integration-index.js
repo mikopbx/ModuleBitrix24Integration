@@ -448,6 +448,7 @@ const ModuleBitrix24Integration = {
 				user_id: uname.replace('user-',''),
 				open_card_mode: $(obj).find('td div.select-group').dropdown('get value'),
 				disabled: $(obj).find('td div.checkbox').checkbox('is unchecked'),
+				comment: $(obj).find('td').eq(3).text()
 			});
 		});
 		result.data.arrUsers = JSON.stringify(arrUsers);

@@ -360,6 +360,18 @@ class ConnectorDb extends WorkerBase
     public function saveUsers($arrUsersPost):bool
     {
         $result = true;
+
+        // Чистим устаревшие данные.
+        $ids = array_column($arrUsersPost,'user_id');
+        $parameters   = [
+            'conditions' => 'user_id NOT IN ({ids:array})',
+            'bind'       => [
+                'ids' => $ids,
+            ],
+        ];
+        ModuleBitrix24Users::find($parameters)->delete();
+
+        // Обновляем существующие данные.
         foreach ($arrUsersPost as $rowData) {
             $userId         = $rowData['user_id'];
             $parameters   = [
