@@ -72,7 +72,6 @@ class Bitrix24Integration extends PbxExtensionBase
     public $lastContactId;
     public $lastCompanyId;
     public $lastLeadId;
-    public $lastDealId;
 
     public function __construct(string $logPrefix = '')
     {
@@ -133,7 +132,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->lastContactId = $settings->lastContactId;
 
         $this->usersSettingsB24 = $this->getUsersSettings();
-        $this->backgroundUpload = ($settings->backgroundUpload === '1');
+        $this->backgroundUpload = intval($settings->backgroundUpload) === 1;
         $default_action = IncomingRoutingTable::findFirst('priority = 9999');
         if(!empty($settings->callbackQueue)){
             $filter =  [
@@ -1155,7 +1154,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $res_data = $this->getCache($cache_key);
         if ($res_data) {
             $this->mainLogger->writeInfo("Igonre $id 'telephonyExternalCallRegister' id dublicate...");
-            return [];
+            return [[], ''];
         }
         // Сохраним кэш.
         $this->saveCache($cache_key, '1', 180);
@@ -1194,7 +1193,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $options['time']       = time();
         $this->mem_cache[$key] = $options;
 
-        return $arg;
+        return [$arg, $key];
     }
 
     /**
@@ -1203,14 +1202,16 @@ class Bitrix24Integration extends PbxExtensionBase
      * @param $key
      * @param $response
      */
-    public function telephonyExternalCallPostRegister($key, $response): void
+    public function telephonyExternalCallPostRegister($key, $response): array
     {
         $request = $this->mem_cache[$key] ?? null;
         if ( ! $request) {
-            return;
+            return [];
         }
         unset($this->mem_cache[$key]);
         ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_CDR_BY_UID, [$request['UNIQUEID'], $request, $response]);
+
+        return [$request['linkedid'], $response['CALL_ID']];
     }
 
     /**
@@ -1243,8 +1244,9 @@ class Bitrix24Integration extends PbxExtensionBase
      *
      * @return array|null
      */
-    public function telephonyExternalCallFinish($options): array
+    public function telephonyExternalCallFinish($options, &$tmpCallsData): array
     {
+        $arg     = [];
         $CALL_ID = '';
         $result = ConnectorDb::invoke(ConnectorDb::FUNC_GET_CDR_BY_LINKED_ID, [$options]);
         if(!empty($result)){
@@ -1255,7 +1257,28 @@ class Bitrix24Integration extends PbxExtensionBase
             $this->mainLogger->writeInfo($options);
             return [];
         }
-        $userId = ($CALL_DATA['answer'] === '1') ? $CALL_DATA['user_id'] : '';
+
+        $id = $options['linkedid'];
+
+        ///////////////////////////////////////////////////////////////
+        // Проверим, была ли уже отправлена запись разговора.
+        $callData = &$tmpCallsData[$id];
+        $regData = $tmpCallsData[$id]['ARGS_REGISTER_'.$options['UNIQUEID']]??[];
+        if( file_exists($options['FILE']) &&
+            isset($callData['MAIN_FILE']) && !isset($callData['FILE_'.$options['UNIQUEID']] ) &&
+            !empty($regData)) {
+            // Нужно зарегистрировать новый вызов
+            [$arg, $key] = $tmpCallsData[$id]['ARGS_REGISTER_'.$options['UNIQUEID']];
+            $CALL_ID = '$result['.$key.'][CALL_ID]';
+            $callData['FILE_'.$options['UNIQUEID']] = $options['FILE'];
+        }
+        if(!isset($callData['MAIN_FILE'])){
+            $callData['MAIN_FILE'] = $options['FILE'];
+        }
+        //
+        ///////////////////////////////////////////////////////////////
+
+        $userId = (intval($CALL_DATA['answer']) === 1) ? $CALL_DATA['user_id'] : '';
         $params = [
             'CALL_ID'       => $CALL_ID,
             'USER_ID'       => $userId,
@@ -1271,8 +1294,7 @@ class Bitrix24Integration extends PbxExtensionBase
 
         $this->fillPropertyValues($options, $params);
 
-        $arg              = [];
-        $finishKey       = self::API_CALL_FINISH.'_'.$options['linkedid'].'_' . uniqid('', true);
+        $finishKey       = self::API_CALL_FINISH.'_'.$id.'_' . uniqid('', true);
         $arg[$finishKey] = self::API_CALL_FINISH.'?' . http_build_query($params);
         if ($options['export_records']) {
             $this->telephonyExternalCallAttachRecord($options['FILE'], $CALL_ID, $arg);

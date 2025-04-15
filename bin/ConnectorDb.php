@@ -891,7 +891,8 @@ class ConnectorDb extends WorkerBase
                 break;
             }
         }
-        if(empty($result) && $options['GLOBAL_STATUS'] === 'NOANSWER'){
+        // if(empty($result) && $options['GLOBAL_STATUS'] === 'NOANSWER'){
+        if(empty($result) && !empty($rows)){
             // Пропущенный вызов.
             // Берем первую попавшуюся CDR.
             return [$rows[0], $rows[0]['call_id']];
@@ -909,7 +910,7 @@ class ConnectorDb extends WorkerBase
                 $result[0]['contact_user'] = $row['user_id'];
             }
             if(!empty($row['lead_id'])){
-                $result[0]['lead_id'] = max($row['lead_id'],$result[0]['lead_id']);
+                $result[0]['lead_id']   = max($row['lead_id'],$result[0]['lead_id']);
                 $result[0]['lead_user'] = $row['user_id'];
             }
         }

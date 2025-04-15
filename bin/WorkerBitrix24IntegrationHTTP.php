@@ -211,11 +211,30 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                     $data['CRM_ENTITY_ID']   = $contactsData['b24id']??'';
                     $data['CRM_ENTITY_TYPE'] = $contactsData['contactType']??'';
                 }
-                $arg = $this->b24->telephonyExternalCallRegister($data);
+
+                $callId = &$this->tmpCallsData[$data['linkedid']]['CALL_ID'];
+                if(empty($callId)){
+                    [$arg, $key] = $this->b24->telephonyExternalCallRegister($data);
+                    if(!empty($key)){
+                        // Это Метод register
+                        $callId = $key;
+                    }
+                }elseif(stripos($callId,Bitrix24Integration::API_CALL_REGISTER) === false){
+                    $this->tmpCallsData[$data['linkedid']]['ARR_REGISTER_'.$data['UNIQUEID']] = $data;
+                    $this->tmpCallsData[$data['linkedid']]['ARGS_REGISTER_'.$data['UNIQUEID']] = $this->b24->telephonyExternalCallRegister($data);
+                    $data['CALL_ID'] = $callId;
+                    $arg = $this->b24->telephonyExternalCallShow($data);
+                }else{
+                    $this->tmpCallsData[$data['linkedid']]['ARR_REGISTER_'.$data['UNIQUEID']] = $data;
+                    $this->tmpCallsData[$data['linkedid']]['ARGS_REGISTER_'.$data['UNIQUEID']] = $this->b24->telephonyExternalCallRegister($data);
+                    $data['CALL_ID'] = '$result['.$callId.'][CALL_ID]';
+                    $arg = $this->b24->telephonyExternalCallShow($data);
+                }
                 if (count($arg) > 0) {
                     // Основная очередь запросов.
-                    $this->q_req = array_merge($arg, $this->q_req);
+                    $this->q_req = array_merge($this->q_req, $arg);
                 }
+                unset($callId);
             }
         } else {
             // Дополнительная очередь ожидания.
@@ -264,16 +283,17 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     private function createTmpCallData($data):void
     {
         $this->tmpCallsData[$data['linkedid']] = [
-            'wait'      => true,
-            'events'    => [],
-            'search'    => -1, // -1 - запрос не отправлен, 0 - запрос отправлен, 1 ответ получен
-            'lead'      => -1,
-            'list-lead' => -1,
-            'company'   => -1,
-            'data'      => $data,
-            'crm-data'  => [],
-            'inbox_tube'=> $data['inbox_tube']??'',
-            'responsible'=> ''
+            'wait'       => true,
+            'events'     => [],
+            'search'     => -1, // -1 - запрос не отправлен, 0 - запрос отправлен, 1 ответ получен
+            'lead'       => -1,
+            'list-lead'  => -1,
+            'company'    => -1,
+            'data'       => $data,
+            'crm-data'   => [],
+            'inbox_tube' => $data['inbox_tube']??'',
+            'responsible'=> '',
+            'CALL_ID'    => '',
         ];
         $phone = $data['PHONE_NUMBER'] ?? '';
         if(empty($phone)){
@@ -411,17 +431,14 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 }
             }
         }
-
         $response = $this->b24->sendBatch($syncProcReqCompany);
         if(!empty($response)){
             ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_LINKS, [$response['result']['result']??[]], false);
         }
-
         $response = $this->b24->sendBatch($syncProcReqContact);
         if(!empty($response)) {
             ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_LINKS, [$response['result']['result']??[]], false);
         }
-
         // Это дочерний процесс, завершаем его.
         exit(0);
     }
@@ -474,11 +491,13 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $tmpArr = [$this->q_req];
             foreach ($this->q_pre_req as $data) {
                 if ('action_hangup_chan' === $data['action']) {
-                    $cdr = ConnectorDb::invoke(ConnectorDb::FUNC_FIND_CDR_BY_UID,[$data['UNIQUEID']]);
-                    if ($cdr) {
-                        $data['CALL_ID'] = $cdr->call_id;
-                        $data['USER_ID'] = (int)$cdr->user_id;
-                        $tmpArr[] = $this->b24->telephonyExternalCallHide($data);
+                    $callId = $this->tmpCallsData[$data['linkedid']]['CALL_ID'];
+                    if (!empty($callId)) {
+                        $data['CALL_ID'] = $callId;
+                        $data['USER_ID'] = $this->tmpCallsData[$data['linkedid']]['ARR_REGISTER_'.$data['UNIQUEID']]['USER_ID']??'';
+                        if(!empty($data['USER_ID'])){
+                            $tmpArr[] = $this->b24->telephonyExternalCallHide($data);
+                        }
                     }
                 } elseif ('action_dial_answer' === $data['action']) {
                     $cdr = null;
@@ -552,7 +571,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                         $tmpArr[] = $this->b24->crmDealUpdate($dealId, $userId, $data['linkedid']);
                     }
                 } elseif ('telephonyExternalCallFinish' === $data['action']) {
-                    $tmpArr[] = $this->b24->telephonyExternalCallFinish($data);
+                    $tmpArr[] = $this->b24->telephonyExternalCallFinish($data, $this->tmpCallsData);
                 }
             }
             $this->q_req = array_merge(...$tmpArr);
@@ -585,7 +604,14 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             }
 
             if ($actionName === Bitrix24Integration::API_CALL_REGISTER) {
-                $this->b24->telephonyExternalCallPostRegister($key, $partResponse);
+                $resultRegister = $this->b24->telephonyExternalCallPostRegister($key, $partResponse);
+                if(!empty($resultRegister)){
+                    [$linkedId, $callId] = $resultRegister;
+                    $this->b24->logger->writeInfo("Update call_id for $linkedId - $callId");
+                    $this->tmpCallsData[$linkedId]['CALL_ID'] = $callId;
+                }else{
+                    $this->b24->logger->writeInfo("fail Update call_id for $key");
+                }
             } elseif (in_array($actionName,[Bitrix24Integration::API_CRM_CONTACT_COMPANY,Bitrix24Integration::API_CRM_COMPANY_CONTACT], true)) {
                 ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_LINKS, [[$key => $partResponse]], false);
             } elseif (in_array($id,['init', 'update'], true)){
