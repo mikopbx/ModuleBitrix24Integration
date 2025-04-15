@@ -38,6 +38,8 @@ class Bitrix24Integration extends PbxExtensionBase
     public const API_CRM_ADD_CONTACT = 'crm.contact.add';
     public const API_CRM_LIST_LEAD   = 'crm.lead.list';
     public const API_CRM_LIST_COMPANY= 'crm.company.list';
+    public const API_CRM_COMPANY_CONTACT= 'crm.company.contact.items.get';
+    public const API_CRM_CONTACT_COMPANY= 'crm.contact.company.items.get';
     public const API_CRM_LIST_CONTACT= 'crm.contact.list';
 
     public const OPEN_CARD_NONE      = 'NONE';
@@ -647,6 +649,26 @@ class Bitrix24Integration extends PbxExtensionBase
         return $this->query($url, $params);
     }
 
+    public function getCompanyContacts($id): array
+    {
+        $paramsCallBack = [
+            "id" => $id,
+            "auth"  => $this->getAccessToken(),
+        ];
+        $arg[Bitrix24Integration::API_CRM_COMPANY_CONTACT."_".$id] = Bitrix24Integration::API_CRM_COMPANY_CONTACT.'?' . http_build_query($paramsCallBack);
+        return $arg;
+    }
+
+    public function getContactCompany($id): array
+    {
+        $paramsCallBack = [
+            "id" => $id,
+            "auth"  => $this->getAccessToken(),
+        ];
+        $arg[Bitrix24Integration::API_CRM_CONTACT_COMPANY."_".$id] = Bitrix24Integration::API_CRM_CONTACT_COMPANY.'?' . http_build_query($paramsCallBack);
+        return $arg;
+    }
+
     /**
      * Формирование команды для получения событий.
      *
@@ -676,7 +698,7 @@ class Bitrix24Integration extends PbxExtensionBase
             'result' => 'ERROR',
             'data'   => $req_data,
         ];
-        $this->mainLogger->writeInfo(json_encode($req_data));
+        $this->mainLogger->writeInfo($req_data);
         $event = $req_data['event']??[];
         if ('ONEXTERNALCALLSTART' === $req_data['event']['EVENT_NAME']) {
             $delta = time() - strtotime($event['TIMESTAMP_X']);

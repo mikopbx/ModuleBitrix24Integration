@@ -310,8 +310,15 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 ConnectorDb::invoke(ConnectorDb::FUNC_DELETE_CONTACT_DATA, [$eventActionsDelete[$event['EVENT_NAME']], $id],false);
             }
             if (isset($eventActionsUpdate[$event['EVENT_NAME']])){
-                $id = array_values($eventData['FIELDS']);
-                $args[] = $this->b24->crmListEnt($eventActionsUpdate[$event['EVENT_NAME']], $id);
+                $arIds = array_values($eventData['FIELDS']);
+                $args[] = $this->b24->crmListEnt($eventActionsUpdate[$event['EVENT_NAME']], $arIds);
+                foreach ($arIds as $id){
+                    if($event['EVENT_NAME'] === 'ONCRMCONTACTUPDATE'){
+                        $args[] = $this->b24->getContactCompany($id);
+                    }elseif($event['EVENT_NAME'] === 'ONCRMCOMPANYUPDATE'){
+                        $args[] = $this->b24->getCompanyContacts($id);
+                    }
+                }
             }
             $this->b24->handleEvent([ 'event' => $event, 'data'  => $eventData]);
         }
@@ -358,6 +365,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             }
             return;
         }
+
         $this->timeSyncProcContacts = time();
         $this->pidSyncProcContacts = pcntl_fork();
         if ($this->pidSyncProcContacts == -1) {
@@ -385,19 +393,39 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
 
         $response = $this->b24->sendBatch($syncProcReq);
         $result = $response['result']['result'] ?? [];
+
+        $syncProcReqContact = [];
+        $syncProcReqCompany = [];
         foreach ($result as $key => $partResponse) {
             [$actionName, $id] = explode('_', $key);
-            if (in_array($actionName,
-                         [
-                             Bitrix24Integration::API_CRM_LIST_CONTACT,
-                             Bitrix24Integration::API_CRM_LIST_COMPANY,
-                             Bitrix24Integration::API_CRM_LIST_LEAD
-                         ],
-                         true
-            )) {
+            if (in_array($actionName, [ Bitrix24Integration::API_CRM_LIST_CONTACT,Bitrix24Integration::API_CRM_LIST_COMPANY, Bitrix24Integration::API_CRM_LIST_LEAD], true )) {
                 $this->b24->crmListEntResults($actionName, $id, $partResponse, false);
+                foreach ($partResponse as $data){
+                    if(Bitrix24Integration::API_CRM_LIST_COMPANY === $actionName){
+                        $arg = $this->b24->getCompanyContacts($data['ID']);
+                        $syncProcReqCompany = array_merge($arg, $syncProcReqCompany);
+                    }elseif (Bitrix24Integration::API_CRM_LIST_CONTACT === $actionName){
+                        $arg = $this->b24->getContactCompany($data['ID']);
+                        $syncProcReqContact = array_merge($arg, $syncProcReqContact);
+                    }
+                }
             }
         }
+
+        $response = $this->b24->sendBatch($syncProcReqCompany);
+        if(!empty($response)){
+            $this->b24->logger->writeInfo('syncProcReqCompany');
+            $this->b24->logger->writeInfo($response);
+            ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_LINKS, [$response['result']['result']??[]], false);
+        }
+
+        $response = $this->b24->sendBatch($syncProcReqContact);
+        if(!empty($response)) {
+            $this->b24->logger->writeInfo('syncProcReqContact');
+            $this->b24->logger->writeInfo($response);
+            ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_LINKS, [$response['result']['result']??[]], false);
+        }
+
         // Это дочерний процесс, завершаем его.
         exit(0);
     }
@@ -550,22 +578,24 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $tmpArr = [];
         foreach ($result as $key => $partResponse) {
             $id = '';
+            $tube = '';
             $keyData = explode('_', $key);
             if(count($keyData) === 3){
                 [$actionName, $id, $tube] = $keyData;
-                if(!empty($tube)){
-                    $this->invokeRestCheckResponse($key, $tube, $partResponse);
-                    continue;
-                }
             }elseif(count($keyData) === 2){
                 [$actionName, $id] = $keyData;
             }else{
                 $actionName = $key;
             }
+
             if ($actionName === Bitrix24Integration::API_CALL_REGISTER) {
                 $this->b24->telephonyExternalCallPostRegister($key, $partResponse);
+            } elseif (in_array($actionName,[Bitrix24Integration::API_CRM_CONTACT_COMPANY,Bitrix24Integration::API_CRM_COMPANY_CONTACT], true)) {
+                ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_LINKS, [[$key => $partResponse]], false);
             } elseif (in_array($id,['init', 'update'], true)){
                 $this->b24->crmListEntResults($actionName, $id, $partResponse);
+            } elseif(!empty($tube)){
+                $this->invokeRestCheckResponse($key, $tube, $partResponse);
             } elseif ($actionName === Bitrix24Integration::API_ATTACH_RECORD) {
                 $uploadUrl = $partResponse["uploadUrl"] ?? '';
                 $data = $this->b24->telephonyPostAttachRecord($key, $uploadUrl);

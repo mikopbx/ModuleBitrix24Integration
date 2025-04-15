@@ -28,6 +28,7 @@
 namespace Modules\ModuleBitrix24Integration\Setup;
 
 use MikoPBX\Common\Models\PbxSettings;
+use Modules\ModuleBitrix24Integration\Models\ContactLinks;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use MikoPBX\Modules\Setup\PbxExtensionSetupBase;
 
@@ -46,11 +47,9 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
     public function installDB(): bool
     {
         $result = parent::installDB();
-
         if ($result) {
             $this->transferOldSettings();
         }
-
         if ($result) {
             $settings = ModuleBitrix24Integration::findFirst();
             if ($settings === null) {
@@ -58,6 +57,10 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
             }
             if (empty($settings->b24_region)) {
                 $settings->b24_region = 'RUSSIA';
+            }
+            if(!ContactLinks::findFirst()){
+                $settings->lastCompanyId = 0;
+                $settings->lastContactId = 0;
             }
             $result = $settings->save();
         }
