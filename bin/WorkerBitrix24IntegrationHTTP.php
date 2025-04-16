@@ -220,12 +220,12 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                         $callId = $key;
                     }
                 }elseif(stripos($callId,Bitrix24Integration::API_CALL_REGISTER) === false){
-                    $this->tmpCallsData[$data['linkedid']]['ARR_REGISTER_'.$data['UNIQUEID']] = $data;
+                    $this->tmpCallsData[$data['linkedid']]['ARG_REGISTER_USER_'.$data['UNIQUEID']] = $data['USER_ID']??'';
                     $this->tmpCallsData[$data['linkedid']]['ARGS_REGISTER_'.$data['UNIQUEID']] = $this->b24->telephonyExternalCallRegister($data);
                     $data['CALL_ID'] = $callId;
                     $arg = $this->b24->telephonyExternalCallShow($data);
                 }else{
-                    $this->tmpCallsData[$data['linkedid']]['ARR_REGISTER_'.$data['UNIQUEID']] = $data;
+                    $this->tmpCallsData[$data['linkedid']]['ARG_REGISTER_USER_'.$data['UNIQUEID']] = $data['USER_ID']??'';
                     $this->tmpCallsData[$data['linkedid']]['ARGS_REGISTER_'.$data['UNIQUEID']] = $this->b24->telephonyExternalCallRegister($data);
                     $data['CALL_ID'] = '$result['.$callId.'][CALL_ID]';
                     $arg = $this->b24->telephonyExternalCallShow($data);
@@ -491,14 +491,13 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $tmpArr = [$this->q_req];
             foreach ($this->q_pre_req as $data) {
                 if ('action_hangup_chan' === $data['action']) {
-                    $callId = $this->tmpCallsData[$data['linkedid']]['CALL_ID'];
-                    if (!empty($callId)) {
-                        $data['CALL_ID'] = $callId;
-                        $data['USER_ID'] = $this->tmpCallsData[$data['linkedid']]['ARR_REGISTER_'.$data['UNIQUEID']]['USER_ID']??'';
-                        if(!empty($data['USER_ID'])){
-                            $tmpArr[] = $this->b24->telephonyExternalCallHide($data);
-                        }
+                    $callData = $this->tmpCallsData[$data['linkedid']];
+                    $data['CALL_ID'] = $callData['CALL_ID']??'';
+                    $data['USER_ID'] = $callData['ARG_REGISTER_USER_'.$data['UNIQUEID']]??'';
+                    if (!empty($data['CALL_ID']) && !empty($data['USER_ID'])) {
+                        $tmpArr[] = $this->b24->telephonyExternalCallHide($data);
                     }
+                    unset($callData);
                 } elseif ('action_dial_answer' === $data['action']) {
                     $cdr = null;
                     $userId = '';
