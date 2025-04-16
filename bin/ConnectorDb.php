@@ -117,8 +117,7 @@ class ConnectorDb extends WorkerBase
         foreach ($usersB24 as $userB24){
             $this->b24Users[$userB24['ID']??''] = $userB24['UF_PHONE_INNER']??'';
         }
-        $this->logger->writeInfo('------');
-        $this->logger->writeInfo($this->b24Users);
+        $this->logger->writeInfo($this->b24Users, 'b24Users');
     }
 
     /**
@@ -165,7 +164,7 @@ class ConnectorDb extends WorkerBase
             if(method_exists($this, $funcName)){
                 $this->logger->rotate();
                 $args = $this->getArgs($data);
-                $this->logger->writeInfo(['PID' => getmypid(), 'FUNC' => $funcName, 'ARGS' => $args]);
+                $this->logger->writeInfo($args, "REQUEST $funcName ". getmypid());
                 if(count($args) === 0){
                     if(self::FUNC_UPDATE_ENT_CONTACT !== $funcName){
                         $res_data = $this->$funcName();
@@ -178,7 +177,7 @@ class ConnectorDb extends WorkerBase
         }
         if(isset($data['need-ret'])){
             $tube->reply($resDataFilename);
-            $this->logger->writeInfo(json_encode($res_data));
+            $this->logger->writeInfo($res_data, 'RESPONSE');
         }
         if( (time() - $this->clearTime) > 10){
             $findPath   = Util::which('find');
@@ -531,8 +530,6 @@ class ConnectorDb extends WorkerBase
             ],
             'order' => 'dateCreate',
         ];
-
-        $this->logger->writeInfo($filter);
         return B24PhoneBook::find($filter)->toArray();
     }
 
@@ -750,8 +747,6 @@ class ConnectorDb extends WorkerBase
     public function updateLinks($data):array
     {
         $result = [];
-        $this->logger->writeInfo($data);
-
         foreach ($data as $key => $linkData){
             [$method, $id] = explode('_', $key);
             if($method === Bitrix24Integration::API_CRM_CONTACT_COMPANY){
