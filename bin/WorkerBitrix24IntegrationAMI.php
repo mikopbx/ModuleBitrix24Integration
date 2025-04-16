@@ -205,7 +205,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         }
         $this->updateExternalLines();
         $this->b24->updateSettings();
-        $this->logger->writeInfo(['usersSettingsB24'=> $this->b24->usersSettingsB24]);
+        $this->logger->writeInfo($this->b24->usersSettingsB24, 'usersSettingsB24');
 
     }
 
@@ -272,7 +272,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         }
         $stringData = base64_decode($parameters['AgiData']);
         $data = json_decode($stringData, true);
-        $this->logger->writeInfo($data['action'].': '.$stringData);
+        $this->logger->writeInfo($stringData, $data['action']);
         switch ($data['action']) {
             case 'hangup_chan':
                 $this->actionHangupChan($data);

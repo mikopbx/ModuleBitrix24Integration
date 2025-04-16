@@ -96,17 +96,23 @@ class Logger
         }
     }
 
-    public function writeError($data): void
+    public function writeError($data, string $header = ''): void
     {
         if ($this->debug) {
-            $this->logger->error($this->getDecodedString($data));
+            if(!empty($header)){
+                $header.= "$header: ";
+            }
+            $this->logger->error($header . $this->getDecodedString($data));
         }
     }
 
-    public function writeInfo($data): void
+    public function writeInfo($data, string $header = ''): void
     {
         if ($this->debug) {
-            $this->logger->info($this->getDecodedString($data));
+            if(!empty($header)){
+                $header.= ": ";
+            }
+            $this->logger->info($header . $this->getDecodedString($data));
         }
     }
 

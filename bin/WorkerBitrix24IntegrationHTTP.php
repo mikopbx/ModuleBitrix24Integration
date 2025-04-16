@@ -143,7 +143,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
      */
     public function invokeRestCheckResponse($response,$tube, $partResponse): void
     {
-        $this->b24->logger->writeInfo("start response $response, $tube");
+        $this->b24->mainLogger->writeInfo([$response, $partResponse],"start response to tube $tube");
         $resFile = ConnectorDb::saveResultInTmpFile($partResponse);
         $this->queueAgent->publish($resFile, $tube);
     }

@@ -373,19 +373,19 @@ class Bitrix24Integration extends PbxExtensionBase
                  // Проверяем наличие ошибки:
                  $error_name = $response['error'] ?? '';
              } elseif (in_array($error_name,['wrong_client','NO_AUTH_FOUND'], true)) {
-                 $this->mainLogger->writeError('Fail REST response ' . json_encode($response));
-                 $this->mainLogger->writeError("$error_name: session: ".json_encode($this->SESSION));
+                 $this->mainLogger->writeError($response, 'Fail REST response');
+                 $this->mainLogger->writeError($this->SESSION, "$error_name: session: ");
              } elseif ('QUERY_LIMIT_EXCEEDED' === $error_name) {
                  $this->mainLogger->writeInfo('Too many requests. Sleeping 1s ... ');
                  sleep(1);
                  $response   = $this->execCurl($url, $curlOptions, $status, $headersResponse, $totalTime);
                  $error_name = $response['error'] ?? '';
              }elseif(!empty($response['result_error'])){
-                 $this->mainLogger->writeInfo("RESPONSE-ERROR: ".json_encode($response['result_error']));
+                 $this->mainLogger->writeInfo($response['result_error'], "RESPONSE-ERROR");
              }
 
              if (!empty($error_name)) {
-                $this->mainLogger->writeError('Fail REST response ' . json_encode($response));
+                $this->mainLogger->writeError($response, 'Fail REST response');
             }
         }
         if(isset( $data['cmd'])){
@@ -408,7 +408,7 @@ class Bitrix24Integration extends PbxExtensionBase
                     unset($query['auth']);
                     $queues[$index] = $query;
                 }
-                $this->mainLogger->writeInfo("REQUEST: ".json_encode($queues, JSON_UNESCAPED_UNICODE));
+                $this->mainLogger->writeInfo($queues, 'REQUEST');
                 $result = $response['result']["result"]??[];
                 // Чистым массив перед выводом в лог.
                 if(is_array($result)){
@@ -418,17 +418,13 @@ class Bitrix24Integration extends PbxExtensionBase
                         }
                     }
                 }
-                $this->mainLogger->writeInfo("RESPONSE: ".json_encode($result, JSON_UNESCAPED_UNICODE));
+                $this->mainLogger->writeInfo($result, 'RESPONSE');
             }
         }
         $this->checkErrorInResponse($response, $status);
         $delta = microtime(true) - $startTime;
         if ($delta > 5 || $totalTime > 5) {
-            $this->mainLogger->writeError(
-                "Slow response. PHP time:{$delta}s, cURL time: {$totalTime}, url:{$url}, Data:$q4Dump, Response: " . json_encode(
-                    $response
-                )
-            );
+            $this->mainLogger->writeError($response, "Slow response. PHP time:{$delta}s, cURL time: {$totalTime}, url:{$url}, Data:$q4Dump, Response: ");
         }
 
         $this->mainLogger->rotate();
