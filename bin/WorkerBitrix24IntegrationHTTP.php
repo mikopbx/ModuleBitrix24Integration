@@ -143,7 +143,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
      */
     public function invokeRestCheckResponse($response,$tube, $partResponse): void
     {
-        $this->b24->mainLogger->writeInfo([$response, $partResponse],"start response to tube $tube");
+        $this->b24->mainLogger->writeInfo([$response, $partResponse],"Response to tube $tube");
         $resFile = ConnectorDb::saveResultInTmpFile($partResponse);
         $this->queueAgent->publish($resFile, $tube);
     }
@@ -615,7 +615,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_LINKS, [[$key => $partResponse]], false);
             } elseif (in_array($id,['init', 'update'], true)){
                 $this->b24->crmListEntResults($actionName, $id, $partResponse);
-            } elseif(!empty($tube)){
+            } elseif(stripos($tube, Bitrix24Integration::B24_INVOKE_REST_CHANNEL) !== false){
                 $this->invokeRestCheckResponse($key, $tube, $partResponse);
             } elseif ($actionName === Bitrix24Integration::API_ATTACH_RECORD) {
                 $uploadUrl = $partResponse["uploadUrl"] ?? '';

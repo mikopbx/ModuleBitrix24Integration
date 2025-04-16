@@ -34,7 +34,7 @@ class Bitrix24InvokeRest{
 
     public function invoke(string $action, array $args, int $timeout = 10):array
     {
-        $inbox_tube    = uniqid(Bitrix24Integration::B24_INVOKE_REST_CHANNEL, true);
+        $inbox_tube    = uniqid(Bitrix24Integration::B24_INVOKE_REST_CHANNEL.'.', true);
         $params = [
             'action'    => $action,
             'args'      => $args,
