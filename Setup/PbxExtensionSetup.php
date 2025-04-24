@@ -50,10 +50,6 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
             if (empty($settings->b24_region)) {
                 $settings->b24_region = 'RUSSIA';
             }
-            if(!ContactLinks::findFirst()){
-                $settings->lastCompanyId = 0;
-                $settings->lastContactId = 0;
-            }
             $result = $settings->save();
         }
 
