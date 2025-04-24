@@ -636,15 +636,16 @@ class ConnectorDb extends WorkerBase
     /**
      * Удаляем контакт по ID;
      * @param string $contactType
-     * @param array  $b24id
+     * @param $b24id
      * @return bool
      */
-    public function deletePhoneContact(string $contactType, array $b24id):bool
+    public function deletePhoneContact(string $contactType, $b24id, $phoneIds):bool
     {
         $filter = [
-            'conditions' => 'contactType = :contactType: AND b24id IN ({ids:array})',
+            'conditions' => 'contactType = :contactType: AND b24id = :id: AND phoneId NOT IN ({phoneId:array})',
             'bind' => [
-                'ids' => $b24id,
+                'id' => $b24id,
+                'phoneId' => $phoneIds,
                 'contactType' => $contactType,
             ],
         ];
@@ -653,28 +654,37 @@ class ConnectorDb extends WorkerBase
 
     /**
      * Добавление контакта в телефонную книгу.
-     * @param $data
-     * @return bool
+     * @param $b24id
+     * @param $contactType
+     * @param $contacts
+     * @return void
      */
-    public function addPhoneContact($data):bool
+    public function addPhoneContact($b24id, $contactType, $contacts):void
     {
+        $phoneIds = array_unique(array_column($contacts, 'phoneId'));
+        $this->deletePhoneContact($contactType, $b24id, $phoneIds);
+
         $filter = [
-            'conditions' => 'contactType = :contactType: AND b24id = :id:',
+            'conditions' => 'contactType = :contactType: AND b24id = :id: AND phoneId = :phoneId:',
             'bind' => [
-                'id' => $data['b24id'],
-                'contactType' => $data['contactType'],
+                'id' => $b24id,
+                'contactType' => $contactType,
+                'phoneId' => '',
             ],
         ];
-        $record = B24PhoneBook::findFirst($filter);
-        if(!$record){
-            $record = new B24PhoneBook();
-        }
-        foreach ($record as $key => $value) {
-            if (array_key_exists($key, $data)) {
-                $record->$key = $data[$key];
+        foreach ($contacts as $contact){
+            $filter['bind']['phoneId'] = $contact['phoneId'];
+            $record = B24PhoneBook::findFirst($filter);
+            if(!$record){
+                $record = new B24PhoneBook();
             }
+            foreach ($record as $key => $value) {
+                if (array_key_exists($key, $contact)) {
+                    $record->$key = $contact[$key];
+                }
+            }
+            $record->save();
         }
-        return $record->save();
     }
 
     /**
@@ -708,14 +718,13 @@ class ConnectorDb extends WorkerBase
             }else{
                 $name  = $entData['TITLE'];
             }
-            $contactType =  $contactTypes[$action]??'';
-            if(!isset($entData['PHONE'])){
-                continue;
-            }
-            foreach ($entData['PHONE']??[] as $phoneData){
+            $contactType = $contactTypes[$action]??'';
+            $phonesArray = $entData['PHONE']??[];
+
+            $contactsArray = [];
+            foreach ($phonesArray as $phoneData){
                 $phoneIndex = Bitrix24Integration::getPhoneIndex($phoneData['VALUE']);
                 if(empty($phoneIndex)){
-                    $this->deletePhoneContact($contactType, [$id]);
                     continue;
                 }
                 $pbRow = new \stdClass();
@@ -728,10 +737,12 @@ class ConnectorDb extends WorkerBase
                 $pbRow->phone        = $phoneData['VALUE'];
                 $pbRow->phoneId      = $phoneIndex;
                 $pbRow->contactType  = $contactType;
-                $this->addPhoneContact((array)$pbRow);
+                $contactsArray[]     = (array)$pbRow;
             }
+
+            $this->addPhoneContact($id, $contactType, $contactsArray);
         }
-        $filter = ['columns'=> array_values($idNames)];
+        $filter   = ['columns'=> array_values($idNames)];
         $settings = (object)$this->getGeneralSettings($filter);
         if(!$settings){
             return [];
