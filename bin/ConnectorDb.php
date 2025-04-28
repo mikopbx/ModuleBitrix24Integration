@@ -27,15 +27,16 @@ use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
 use Modules\ModuleBitrix24Integration\Lib\Logger;
 use Modules\ModuleBitrix24Integration\Lib\MikoPBXVersion;
 use Modules\ModuleBitrix24Integration\Models\B24PhoneBook;
+use Modules\ModuleBitrix24Integration\Models\ContactLinks;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24CDR;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24ExternalLines;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Users;
-use JsonException;
 
 class ConnectorDb extends WorkerBase
 {
     public const FUNC_GET_GENERAL_SETTINGS          = "getGeneralSettings";
+    public const FUNC_UPDATE_LINKS                  = "updateLinks";
     public const FUNC_UPDATE_GENERAL_SETTINGS       = "updateGeneralSettings";
     public const FUNC_DELETE_CONTACT_DATA           = "deletePhoneContact";
     public const FUNC_UPDATE_ENT_CONTACT            = "updateEntContact";
@@ -116,8 +117,7 @@ class ConnectorDb extends WorkerBase
         foreach ($usersB24 as $userB24){
             $this->b24Users[$userB24['ID']??''] = $userB24['UF_PHONE_INNER']??'';
         }
-        $this->logger->writeInfo('------');
-        $this->logger->writeInfo(json_encode($this->b24Users));
+        $this->logger->writeInfo($this->b24Users, 'b24Users');
     }
 
     /**
@@ -163,9 +163,8 @@ class ConnectorDb extends WorkerBase
             $funcName = $data['function']??'';
             if(method_exists($this, $funcName)){
                 $this->logger->rotate();
-                $this->logger->writeInfo(getmypid().": call function $funcName...");
                 $args = $this->getArgs($data);
-                $this->logger->writeInfo(json_encode($args));
+                $this->logger->writeInfo($args, "REQUEST $funcName ". getmypid());
                 if(count($args) === 0){
                     if(self::FUNC_UPDATE_ENT_CONTACT !== $funcName){
                         $res_data = $this->$funcName();
@@ -178,7 +177,7 @@ class ConnectorDb extends WorkerBase
         }
         if(isset($data['need-ret'])){
             $tube->reply($resDataFilename);
-            $this->logger->writeInfo(json_encode($res_data));
+            $this->logger->writeInfo($res_data, 'RESPONSE');
         }
         if( (time() - $this->clearTime) > 10){
             $findPath   = Util::which('find');
@@ -360,6 +359,18 @@ class ConnectorDb extends WorkerBase
     public function saveUsers($arrUsersPost):bool
     {
         $result = true;
+
+        // Чистим устаревшие данные.
+        $ids = array_column($arrUsersPost,'user_id');
+        $parameters   = [
+            'conditions' => 'user_id NOT IN ({ids:array})',
+            'bind'       => [
+                'ids' => $ids,
+            ],
+        ];
+        ModuleBitrix24Users::find($parameters)->delete();
+
+        // Обновляем существующие данные.
         foreach ($arrUsersPost as $rowData) {
             $userId         = $rowData['user_id'];
             $parameters   = [
@@ -519,8 +530,6 @@ class ConnectorDb extends WorkerBase
             ],
             'order' => 'dateCreate',
         ];
-
-        $this->logger->writeInfo(json_encode($filter));
         return B24PhoneBook::find($filter)->toArray();
     }
 
@@ -529,9 +538,10 @@ class ConnectorDb extends WorkerBase
      * С сортировкой и отбором по типу.
      * @param string $phone
      * @param array $types
+     * @param bool $contactWithLink
      * @return array
      */
-    public function getContactsByPhoneWithOrder(string $phone, array $types):array
+    public function getContactsByPhoneWithOrder(string $phone, array $types, bool $contactWithLink = false):array
     {
         if(!is_string($phone) || empty($phone)){
             return [];
@@ -555,8 +565,30 @@ class ConnectorDb extends WorkerBase
             $filter['conditions'] .= ' AND contactType IN ({types:array})';
             $filter['bind']['types'] = $types;
         }
-        $this->logger->writeInfo(json_encode($filter));
         $data = B24PhoneBook::find($filter)->toArray();
+
+        ///
+        // Получим идентификаторы контактов.
+        if($contactWithLink){
+            $filtered = array_filter($data, function ($item) {
+                return $item['contactType'] === 'CONTACT';
+            });
+            $filter = [
+                'columns' => 'contactId',
+                'conditions' => "contactId IN ({ids:array})",
+                'bind' => [
+                    'ids'   => array_map(function ($item) {return $item['b24id'];}, $filtered)
+                ]
+            ];
+            $links = ContactLinks::find($filter)->toArray();
+            $contactIds = array_column($links, 'contactId');
+            $filtered = array_filter($data, function ($item) use ($contactIds) {
+                return in_array($item['b24id'], $contactIds);
+            });
+            $data = $filtered;
+        }
+        ///
+        // Сортируем по типу контакта.
         if(!empty($typesFiltered)){
             $priorities = array_flip(array_unique($typesFiltered));
             usort($data, function ($a, $b) use ($priorities) {
@@ -604,15 +636,16 @@ class ConnectorDb extends WorkerBase
     /**
      * Удаляем контакт по ID;
      * @param string $contactType
-     * @param array  $b24id
+     * @param $b24id
      * @return bool
      */
-    public function deletePhoneContact(string $contactType, array $b24id):bool
+    public function deletePhoneContact(string $contactType, $b24id, $phoneIds):bool
     {
         $filter = [
-            'conditions' => 'contactType = :contactType: AND b24id IN ({ids:array})',
+            'conditions' => 'contactType = :contactType: AND b24id = :id: AND phoneId NOT IN ({phoneId:array})',
             'bind' => [
-                'ids' => $b24id,
+                'id' => $b24id,
+                'phoneId' => $phoneIds,
                 'contactType' => $contactType,
             ],
         ];
@@ -621,18 +654,37 @@ class ConnectorDb extends WorkerBase
 
     /**
      * Добавление контакта в телефонную книгу.
-     * @param $data
-     * @return bool
+     * @param $b24id
+     * @param $contactType
+     * @param $contacts
+     * @return void
      */
-    public function addPhoneContact($data):bool
+    public function addPhoneContact($b24id, $contactType, $contacts):void
     {
-        $record = new B24PhoneBook();
-        foreach ($record as $key => $value) {
-            if (array_key_exists($key, $data)) {
-                $record->$key = $data[$key];
+        $phoneIds = array_unique(array_column($contacts, 'phoneId'));
+        $this->deletePhoneContact($contactType, $b24id, $phoneIds);
+
+        $filter = [
+            'conditions' => 'contactType = :contactType: AND b24id = :id: AND phoneId = :phoneId:',
+            'bind' => [
+                'id' => $b24id,
+                'contactType' => $contactType,
+                'phoneId' => '',
+            ],
+        ];
+        foreach ($contacts as $contact){
+            $filter['bind']['phoneId'] = $contact['phoneId'];
+            $record = B24PhoneBook::findFirst($filter);
+            if(!$record){
+                $record = new B24PhoneBook();
             }
+            foreach ($record as $key => $value) {
+                if (array_key_exists($key, $contact)) {
+                    $record->$key = $contact[$key];
+                }
+            }
+            $record->save();
         }
-        return $record->save();
     }
 
     /**
@@ -666,9 +718,11 @@ class ConnectorDb extends WorkerBase
             }else{
                 $name  = $entData['TITLE'];
             }
-            $contactType =  $contactTypes[$action]??'';
-            $this->deletePhoneContact($contactType, [$id]);
-            foreach ($entData['PHONE']??[] as $phoneData){
+            $contactType = $contactTypes[$action]??'';
+            $phonesArray = $entData['PHONE']??[];
+
+            $contactsArray = [];
+            foreach ($phonesArray as $phoneData){
                 $phoneIndex = Bitrix24Integration::getPhoneIndex($phoneData['VALUE']);
                 if(empty($phoneIndex)){
                     continue;
@@ -683,10 +737,12 @@ class ConnectorDb extends WorkerBase
                 $pbRow->phone        = $phoneData['VALUE'];
                 $pbRow->phoneId      = $phoneIndex;
                 $pbRow->contactType  = $contactType;
-                $this->addPhoneContact((array)$pbRow);
+                $contactsArray[]     = (array)$pbRow;
             }
+
+            $this->addPhoneContact($id, $contactType, $contactsArray);
         }
-        $filter = ['columns'=> array_values($idNames)];
+        $filter   = ['columns'=> array_values($idNames)];
         $settings = (object)$this->getGeneralSettings($filter);
         if(!$settings){
             return [];
@@ -697,6 +753,76 @@ class ConnectorDb extends WorkerBase
             $this->updateGeneralSettings((array)$settings);
         }
         return $this->getGeneralSettings($filter);
+    }
+
+    public function updateLinks($data):array
+    {
+        $result = [];
+        foreach ($data as $key => $linkData){
+            [$method, $id] = explode('_', $key);
+            if($method === Bitrix24Integration::API_CRM_CONTACT_COMPANY){
+                $companyIDS = array_column($linkData, 'COMPANY_ID');
+                $filter = [
+                    'contactId=:contactId: AND companyId NOT IN ({ids:array})',
+                    'bind' => [
+                        'ids' => $companyIDS,
+                        'contactId' => $id
+                    ]
+                ];
+                $contacts = ContactLinks::find($filter);
+                foreach ($contacts as $contact){
+                    $contact->delete();
+                }
+                foreach ($companyIDS as $companyID){
+                    $filter = [
+                        'contactId=:contactId: AND companyId=:companyId:',
+                        'bind' => [
+                            'companyId' => $companyID,
+                            'contactId' => $id
+                        ]
+                    ];
+                    $link = ContactLinks::findFirst($filter);
+                    if(!$link){
+                        $link = new ContactLinks();
+                    }
+                    $link->contactId = $id;
+                    $link->companyId = $companyID;
+                    $link->save();
+                }
+
+            } elseif ($method === Bitrix24Integration::API_CRM_COMPANY_CONTACT){
+                $contactIDS = array_column($linkData, 'CONTACT_ID');
+                $filter = [
+                    'contactId NOT IN ({ids:array})  AND companyId = :companyId:',
+                    'bind' => [
+                        'ids' => $contactIDS,
+                        'companyId' => $id
+                    ]
+                ];
+                $links = ContactLinks::find($filter);
+                foreach ($links as $link){
+                    $link->delete();
+                }
+                foreach ($contactIDS as $contactID){
+                    $filter = [
+                        'contactId=:contactId: AND companyId=:companyId:',
+                        'bind' => [
+                            'companyId' => $id,
+                            'contactId' => $contactID
+                        ]
+                    ];
+                    $link = ContactLinks::findFirst($filter);
+                    if(!$link){
+                        $link = new ContactLinks();
+                    }
+                    $link->contactId = $contactID;
+                    $link->companyId = $id;
+                    $link->save();
+                }
+            }
+        }
+
+        return $result;
     }
 
     // B24 CDR
@@ -771,7 +897,8 @@ class ConnectorDb extends WorkerBase
                 break;
             }
         }
-        if(empty($result) && $options['GLOBAL_STATUS'] === 'NOANSWER'){
+        // if(empty($result) && $options['GLOBAL_STATUS'] === 'NOANSWER'){
+        if(empty($result) && !empty($rows)){
             // Пропущенный вызов.
             // Берем первую попавшуюся CDR.
             return [$rows[0], $rows[0]['call_id']];
@@ -789,7 +916,7 @@ class ConnectorDb extends WorkerBase
                 $result[0]['contact_user'] = $row['user_id'];
             }
             if(!empty($row['lead_id'])){
-                $result[0]['lead_id'] = max($row['lead_id'],$result[0]['lead_id']);
+                $result[0]['lead_id']   = max($row['lead_id'],$result[0]['lead_id']);
                 $result[0]['lead_user'] = $row['user_id'];
             }
         }

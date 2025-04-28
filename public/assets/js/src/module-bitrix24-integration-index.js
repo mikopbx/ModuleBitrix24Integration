@@ -107,6 +107,7 @@ const ModuleBitrix24Integration = {
 		$('#extensions-table').DataTable({
 			lengthChange: false,
 			paging: false,
+			info: false,
 			columns: [
 				{ orderable: false, searchable: false },
 				null,
@@ -189,14 +190,13 @@ const ModuleBitrix24Integration = {
 				{ data: 'alias' },
 				{ data: null },
 			],
-			paging: true,
+			paging: false,
 			// scrollY: $(window).height() - ModuleBitrix24Integration.$recordsTable.offset().top-200,
 			// stateSave: true,
 			sDom: 'rtip',
 			deferRender: true,
-			pageLength: 17,
 			bAutoWidth: false,
-
+			info: false,
 			// scrollCollapse: true,
 			// scroller: true,
 			/**
@@ -287,8 +287,8 @@ const ModuleBitrix24Integration = {
 			if (ModuleBitrix24Integration.$recordsTable.find('tbody > tr').length===0){
 				ModuleBitrix24Integration.$recordsTable.find('tbody').append('<tr class="odd"></tr>');
 			}
-			ModuleBitrix24Integration.$dirrtyField.val(Math.random());
-			ModuleBitrix24Integration.$dirrtyField.trigger('change');
+			Form.$formObj.form('set value', 'dirrty', Math.random());
+			Form.checkValues();
 		});
 
 		// Добавление новой строки
@@ -309,8 +309,8 @@ const ModuleBitrix24Integration = {
 			$(`tr#${id} input`).transition('glow');
 			$(`tr#${id} .external-name`).focus();
 			ModuleBitrix24Integration.initializeInputmask($(`tr#${id} .external-number`));
-			ModuleBitrix24Integration.$dirrtyField.val(Math.random());
-			ModuleBitrix24Integration.$dirrtyField.trigger('change');
+			Form.$formObj.form('set value', 'dirrty', Math.random());
+			Form.checkValues();
 		});
 
 		$('#open-cards-list option').each((index, obj) => {
@@ -448,6 +448,7 @@ const ModuleBitrix24Integration = {
 				user_id: uname.replace('user-',''),
 				open_card_mode: $(obj).find('td div.select-group').dropdown('get value'),
 				disabled: $(obj).find('td div.checkbox').checkbox('is unchecked'),
+				comment: $(obj).find('td').eq(3).text()
 			});
 		});
 		result.data.arrUsers = JSON.stringify(arrUsers);

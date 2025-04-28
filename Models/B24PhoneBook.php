@@ -15,8 +15,10 @@ use MikoPBX\Modules\Models\ModulesModelsBase;
  * @Indexes(
  *     [name='contactType', columns=['contactType'], type=''],
  *     [name='phoneId', columns=['phoneId'], type=''],
- *     [name='userid', columns=['userid'], type=''],
- *     [name='statusLeadId', columns=['statusLeadId'], type='']
+ *     [name='b24id', columns=['b24id'], type=''],
+ *     [name='userId', columns=['userId'], type=''],
+ *     [name='statusLeadId', columns=['statusLeadId'], type=''],
+ *     [name='itemId', columns=['itemId'], type='']
  * )
  */
 class B24PhoneBook extends ModulesModelsBase
@@ -63,6 +65,10 @@ class B24PhoneBook extends ModulesModelsBase
      * @Column(type="string", nullable=true)
      */
     public $contactType;
+    /**
+     * @Column(type="string", nullable=true)
+     */
+    public $itemId;
 
     public function initialize() :void{
         $this->setSource('m_B24PhoneBook');

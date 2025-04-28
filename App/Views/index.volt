@@ -1,5 +1,5 @@
 
-<form class="ui large grey segment form" id="module-bitrix24-integration-form">
+<form class="ui grey form" id="module-bitrix24-integration-form">
     <input type="hidden" name="dirrty" id="dirrty"/>
     <input type="hidden" name="modify" id="dirrty"/>
     <input type="hidden" name="isREST" id="isREST"/>
@@ -20,19 +20,15 @@
             {{ form.render('responsibleMissedCalls') }}
         </div>
         <div class="field">
-            <div class="ui segment">
-                <div class="ui toggle checkbox">
-                    {{ form.render('export_records') }}
-                    <label>{{ t._('mod_b24_i_ExportRecords') }}</label>
-                </div>
+            <div class="ui toggle checkbox">
+                {{ form.render('export_records') }}
+                <label>{{ t._('mod_b24_i_ExportRecords') }}</label>
             </div>
         </div>
         <div class="field">
-            <div class="ui segment">
-                <div class="ui toggle checkbox ">
-                    {{ form.render('backgroundUpload') }}
-                    <label>{{ t._('mod_b24_i_backgroundUpload') }}</label>
-                </div>
+            <div class="ui toggle checkbox ">
+                {{ form.render('backgroundUpload') }}
+                <label>{{ t._('mod_b24_i_backgroundUpload') }}</label>
             </div>
         </div>
     </div>
@@ -65,32 +61,26 @@
         </div>
 
         <div class="field">
-            <div class="ui segment">
-                <div class="ui toggle checkbox ">
-                    {{ form.render('export_cdr') }}
-                    <label>{{ t._('mod_b24_i_NotifyOnCall') }}</label>
-                </div>
+            <div class="ui toggle checkbox ">
+                {{ form.render('export_cdr') }}
+                <label>{{ t._('mod_b24_i_NotifyOnCall') }}</label>
             </div>
         </div>
         <div class="field">
-            <div class="ui segment">
-                <div class="ui toggle checkbox" id='create-lead'>
-                    {{ form.render('crmCreateLead') }}
-                    <label>{{ t._('mod_b24_i_CrmCreate') }}</label>
-                </div>
-                <div class="field" id='lead-type'>
-                    <br>
-                    <label>{{ t._('mod_b24_i_leadType') }}</label>
-                    {{ form.render('leadType') }}
-                </div>
+            <div class="ui toggle checkbox" id='create-lead'>
+                {{ form.render('crmCreateLead') }}
+                <label>{{ t._('mod_b24_i_CrmCreate') }}</label>
+            </div>
+            <div class="field" id='lead-type'>
+                <br>
+                <label>{{ t._('mod_b24_i_leadType') }}</label>
+                {{ form.render('leadType') }}
             </div>
         </div>
         <div class="field">
-            <div class="ui segment">
-                <div class="ui toggle checkbox">
-                    {{ form.render('use_interception') }}
-                    <label>{{ t._('mod_b24_i_useInterception') }}</label>
-                </div>
+            <div class="ui toggle checkbox">
+                {{ form.render('use_interception') }}
+                <label>{{ t._('mod_b24_i_useInterception') }}</label>
             </div>
         </div>
         <div class="field">

@@ -205,6 +205,8 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         }
         $this->updateExternalLines();
         $this->b24->updateSettings();
+        $this->logger->writeInfo($this->b24->usersSettingsB24, 'usersSettingsB24');
+
     }
 
     /**
@@ -270,7 +272,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         }
         $stringData = base64_decode($parameters['AgiData']);
         $data = json_decode($stringData, true);
-        $this->logger->writeInfo($data['action'].': '.$stringData);
+        $this->logger->writeInfo($stringData, $data['action']);
         switch ($data['action']) {
             case 'hangup_chan':
                 $this->actionHangupChan($data);
@@ -374,7 +376,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             && !isset($this->b24->usersSettingsB24[$dstUserShotNum])){
             // Вызов по этому звонку не следует грузить в b24, внутренний номер не участвует в интеграции.
             // Или тут нет внутреннего номера.
-            $this->logger->writeInfo("the internal number is not involved in the integration. $linkedId");
+            $this->logger->writeInfo("the internal number ($data[src_num] -> $data[dst_num], $dstUserShotNum) is not involved in the integration. $linkedId");
             return;
         }
         if(in_array($data['did'], $this->disabledDid, true)){
@@ -589,11 +591,11 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         if(!empty($responsible)
            && !$this->b24->getCache($finishKeyID)){
 
+            $LINE_NUMBER = $this->external_lines[$data['did']]??'';
             if(!$isOutgoing && strlen($data['src_num']) > $this->extensionLength
                 && !$this->b24->getCache('reg-cdr-'.$data['linkedid'])){
                 $this->logger->writeInfo("Send Register event... For incoming users only. If it is a missed one, then you need to register it first.".$linkedId);
                 $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_OUT && $this->crmCreateLead)?'1':'0';
-                $LINE_NUMBER = $this->external_lines[$data['did']]??'';
                 $req_data = [
                     'UNIQUEID'         => $data['UNIQUEID'],
                     'linkedid'         => $data['linkedid'],
@@ -621,6 +623,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 'disposition'    => $data['disposition'],
                 "export_records" => $this->export_records,
                 'linkedid'       => $data['linkedid'],
+                'LINE_NUMBER'    => $LINE_NUMBER,
                 'action'         => 'telephonyExternalCallFinish',
             ];
             $this->Action_SendToBeanstalk($params);

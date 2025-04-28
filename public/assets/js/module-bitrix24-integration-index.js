@@ -98,6 +98,7 @@ var ModuleBitrix24Integration = {
     $('#extensions-table').DataTable({
       lengthChange: false,
       paging: false,
+      info: false,
       columns: [{
         orderable: false,
         searchable: false
@@ -179,13 +180,13 @@ var ModuleBitrix24Integration = {
       }, {
         data: null
       }],
-      paging: true,
+      paging: false,
       // scrollY: $(window).height() - ModuleBitrix24Integration.$recordsTable.offset().top-200,
       // stateSave: true,
       sDom: 'rtip',
       deferRender: true,
-      pageLength: 17,
       bAutoWidth: false,
+      info: false,
       // scrollCollapse: true,
       // scroller: true,
 
@@ -251,8 +252,8 @@ var ModuleBitrix24Integration = {
         ModuleBitrix24Integration.$recordsTable.find('tbody').append('<tr class="odd"></tr>');
       }
 
-      ModuleBitrix24Integration.$dirrtyField.val(Math.random());
-      ModuleBitrix24Integration.$dirrtyField.trigger('change');
+      Form.$formObj.form('set value', 'dirrty', Math.random());
+      Form.checkValues();
     }); // Добавление новой строки
 
     ModuleBitrix24Integration.$addNewButton.on('click', function (e) {
@@ -264,8 +265,8 @@ var ModuleBitrix24Integration = {
       $("tr#".concat(id, " input")).transition('glow');
       $("tr#".concat(id, " .external-name")).focus();
       ModuleBitrix24Integration.initializeInputmask($("tr#".concat(id, " .external-number")));
-      ModuleBitrix24Integration.$dirrtyField.val(Math.random());
-      ModuleBitrix24Integration.$dirrtyField.trigger('change');
+      Form.$formObj.form('set value', 'dirrty', Math.random());
+      Form.checkValues();
     });
     $('#open-cards-list option').each(function (index, obj) {
       $(obj).html(globalTranslate["mod_b24_i_OPEN_CARD_" + $(obj).val()]);
@@ -405,7 +406,8 @@ var ModuleBitrix24Integration = {
         id: $(obj).attr('id'),
         user_id: uname.replace('user-', ''),
         open_card_mode: $(obj).find('td div.select-group').dropdown('get value'),
-        disabled: $(obj).find('td div.checkbox').checkbox('is unchecked')
+        disabled: $(obj).find('td div.checkbox').checkbox('is unchecked'),
+        comment: $(obj).find('td').eq(3).text()
       });
     });
     result.data.arrUsers = JSON.stringify(arrUsers);

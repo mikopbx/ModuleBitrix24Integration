@@ -17,17 +17,10 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-/**
- * Copyright © MIKO LLC - All Rights Reserved
- * Unauthorized copying of this file, via any medium is strictly prohibited
- * Proprietary and confidential
- * Written by Alexey Portnov, 4 2020
- */
-
-
 namespace Modules\ModuleBitrix24Integration\Setup;
 
 use MikoPBX\Common\Models\PbxSettings;
+use Modules\ModuleBitrix24Integration\Models\ContactLinks;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use MikoPBX\Modules\Setup\PbxExtensionSetupBase;
 
@@ -46,11 +39,9 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
     public function installDB(): bool
     {
         $result = parent::installDB();
-
         if ($result) {
             $this->transferOldSettings();
         }
-
         if ($result) {
             $settings = ModuleBitrix24Integration::findFirst();
             if ($settings === null) {
