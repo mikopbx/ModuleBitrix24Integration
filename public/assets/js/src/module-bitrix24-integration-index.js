@@ -107,6 +107,7 @@ const ModuleBitrix24Integration = {
 		$('#extensions-table').DataTable({
 			lengthChange: false,
 			paging: false,
+			info: false,
 			columns: [
 				{ orderable: false, searchable: false },
 				null,
@@ -194,9 +195,8 @@ const ModuleBitrix24Integration = {
 			// stateSave: true,
 			sDom: 'rtip',
 			deferRender: true,
-			pageLength: 17,
 			bAutoWidth: false,
-
+			info: false,
 			// scrollCollapse: true,
 			// scroller: true,
 			/**
@@ -287,8 +287,8 @@ const ModuleBitrix24Integration = {
 			if (ModuleBitrix24Integration.$recordsTable.find('tbody > tr').length===0){
 				ModuleBitrix24Integration.$recordsTable.find('tbody').append('<tr class="odd"></tr>');
 			}
-			ModuleBitrix24Integration.$dirrtyField.val(Math.random());
-			ModuleBitrix24Integration.$dirrtyField.trigger('change');
+			Form.$formObj.form('set value', 'dirrty', Math.random());
+			Form.checkValues();
 		});
 
 		// Добавление новой строки
@@ -309,8 +309,8 @@ const ModuleBitrix24Integration = {
 			$(`tr#${id} input`).transition('glow');
 			$(`tr#${id} .external-name`).focus();
 			ModuleBitrix24Integration.initializeInputmask($(`tr#${id} .external-number`));
-			ModuleBitrix24Integration.$dirrtyField.val(Math.random());
-			ModuleBitrix24Integration.$dirrtyField.trigger('change');
+			Form.$formObj.form('set value', 'dirrty', Math.random());
+			Form.checkValues();
 		});
 
 		$('#open-cards-list option').each((index, obj) => {
