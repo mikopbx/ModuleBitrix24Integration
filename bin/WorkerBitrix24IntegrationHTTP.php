@@ -500,7 +500,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                     unset($callData);
                 } elseif ('action_dial_answer' === $data['action']) {
                     $cdr = null;
-                    $userId = '';
+                    $userId = $this->tmpCallsData[$data['linkedid']]['ARG_REGISTER_USER_'.$data['UNIQUEID']]??'';
                     $dealId = '';
                     $leadId = '';
                     $filter = [
@@ -510,43 +510,20 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                     $b24CdrRows = ConnectorDb::invoke(ConnectorDb::FUNC_GET_CDR_BY_FILTER, [$filter]);
                     foreach ($b24CdrRows as $cdrData) {
                         $row = (object)$cdrData;
-                        if ($row->uniq_id === $data['UNIQUEID']) {
-                            $cdr = $row;
-                            if (!empty($cdr->dealId)) {
-                                $dealId = max($dealId, $cdr->dealId);
-                            }
-                            if (!empty($cdr->lead_id)) {
-                                $leadId = max($leadId, $cdr->lead_id);
-                            }
-                            // Определяем, кто ответил на вызов.
-                            $userId = $cdr->user_id;
-                            // Отмечаем вызов как отвеченный.
-                            $cdr->answer = 1;
-                            ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_FROM_ARRAY_CDR_BY_UID, [$row->uniq_id, (array)$cdr]);
+                        $cdr = $row;
+                        if (!empty($cdr->dealId)) {
+                            $dealId = max($dealId, $cdr->dealId);
                         }
-                        if ($row->answer !== 1) {
-                            if (!empty($row->dealId)) {
-                                $dealId = max($dealId, $row->dealId);
-                            }
-                            if (!empty($row->lead_id)) {
-                                $leadId = max($leadId, $row->lead_id);
-                            }
-                            if ($cdr && $row->user_id === $cdr->user_id) {
-                                continue;
-                            }
-                            // Для всех CDR, где вызов НЕ отвечен определяем сотрудника и закрываем карточку звонка.
-                            $data['CALL_ID'] = $row->call_id;
-                            $data['USER_ID'] = (int)$row->user_id;
-                            $tmpArr[] = $this->b24->telephonyExternalCallHide($data);
+                        if (!empty($cdr->lead_id)) {
+                            $leadId = max($leadId, $cdr->lead_id);
                         }
-                        if ($row->answer === 1) {
-                            // Меняем ответственного, на последнего, кто ответил.
-                            $userId = $row->user_id;
-
+                        // Отмечаем вызов как отвеченный.
+                        $cdr->answer = 1;
+                        ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_FROM_ARRAY_CDR_BY_UID, [$row->uniq_id, (array)$cdr]);
+                        if ($userId !== $row->user_id) {
                             // Открываем карточку клиента тому, кто ответил. (если разрешено).
                             $data['CALL_ID'] = $row->call_id;
-                            $data['USER_ID'] = (int)$row->user_id;
-
+                            $data['USER_ID'] = (int)$userId;
                             $tmpInnerNumArray = array_values($this->b24->inner_numbers);
                             // Поиск внутреннего номера пользователя b24.
                             $innerNumber      = $tmpInnerNumArray[array_search($userId, array_column($tmpInnerNumArray, 'ID'),true)]['UF_PHONE_INNER']??'';
@@ -556,7 +533,6 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                             }
                         }
                     }
-
                     if (!empty($leadId) && !empty($userId)) {
                         $tmpArr[] = $this->b24->crmLeadUpdate($leadId, $userId, $data['linkedid']);
                     }
@@ -564,10 +540,6 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                     if(($this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_TYPE']??'') === 'LEAD'
                        && !isset($this->tmpCallsData[$data['linkedid']]['crm-data']['ID'])){
                         $tmpArr[] = $this->b24->crmLeadUpdate($this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_ID'], $userId, $data['linkedid']);
-                    }
-
-                    if (!empty($dealId) && !empty($userId)) {
-                        $tmpArr[] = $this->b24->crmDealUpdate($dealId, $userId, $data['linkedid']);
                     }
                 } elseif ('telephonyExternalCallFinish' === $data['action']) {
                     $tmpArr[] = $this->b24->telephonyExternalCallFinish($data, $this->tmpCallsData);

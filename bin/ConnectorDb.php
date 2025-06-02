@@ -762,16 +762,18 @@ class ConnectorDb extends WorkerBase
             [$method, $id] = explode('_', $key);
             if($method === Bitrix24Integration::API_CRM_CONTACT_COMPANY){
                 $companyIDS = array_column($linkData, 'COMPANY_ID');
-                $filter = [
-                    'contactId=:contactId: AND companyId NOT IN ({ids:array})',
-                    'bind' => [
-                        'ids' => $companyIDS,
-                        'contactId' => $id
-                    ]
-                ];
-                $contacts = ContactLinks::find($filter);
-                foreach ($contacts as $contact){
-                    $contact->delete();
+                if(!empty($companyIDS)){
+                    $filter = [
+                        'contactId=:contactId: AND companyId NOT IN ({ids:array})',
+                        'bind' => [
+                            'ids' => $companyIDS,
+                            'contactId' => $id
+                        ]
+                    ];
+                    $contacts = ContactLinks::find($filter);
+                    foreach ($contacts as $contact){
+                        $contact->delete();
+                    }
                 }
                 foreach ($companyIDS as $companyID){
                     $filter = [
@@ -792,16 +794,18 @@ class ConnectorDb extends WorkerBase
 
             } elseif ($method === Bitrix24Integration::API_CRM_COMPANY_CONTACT){
                 $contactIDS = array_column($linkData, 'CONTACT_ID');
-                $filter = [
-                    'contactId NOT IN ({ids:array})  AND companyId = :companyId:',
-                    'bind' => [
-                        'ids' => $contactIDS,
-                        'companyId' => $id
-                    ]
-                ];
-                $links = ContactLinks::find($filter);
-                foreach ($links as $link){
-                    $link->delete();
+                if(!empty($companyIDS)) {
+                    $filter = [
+                        'contactId NOT IN ({ids:array})  AND companyId = :companyId:',
+                        'bind' => [
+                            'ids' => $contactIDS,
+                            'companyId' => $id
+                        ]
+                    ];
+                    $links = ContactLinks::find($filter);
+                    foreach ($links as $link){
+                        $link->delete();
+                    }
                 }
                 foreach ($contactIDS as $contactID){
                     $filter = [
