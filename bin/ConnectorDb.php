@@ -662,7 +662,9 @@ class ConnectorDb extends WorkerBase
     public function addPhoneContact($b24id, $contactType, $contacts):void
     {
         $phoneIds = array_unique(array_column($contacts, 'phoneId'));
-        $this->deletePhoneContact($contactType, $b24id, $phoneIds);
+        if(!empty($phoneIds)){
+            $this->deletePhoneContact($contactType, $b24id, $phoneIds);
+        }
 
         $filter = [
             'conditions' => 'contactType = :contactType: AND b24id = :id: AND phoneId = :phoneId:',
