@@ -9,5 +9,10 @@
   "wiki_links": {
     "ru": {"https://wiki.mikopbx.com/module-bitrix24-integration": "https://docs.mikopbx.com/mikopbx/modules/miko/module-bitrix24-integration"},
     "en": {"https://wiki.mikopbx.com/module-bitrix24-integration": "https://docs.mikopbx.com/mikopbx/v/english/modules/miko/module-bitrix24-integration"}
+  },
+  "release_settings": {
+    "publish_release": true,
+    "changelog_enabled": true,
+    "create_github_release": true
   }
 }
