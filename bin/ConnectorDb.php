@@ -636,19 +636,23 @@ class ConnectorDb extends WorkerBase
     /**
      * Удаляем контакт по ID;
      * @param string $contactType
-     * @param $b24id
+     * @param        $b24id
+     * @param        $phoneIds
      * @return bool
      */
     public function deletePhoneContact(string $contactType, $b24id, $phoneIds):bool
     {
         $filter = [
-            'conditions' => 'contactType = :contactType: AND b24id = :id: AND phoneId NOT IN ({phoneId:array})',
+            'conditions' => 'contactType = :contactType: AND b24id = :id:',
             'bind' => [
                 'id' => $b24id,
-                'phoneId' => $phoneIds,
                 'contactType' => $contactType,
             ],
         ];
+        if(is_array($phoneIds) && !empty($phoneIds)) {
+            $filter['conditions'] .= ' AND phoneId NOT IN ({phoneId:array})';
+            $filter['bind']['phoneId'] = $phoneIds;
+        }
         return B24PhoneBook::find($filter)->delete();
     }
 
@@ -662,9 +666,7 @@ class ConnectorDb extends WorkerBase
     public function addPhoneContact($b24id, $contactType, $contacts):void
     {
         $phoneIds = array_unique(array_column($contacts, 'phoneId'));
-        if(!empty($phoneIds)){
-            $this->deletePhoneContact($contactType, $b24id, $phoneIds);
-        }
+        $this->deletePhoneContact($contactType, $b24id, $phoneIds);
 
         $filter = [
             'conditions' => 'contactType = :contactType: AND b24id = :id: AND phoneId = :phoneId:',
