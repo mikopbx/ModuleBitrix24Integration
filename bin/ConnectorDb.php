@@ -32,6 +32,7 @@ use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24CDR;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24ExternalLines;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Users;
+use Throwable;
 
 class ConnectorDb extends WorkerBase
 {
@@ -637,10 +638,10 @@ class ConnectorDb extends WorkerBase
      * Удаляем контакт по ID;
      * @param string $contactType
      * @param        $b24id
-     * @param        $phoneIds
+     * @param array  $phoneIds
      * @return bool
      */
-    public function deletePhoneContact(string $contactType, $b24id, $phoneIds):bool
+    public function deletePhoneContact(string $contactType, $b24id, array $phoneIds = []):bool
     {
         $filter = [
             'conditions' => 'contactType = :contactType: AND b24id = :id:',
@@ -649,11 +650,26 @@ class ConnectorDb extends WorkerBase
                 'contactType' => $contactType,
             ],
         ];
+        /*
         if(is_array($phoneIds) && !empty($phoneIds)) {
             $filter['conditions'] .= ' AND phoneId NOT IN ({phoneId:array})';
             $filter['bind']['phoneId'] = $phoneIds;
+        }//*/
+        try {
+            $result = B24PhoneBook::find($filter)->delete();
+        }catch (Throwable $exception){
+            $errorDetails = [
+                'message' => $exception->getMessage(),
+                'code' => $exception->getCode(),
+                'file' => $exception->getFile(),
+                'line' => $exception->getLine(),
+                'trace' => $exception->getTraceAsString(),
+                'time' => date('Y-m-d H:i:s'),
+            ];
+            $this->logger->writeInfo(['filter' => $filter, 'error' => $errorDetails], 'Fail B24PhoneBook delete...');
+            $result = false;
         }
-        return B24PhoneBook::find($filter)->delete();
+        return $result;
     }
 
     /**
