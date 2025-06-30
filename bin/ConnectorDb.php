@@ -778,7 +778,7 @@ class ConnectorDb extends WorkerBase
         return $this->getGeneralSettings($filter);
     }
 
-    public function updateLinks($data):array
+    public function updateLinks($data = []):array
     {
         $result = [];
         foreach ($data as $key => $linkData){
