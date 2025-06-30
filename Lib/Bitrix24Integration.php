@@ -9,6 +9,7 @@
 namespace Modules\ModuleBitrix24Integration\Lib;
 
 use Modules\ModuleBitrix24Integration\bin\ConnectorDb;
+use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Users;
 use Phalcon\Mvc\Model\Manager;
 use MikoPBX\Common\Models\CallQueues;
 use MikoPBX\Common\Models\IncomingRoutingTable;
@@ -170,17 +171,22 @@ class Bitrix24Integration extends PbxExtensionBase
      */
     private function getUsersSettings(): array
     {
+        $this->mainLogger->rotate();
         // Мы не можем использовать JOIN в разных базах данных
         $parameters            = [
             'conditions' => 'disabled <> 1',
             'columns'    => ['user_id,open_card_mode'],
         ];
-        $bitrix24UsersTmp = ConnectorDb::invoke(ConnectorDb::FUNC_GET_USERS, [$parameters]);
+        ConnectorDb::invoke(ConnectorDb::FUNC_GET_USERS, [$parameters]);
+        $bitrix24UsersTmp = CacheManager::getCacheData(ModuleBitrix24Users::class);
+        $this->mainLogger->writeInfo($bitrix24UsersTmp, 'usersSettingsB24 from cache');
+
         $uSettings = [];
         foreach ($bitrix24UsersTmp as $uData){
             $uSettings[$uData['user_id']] = $uData;
         }
         if(empty($uSettings)){
+            $this->mainLogger->writeInfo($bitrix24UsersTmp, 'empty usersSettingsB24 getUsersSettings ret []');
             return [];
         }
         unset($bitrix24UsersTmp);
@@ -196,6 +202,7 @@ class Bitrix24Integration extends PbxExtensionBase
         foreach ($dbData as $row){
             $settings[$row['number']] = $uSettings[$row['userid']];
         }
+        $this->mainLogger->writeInfo($settings, 'Results usersSettingsB24');
         return $settings;
     }
 

@@ -24,6 +24,7 @@ use MikoPBX\Core\System\BeanstalkClient;
 use MikoPBX\Core\System\Util;
 use MikoPBX\Core\Workers\WorkerBase;
 use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
+use Modules\ModuleBitrix24Integration\Lib\CacheManager;
 use Modules\ModuleBitrix24Integration\Lib\Logger;
 use Modules\ModuleBitrix24Integration\Lib\MikoPBXVersion;
 use Modules\ModuleBitrix24Integration\Models\B24PhoneBook;
@@ -349,7 +350,9 @@ class ConnectorDb extends WorkerBase
      */
     public function getUsers(array $filter = []):array
     {
-        return ModuleBitrix24Users::find($filter)->toArray();
+        $result = ModuleBitrix24Users::find($filter)->toArray();
+        CacheManager::setCacheData(ModuleBitrix24Users::class, $result, 3600*12);
+        return $result;
     }
 
     /**
