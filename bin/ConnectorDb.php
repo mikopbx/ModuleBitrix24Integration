@@ -168,8 +168,13 @@ class ConnectorDb extends WorkerBase
                 $args = $this->getArgs($data);
                 $this->logger->writeInfo($args, "REQUEST $funcName ". getmypid());
                 if(count($args) === 0){
-                    if(self::FUNC_UPDATE_ENT_CONTACT !== $funcName){
-                        $res_data = $this->$funcName();
+                    if(!in_array($funcName,[self::FUNC_DELETE_CONTACT_DATA, self::FUNC_UPDATE_ENT_CONTACT, self::FUNC_GET_CDR_BY_FILTER])){
+                        try {
+                            $res_data = $this->$funcName();
+                        }catch (Throwable $e){
+                            $this->logger->writeError($data, 'Function exec error');
+                            $res_data = [];
+                        }
                     }
                 }else{
                     $res_data = $this->$funcName(...$args);

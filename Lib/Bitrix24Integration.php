@@ -1255,13 +1255,11 @@ class Bitrix24Integration extends PbxExtensionBase
         if(!empty($result)){
             [$CALL_DATA, $CALL_ID] = $result;
         }
+        $id = $options['linkedid'];
         if (empty($CALL_ID)) {
-            $this->mainLogger->writeInfo("ConnectorDb did not return a reply. CALL_ID is empty");
-            $this->mainLogger->writeInfo($options);
+            $this->mainLogger->writeInfo($options, "ConnectorDb did not return a reply. CALL_ID is empty ($id)");
             return [];
         }
-
-        $id = $options['linkedid'];
 
         ///////////////////////////////////////////////////////////////
         // Проверим, была ли уже отправлена запись разговора.
@@ -1281,7 +1279,7 @@ class Bitrix24Integration extends PbxExtensionBase
         //
         ///////////////////////////////////////////////////////////////
 
-        $userId = (intval($CALL_DATA['answer']) === 1) ? $CALL_DATA['user_id'] : '';
+        $userId = (intval($CALL_DATA['answer']??0) === 1) ? $CALL_DATA['user_id']??'' : '';
         $params = [
             'CALL_ID'       => $CALL_ID,
             'USER_ID'       => $userId,
