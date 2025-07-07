@@ -425,7 +425,11 @@ class Bitrix24Integration extends PbxExtensionBase
                         }
                     }
                 }
-                $this->mainLogger->writeInfo($result, 'RESPONSE');
+                if(empty($result)){
+                    $this->mainLogger->writeError($response, 'EMPTY RESPONSE[result][result]');
+                }else{
+                    $this->mainLogger->writeInfo($result, 'RESPONSE');
+                }
             }
         }
         $this->checkErrorInResponse($response, $status);
@@ -1445,16 +1449,19 @@ class Bitrix24Integration extends PbxExtensionBase
      * @param $action
      * @param $keyId
      * @param $data
-     * @param $waitSave
+     * @param bool $waitSave
      * @return void
      */
-    public function crmListEntResults($action, $keyId, $data, $waitSave = true):void
+    public function crmListEntResults($action, $keyId, $data, bool $waitSave = true):void
     {
         if(empty($data)){
             return;
         }
-
-        $settings = ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_ENT_CONTACT, [$action, $data], $waitSave);
+        $chunks = array_chunk($data, 10);
+        foreach ($chunks as $chunk) {
+            $settings = ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_ENT_CONTACT, [$action, $chunk], $waitSave);
+            usleep(100000);
+        }
         if($waitSave === false || $keyId === 'update' || empty($settings)){
             return;
         }

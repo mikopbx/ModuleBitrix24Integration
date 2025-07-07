@@ -75,6 +75,7 @@ class ConnectorDb extends WorkerBase
     {
         parent::signalHandler($signal);
         cli_set_process_title('SHUTDOWN_'.cli_get_process_title());
+        $this->logger->writeInfo('SHUTDOWN...');
     }
 
     /**
@@ -166,6 +167,8 @@ class ConnectorDb extends WorkerBase
             if(method_exists($this, $funcName)){
                 $this->logger->rotate();
                 $args = $this->getArgs($data);
+
+                $startTime = time();
                 $this->logger->writeInfo($args, "REQUEST $funcName ". getmypid());
                 if(count($args) === 0){
                     if(!in_array($funcName,[self::FUNC_DELETE_CONTACT_DATA, self::FUNC_UPDATE_ENT_CONTACT, self::FUNC_GET_CDR_BY_FILTER])){
@@ -180,6 +183,11 @@ class ConnectorDb extends WorkerBase
                     $res_data = $this->$funcName(...$args);
                 }
                 $resDataFilename = self::saveResultInTmpFile($res_data);
+
+                $duration = time() - $startTime;
+                if($duration>0) {
+                    $this->logger->writeInfo($duration, "REQUEST $funcName end time");
+                }
             }
         }
         if(isset($data['need-ret'])){
@@ -690,7 +698,12 @@ class ConnectorDb extends WorkerBase
     public function addPhoneContact($b24id, $contactType, $contacts):void
     {
         $phoneIds = array_unique(array_column($contacts, 'phoneId'));
+        $startTime = time();
         $this->deletePhoneContact($contactType, $b24id, $phoneIds);
+        $duration = time() - $startTime;
+        if($duration>0) {
+            $this->logger->writeInfo(time() - $startTime, "REQUEST deletePhoneContact time");
+        }
 
         $filter = [
             'conditions' => 'contactType = :contactType: AND b24id = :id: AND phoneId = :phoneId:',
@@ -711,7 +724,12 @@ class ConnectorDb extends WorkerBase
                     $record->$key = $contact[$key];
                 }
             }
-            $record->save();
+            $startTime = time();
+            $resultSave = $record->save()?1:0;
+            $duration = time() - $startTime;
+            if($duration>0){
+                $this->logger->writeInfo($duration, "REQUEST savePhoneContact time ($resultSave)");
+            }
         }
     }
 
@@ -767,7 +785,6 @@ class ConnectorDb extends WorkerBase
                 $pbRow->contactType  = $contactType;
                 $contactsArray[]     = (array)$pbRow;
             }
-
             $this->addPhoneContact($id, $contactType, $contactsArray);
         }
         $filter   = ['columns'=> array_values($idNames)];
