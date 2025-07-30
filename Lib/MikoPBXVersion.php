@@ -29,8 +29,7 @@ class MikoPBXVersion
      */
     public static function isPhalcon5Version(): bool
     {
-        $pbxVersion = PbxSettings::getValueByKey('PBXVersion');
-        return version_compare($pbxVersion, '2024.2.3', '>');
+        return class_exists('\Phalcon\Di\Di');
     }
 
     /**

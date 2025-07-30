@@ -66,4 +66,5 @@ return [
     'mod_b24_i_OPEN_CARD_NONE' => 'อย่าเปิด',
     'mod_b24_i_OPEN_CARD_DIRECTLY' => 'เปิดเมื่อมีการโทร',
     'mod_b24_i_OPEN_CARD_ANSWERED' => 'เปิดเมื่อตอบกลับ',
+    'mod_b24_i_region_KAZAKHSTAN' => 'คาซัคสถาน',
 ];

@@ -9,6 +9,7 @@
 namespace Modules\ModuleBitrix24Integration\Lib;
 
 use Modules\ModuleBitrix24Integration\bin\ConnectorDb;
+use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Users;
 use Phalcon\Mvc\Model\Manager;
 use MikoPBX\Common\Models\CallQueues;
 use MikoPBX\Common\Models\IncomingRoutingTable;
@@ -170,17 +171,22 @@ class Bitrix24Integration extends PbxExtensionBase
      */
     private function getUsersSettings(): array
     {
+        $this->mainLogger->rotate();
         // Мы не можем использовать JOIN в разных базах данных
         $parameters            = [
             'conditions' => 'disabled <> 1',
             'columns'    => ['user_id,open_card_mode'],
         ];
-        $bitrix24UsersTmp = ConnectorDb::invoke(ConnectorDb::FUNC_GET_USERS, [$parameters]);
+        ConnectorDb::invoke(ConnectorDb::FUNC_GET_USERS, [$parameters]);
+        $bitrix24UsersTmp = CacheManager::getCacheData(ModuleBitrix24Users::class);
+        $this->mainLogger->writeInfo($bitrix24UsersTmp, 'usersSettingsB24 from cache');
+
         $uSettings = [];
         foreach ($bitrix24UsersTmp as $uData){
             $uSettings[$uData['user_id']] = $uData;
         }
         if(empty($uSettings)){
+            $this->mainLogger->writeInfo($bitrix24UsersTmp, 'empty usersSettingsB24 getUsersSettings ret []');
             return [];
         }
         unset($bitrix24UsersTmp);
@@ -196,6 +202,7 @@ class Bitrix24Integration extends PbxExtensionBase
         foreach ($dbData as $row){
             $settings[$row['number']] = $uSettings[$row['userid']];
         }
+        $this->mainLogger->writeInfo($settings, 'Results usersSettingsB24');
         return $settings;
     }
 
@@ -418,7 +425,11 @@ class Bitrix24Integration extends PbxExtensionBase
                         }
                     }
                 }
-                $this->mainLogger->writeInfo($result, 'RESPONSE');
+                if(empty($result)){
+                    $this->mainLogger->writeError($response, 'EMPTY RESPONSE[result][result]');
+                }else{
+                    $this->mainLogger->writeInfo($result, 'RESPONSE');
+                }
             }
         }
         $this->checkErrorInResponse($response, $status);
@@ -1248,13 +1259,11 @@ class Bitrix24Integration extends PbxExtensionBase
         if(!empty($result)){
             [$CALL_DATA, $CALL_ID] = $result;
         }
+        $id = $options['linkedid'];
         if (empty($CALL_ID)) {
-            $this->mainLogger->writeInfo("ConnectorDb did not return a reply. CALL_ID is empty");
-            $this->mainLogger->writeInfo($options);
+            $this->mainLogger->writeInfo($options, "ConnectorDb did not return a reply. CALL_ID is empty ($id)");
             return [];
         }
-
-        $id = $options['linkedid'];
 
         ///////////////////////////////////////////////////////////////
         // Проверим, была ли уже отправлена запись разговора.
@@ -1274,7 +1283,7 @@ class Bitrix24Integration extends PbxExtensionBase
         //
         ///////////////////////////////////////////////////////////////
 
-        $userId = (intval($CALL_DATA['answer']) === 1) ? $CALL_DATA['user_id'] : '';
+        $userId = (intval($CALL_DATA['answer']??0) === 1) ? $CALL_DATA['user_id']??'' : '';
         $params = [
             'CALL_ID'       => $CALL_ID,
             'USER_ID'       => $userId,
@@ -1440,16 +1449,19 @@ class Bitrix24Integration extends PbxExtensionBase
      * @param $action
      * @param $keyId
      * @param $data
-     * @param $waitSave
+     * @param bool $waitSave
      * @return void
      */
-    public function crmListEntResults($action, $keyId, $data, $waitSave = true):void
+    public function crmListEntResults($action, $keyId, $data, bool $waitSave = true):void
     {
         if(empty($data)){
             return;
         }
-
-        $settings = ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_ENT_CONTACT, [$action, $data], $waitSave);
+        $chunks = array_chunk($data, 10);
+        foreach ($chunks as $chunk) {
+            $settings = ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_ENT_CONTACT, [$action, $chunk], $waitSave);
+            usleep(100000);
+        }
         if($waitSave === false || $keyId === 'update' || empty($settings)){
             return;
         }

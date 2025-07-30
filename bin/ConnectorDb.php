@@ -24,6 +24,7 @@ use MikoPBX\Core\System\BeanstalkClient;
 use MikoPBX\Core\System\Util;
 use MikoPBX\Core\Workers\WorkerBase;
 use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
+use Modules\ModuleBitrix24Integration\Lib\CacheManager;
 use Modules\ModuleBitrix24Integration\Lib\Logger;
 use Modules\ModuleBitrix24Integration\Lib\MikoPBXVersion;
 use Modules\ModuleBitrix24Integration\Models\B24PhoneBook;
@@ -32,6 +33,7 @@ use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24CDR;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24ExternalLines;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Users;
+use Throwable;
 
 class ConnectorDb extends WorkerBase
 {
@@ -73,6 +75,7 @@ class ConnectorDb extends WorkerBase
     {
         parent::signalHandler($signal);
         cli_set_process_title('SHUTDOWN_'.cli_get_process_title());
+        $this->logger->writeInfo('SHUTDOWN...');
     }
 
     /**
@@ -164,15 +167,27 @@ class ConnectorDb extends WorkerBase
             if(method_exists($this, $funcName)){
                 $this->logger->rotate();
                 $args = $this->getArgs($data);
+
+                $startTime = time();
                 $this->logger->writeInfo($args, "REQUEST $funcName ". getmypid());
                 if(count($args) === 0){
-                    if(self::FUNC_UPDATE_ENT_CONTACT !== $funcName){
-                        $res_data = $this->$funcName();
+                    if(!in_array($funcName,[self::FUNC_DELETE_CONTACT_DATA, self::FUNC_UPDATE_ENT_CONTACT, self::FUNC_GET_CDR_BY_FILTER])){
+                        try {
+                            $res_data = $this->$funcName();
+                        }catch (Throwable $e){
+                            $this->logger->writeError($data, 'Function exec error');
+                            $res_data = [];
+                        }
                     }
                 }else{
                     $res_data = $this->$funcName(...$args);
                 }
                 $resDataFilename = self::saveResultInTmpFile($res_data);
+
+                $duration = time() - $startTime;
+                if($duration>0) {
+                    $this->logger->writeInfo($duration, "REQUEST $funcName end time");
+                }
             }
         }
         if(isset($data['need-ret'])){
@@ -348,7 +363,9 @@ class ConnectorDb extends WorkerBase
      */
     public function getUsers(array $filter = []):array
     {
-        return ModuleBitrix24Users::find($filter)->toArray();
+        $result = ModuleBitrix24Users::find($filter)->toArray();
+        CacheManager::setCacheData(ModuleBitrix24Users::class, $result, 3600*12);
+        return $result;
     }
 
     /**
@@ -636,20 +653,39 @@ class ConnectorDb extends WorkerBase
     /**
      * Удаляем контакт по ID;
      * @param string $contactType
-     * @param $b24id
+     * @param        $b24id
+     * @param array  $phoneIds
      * @return bool
      */
-    public function deletePhoneContact(string $contactType, $b24id, $phoneIds):bool
+    public function deletePhoneContact(string $contactType, $b24id, array $phoneIds = []):bool
     {
         $filter = [
-            'conditions' => 'contactType = :contactType: AND b24id = :id: AND phoneId NOT IN ({phoneId:array})',
+            'conditions' => 'contactType = :contactType: AND b24id = :id:',
             'bind' => [
                 'id' => $b24id,
-                'phoneId' => $phoneIds,
                 'contactType' => $contactType,
             ],
         ];
-        return B24PhoneBook::find($filter)->delete();
+        /*
+        if(is_array($phoneIds) && !empty($phoneIds)) {
+            $filter['conditions'] .= ' AND phoneId NOT IN ({phoneId:array})';
+            $filter['bind']['phoneId'] = $phoneIds;
+        }//*/
+        try {
+            $result = B24PhoneBook::find($filter)->delete();
+        }catch (Throwable $exception){
+            $errorDetails = [
+                'message' => $exception->getMessage(),
+                'code' => $exception->getCode(),
+                'file' => $exception->getFile(),
+                'line' => $exception->getLine(),
+                'trace' => $exception->getTraceAsString(),
+                'time' => date('Y-m-d H:i:s'),
+            ];
+            $this->logger->writeInfo(['filter' => $filter, 'error' => $errorDetails], 'Fail B24PhoneBook delete...');
+            $result = false;
+        }
+        return $result;
     }
 
     /**
@@ -662,8 +698,11 @@ class ConnectorDb extends WorkerBase
     public function addPhoneContact($b24id, $contactType, $contacts):void
     {
         $phoneIds = array_unique(array_column($contacts, 'phoneId'));
-        if(!empty($phoneIds)){
-            $this->deletePhoneContact($contactType, $b24id, $phoneIds);
+        $startTime = time();
+        $this->deletePhoneContact($contactType, $b24id, $phoneIds);
+        $duration = time() - $startTime;
+        if($duration>0) {
+            $this->logger->writeInfo(time() - $startTime, "REQUEST deletePhoneContact time");
         }
 
         $filter = [
@@ -685,7 +724,12 @@ class ConnectorDb extends WorkerBase
                     $record->$key = $contact[$key];
                 }
             }
-            $record->save();
+            $startTime = time();
+            $resultSave = $record->save()?1:0;
+            $duration = time() - $startTime;
+            if($duration>0){
+                $this->logger->writeInfo($duration, "REQUEST savePhoneContact time ($resultSave)");
+            }
         }
     }
 
@@ -741,7 +785,6 @@ class ConnectorDb extends WorkerBase
                 $pbRow->contactType  = $contactType;
                 $contactsArray[]     = (array)$pbRow;
             }
-
             $this->addPhoneContact($id, $contactType, $contactsArray);
         }
         $filter   = ['columns'=> array_values($idNames)];
@@ -757,7 +800,7 @@ class ConnectorDb extends WorkerBase
         return $this->getGeneralSettings($filter);
     }
 
-    public function updateLinks($data):array
+    public function updateLinks($data = []):array
     {
         $result = [];
         foreach ($data as $key => $linkData){

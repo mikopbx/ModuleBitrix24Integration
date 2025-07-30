@@ -9,6 +9,7 @@
 namespace Modules\ModuleBitrix24Integration\Models;
 
 use MikoPBX\Modules\Models\ModulesModelsBase;
+
 /**
  * Class ModuleAmoLeads
  * @package Modules\ModuleBitrix24Integration\Models
