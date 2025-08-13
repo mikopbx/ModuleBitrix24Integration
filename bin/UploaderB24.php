@@ -117,7 +117,7 @@ class UploaderB24 extends WorkerBase
             return;
         }
         if(!isset($result['result']["FILE_ID"])){
-            $this->logger->writeError('Fail upload file. Req: ' . $rawResult);
+            $this->logger->writeError('Fail upload file. Req: ' . json_encode($result));
         }
         usleep(300000);
     }
