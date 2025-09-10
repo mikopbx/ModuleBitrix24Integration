@@ -35,6 +35,7 @@ class Logger
     private $logger;
     private string $module_name;
     private string $logFile;
+    private int $lastRotateCheckTs = 0;
 
     /**
      * Logger constructor.
@@ -82,12 +83,19 @@ class Logger
 
     public function rotate(): void
     {
+        // Throttle rotation checks to reduce overhead in tight loops (fixed interval).
+        $rotateInterval = 30;
+        $now = time();
+        if ($this->lastRotateCheckTs !== 0 && ($now - $this->lastRotateCheckTs) < $rotateInterval) {
+            return;
+        }
+        $this->lastRotateCheckTs = $now;
         $rotation = new Rotation([
-            'files' => 9,
+            'files'    => 9,
             'compress' => false,
             'min-size' => 10 * 1024 * 1024,
             'truncate' => false,
-            'catch' => function (RotationFailed $exception) {
+            'catch'    => function (RotationFailed $exception) {
                 SystemMessages::sysLogMsg($this->module_name, $exception->getMessage());
             },
         ]);
@@ -98,9 +106,10 @@ class Logger
 
     public function writeError($data, string $header = ''): void
     {
+        $this->rotate();
         if ($this->debug) {
             if(!empty($header)){
-                $header.= "$header: ";
+                $header.= ": ";
             }
             $this->logger->error($header . $this->getDecodedString($data));
         }
@@ -108,6 +117,7 @@ class Logger
 
     public function writeInfo($data, string $header = ''): void
     {
+        $this->rotate();
         if ($this->debug) {
             if(!empty($header)){
                 $header.= ": ";
