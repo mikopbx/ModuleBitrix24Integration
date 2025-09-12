@@ -72,6 +72,7 @@ const ModuleBitrix24Integration = {
 		let data = e.originalEvent.data;
 		if(typeof data !== 'string' && data.code !== undefined){
 			data.region = ModuleBitrix24Integration.$elRegion.val();
+			data.portal = $('#portal').val();
 			$.post(`${globalRootUrl}module-bitrix24-integration/activateCode`, data, function( result ) {
 				console.log(result);
 			});
@@ -359,10 +360,13 @@ const ModuleBitrix24Integration = {
 			$('[data-tab = "general"] .disability').removeClass('disabled');
 			$('[data-tab = "users"]').removeClass('disabled');
 			$('[data-tab = "external_lines"]').removeClass('disabled');
+			$('.disability').removeClass('disabled');
+
 			ModuleBitrix24Integration.$moduleStatus.show();
 			ModuleBitrix24IntegrationStatusWorker.initialize();
 		} else {
 			ModuleBitrix24Integration.$moduleStatus.hide();
+			$('.disability').addClass('disabled');
 			$('[data-tab = "general"] .disability').addClass('disabled');
 			$('[data-tab = "users"]').addClass('disabled');
 			$('[data-tab = "external_lines"]').addClass('disabled');
@@ -425,7 +429,7 @@ const ModuleBitrix24Integration = {
 		result.data = ModuleBitrix24Integration.$formObj.form('get values');
 
 		const arrExternalLines = [];
-		$('#external-line-table tr').each((index, obj) => {
+		$('#external-line-table tr[id]').each((index, obj) => {
 			arrExternalLines.push({
 				disabled: $(obj).find('div.checkbox').checkbox('is checked') === false,
 				id: $(obj).attr('id'),

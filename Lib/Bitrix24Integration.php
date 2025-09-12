@@ -109,7 +109,10 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->initialized      = true;
 
         $this->requestLogger =  new Logger('requests', $this->moduleUniqueId);
-        $this->updateSettings($data);
+        if('_www' !== $logPrefix){
+            // Это работа web интерфейса. Обновление настроек не требуется.
+            $this->updateSettings($data);
+        }
         unset($data);
     }
 
@@ -300,6 +303,11 @@ class Bitrix24Integration extends PbxExtensionBase
         if (isset($query_data["access_token"])) {
             $result = true;
             $this->updateSessionData($query_data);
+            if($grantType == 'authorization_code'){
+                $ir = new Bitrix24InvokeRest();
+                $ir->invoke('needRestart', []);
+            }
+
             $this->mainLogger->writeInfo('The token has been successfully updated');
         }else{
             $this->mainLogger->writeError('Refresh token: response: '.json_encode($query_data).', params:'.json_encode($params));

@@ -9,6 +9,7 @@
 namespace Modules\ModuleBitrix24Integration\Lib;
 
 use MikoPBX\Common\Models\Extensions;
+use MikoPBX\Core\System\Configs\CronConf;
 use MikoPBX\Core\System\PBX;
 use MikoPBX\Core\System\Util;
 use MikoPBX\Modules\Config\ConfigClass;
@@ -96,6 +97,8 @@ class Bitrix24IntegrationConf extends ConfigClass
      */
     public function onAfterModuleEnable(): void
     {
+        $cron = new CronConf();
+        $cron->reStart();
         PBX::dialplanReload();
     }
 
@@ -183,5 +186,8 @@ class Bitrix24IntegrationConf extends ConfigClass
         $tmpDir = $this->di->getShared('config')->path('core.tempDir') . '/ModuleBitrix24Integration';
         $findPath   = Util::which('find');
         $tasks[]    = "*/5 * * * * $findPath $tmpDir -mmin +1 -type f -delete> /dev/null 2>&1".PHP_EOL;
+
+        $phpPath   = Util::which('php');
+        $tasks[]    = "*/1 * * * * $phpPath -f {$this->moduleDir}/bin/safe.php > /dev/null 2>&1".PHP_EOL;
     }
 }

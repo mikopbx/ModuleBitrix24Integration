@@ -33,11 +33,11 @@
         </div>
     </div>
     <div class="ui bottom attached tab segment active" data-tab="general">
-        <div class="ten wide field disability">
+        <div class="ten wide field">
             <label >{{ t._('mod_b24_i_PortalUrl') }}</label>
-            <div class="disability ui fluid action input">
+            <div class="ui fluid action input">
                 {{ form.render('portal') }}
-                <button class="ui positive basic button" id="login-button">{{ t._("mod_b24_i_Auth") }}</button>
+                <button class="ui positive basic button disability" id="login-button">{{ t._("mod_b24_i_Auth") }}</button>
             </div>
         </div>
         <div class="field">
@@ -90,12 +90,12 @@
     </div>
     <div class="ui bottom attached tab segment" data-tab="users">
         <div class="ui basic buttons">
-            <button class="ui small check button">{{ t._('mod_b24_i_EnableAll') }}</button>
-            <button class="ui small uncheck button">{{ t._('mod_b24_i_DisableAll') }}</button>
+            <button class="ui small check button disability">{{ t._('mod_b24_i_EnableAll') }}</button>
+            <button class="ui small uncheck button disability">{{ t._('mod_b24_i_DisableAll') }}</button>
         </div>
         {% for extension in extensions %}
             {% if loop.first %}
-                <table class="ui selectable compact table" id="extensions-table" data-page-length='12'>
+                <table class="ui selectable compact table disability" id="extensions-table" data-page-length='12'>
                 <thead>
                 <tr>
                     <th></th>
@@ -110,12 +110,12 @@
 
             <tr class="extension-row" id="{{ extension['id'] }}">
                 <td class="collapsing">
-                <div class="ui fitted toggle checkbox">
-                <input type="checkbox" {% if extension['status']!='disabled' %} checked {% endif %} name="user-{{ extension['userid'] }}" data-value="{{ extension['id'] }}"> <label></label>
+                <div class="ui fitted toggle checkbox disability">
+                    <input type="checkbox" {% if extension['status']!='disabled' %} checked {% endif %} name="user-{{ extension['userid'] }}" data-value="{{ extension['id'] }}"> <label></label>
                 </div>
                 </td>
                 <td class="center aligned">
-                    <div class="ui dropdown select-group" data-value="{{ extension['open_card_mode'] }}">
+                    <div class="ui dropdown select-group disability" data-value="{{ extension['open_card_mode'] }}">
                         <div class="text">{{ extension['open_card_mode'] }}</div>
                         <i class="dropdown icon"></i>
                     </div>
@@ -146,7 +146,7 @@
         {% endfor %}
     </div>
     <div class="ui bottom attached tab segment" data-tab="external_lines">
-        {{ link_to("#", '<i class="add phone square icon"></i>  '~t._('mod_b24_i_AddNewRecord'), "class": "ui blue button", "id":"add-new-external-line-button") }}
+        {{ link_to("#", '<i class="add phone square icon"></i>  '~t._('mod_b24_i_AddNewRecord'), "class": "ui blue button disability", "id":"add-new-external-line-button") }}
         <div class="ui hidden divider"></div>
         <table id="external-line-table" class="ui compact table" data-page-length='17'>
             <thead>
@@ -155,7 +155,7 @@
                 <th class="eight wide">{{ t._('mod_b24_i_ColumnName') }}</th>
                 <th class="four wide">{{ t._('mod_b24_i_ColumnNumber') }}</th>
                 <th class="four wide">{{ t._('mod_b24_i_ColumnDidAlias') }}</th>
-                <th class="collapsing"></th>
+                <th class="collapsing disability"></th>
             </tr>
             </thead>
             <tbody>

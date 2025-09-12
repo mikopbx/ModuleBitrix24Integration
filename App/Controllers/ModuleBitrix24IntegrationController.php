@@ -110,8 +110,8 @@ class ModuleBitrix24IntegrationController extends BaseController
         ];
 
         $usersB24 = [];
-        $moduleEnable = PbxExtensionUtils::isEnabled('ModuleBitrix24Integration');
-        $filter24Users       = [ 'columns' => [ 'user_id', 'disabled', 'open_card_mode'] ];
+        $moduleEnable  = PbxExtensionUtils::isEnabled('ModuleBitrix24Integration');
+        $filter24Users = [ 'columns' => [ 'user_id', 'disabled', 'open_card_mode'] ];
         if($moduleEnable){
             // Получим список пользователей для отображения в фильтре
             $settings       = ConnectorDb::invokePriority(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
@@ -212,6 +212,15 @@ class ModuleBitrix24IntegrationController extends BaseController
             return;
         }
         $data   = $this->request->getPost();
+
+        $portal = $data['portal']??'';
+        $settings = [];
+        $settings['b24_region'] = $data['region']??'';
+        if(!empty($portal)){
+            $settings['portal'] = $data['portal']??'';
+        }
+        ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_GENERAL_SETTINGS, [$settings], true, 10);
+
         $b24 = new Bitrix24Integration('_www');
         $this->view->result = $b24->authByCode($data['code'], $data['region']);
         CacheManager::setCacheData('module_scope', []);
@@ -308,24 +317,22 @@ class ModuleBitrix24IntegrationController extends BaseController
             }
         }
         if ($moduleEnable){
-            $resultSave = ConnectorDb::invokePriority(ConnectorDb::FUNC_UPDATE_GENERAL_SETTINGS, [(array)$record], true, 10);
+            ConnectorDb::invokePriority(ConnectorDb::FUNC_UPDATE_GENERAL_SETTINGS, [(array)$record], true, 10);
         }else{
-            $resultSave = $record->save();
-        }
-        if ($resultSave === false) {
-            $this->view->success = false;
+            $this->view->success = $record->save();
             return;
         }
         $arrUsersPost = json_decode($data['arrUsers'],true);
         $resultSaveUsers = ConnectorDb::invokePriority(ConnectorDb::FUNC_SAVE_USERS, [$arrUsersPost]);
         if ($resultSaveUsers === false) {
+            $this->view->error = 'Fail save users...';
             $this->view->success = false;
             return;
         }
-
         $externalLinesPost = json_decode($data['externalLines'],true);
         $resultSaveLines   = ConnectorDb::invokePriority(ConnectorDb::FUNC_SAVE_EXTERNAL_LINES, [$externalLinesPost]);
         if(!$resultSaveLines){
+            $this->view->error = 'Fail save externalLines...';
             $this->view->success = false;
             return;
         }
