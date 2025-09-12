@@ -102,6 +102,36 @@ const ModuleBitrix24IntegrationStatusWorker = {
 				}
 			},
 		});
+
+		$.ajax({
+			url: window.location.origin + '/pbxcore/api/bitrix-integration/workers/state',
+			method: 'GET',
+			dataType: 'json',
+			success: function(response) {
+				const $container = $('#status-workers');
+				$container.empty();
+				const $label = $('<div class="ui small basic label" style="font-weight: bold; padding: 0.6em 1em;">'+globalTranslate.mod_b24_i_ServiceStateTitle+'</div>');
+				$container.append($label);
+				if (response.result === true && Array.isArray(response.data)) {
+					// Для каждого сервиса создаём label
+					response.data.forEach(service => {
+						const colorClass = service.state === 'OK' ? 'green' : 'red';
+						const $label = $(`<div class="ui ${colorClass} label">${service.label}</div>`);
+						$container.append($label);
+					});
+				} else {
+					// Если result: false или data не массив
+					const $label = $('<div class="ui red label">'+globalTranslate.mod_b24_i_GetServiceStateError+'</div>');
+					$container.append($label);
+				}
+			},
+			error: function() {
+				const $container = $('#status-workers');
+				$container.empty();
+				const $label = $('<div class="ui red label">'+globalTranslate.mod_b24_i_GetServiceStateError+'</div>');
+				$container.append($label);
+			}
+		});
 	},
 	/**
 	 * Updates module status on the right corner label
@@ -118,7 +148,7 @@ const ModuleBitrix24IntegrationStatusWorker = {
 			case 'Connected':
 				ModuleBitrix24IntegrationStatusWorker.$moduleStatus
 					.addClass('green')
-					.html(globalTranslate.mod_b24_i_Connected);
+					.html(globalTranslate.mod_b24_i_Connected_v2);
 				break;
 			case 'Disconnected':
 				ModuleBitrix24IntegrationStatusWorker.$moduleStatus

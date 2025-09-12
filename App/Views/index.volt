@@ -3,6 +3,9 @@
     <input type="hidden" name="dirrty" id="dirrty"/>
     <input type="hidden" name="modify" id="dirrty"/>
     <input type="hidden" name="isREST" id="isREST"/>
+    <div id="status-workers" class="ui small horizontal label-group">
+      <div id="status-db" class="ui label">API OK</div>
+    </div>
     <div class="ui grey top right attached label" id="status"><i class="spinner loading icon"></i>{{ t._("mod_b24_i_UpdateStatus") }}</div>
     <div class="ui top attached tabular menu" id="extensions-menu">
         <a class="item active" data-tab="general">{{ t._('mod_b24_i_GeneralSettings') }}</a>

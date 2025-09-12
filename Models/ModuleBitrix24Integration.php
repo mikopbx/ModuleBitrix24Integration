@@ -43,33 +43,33 @@ class ModuleBitrix24Integration extends ModulesModelsBase
     /**
      * Выгружать данные позвонка в b24 в реальном времени. Будет открываться карточка клиента
      *
-     * @Column(type="integer", nullable=true)
+     * @Column(type="integer", nullable=true, default="1")
      */
-    public $export_cdr;
+    public $export_cdr = "1";
 
     /**
      *
-     * @Column(type="integer", nullable=true)
+     * @Column(type="integer", nullable=true, default="1")
      */
-    public $export_records;
+    public $export_records = "1";
 
     /**
      *
-     * @Column(type="integer", nullable=true)
+     * @Column(type="integer", nullable=true, default="1")
      */
-    public $backgroundUpload;
+    public $backgroundUpload = "1";
 
     /**
      *
-     * @Column(type="integer", nullable=true)
+     * @Column(type="integer", nullable=true, default="0")
      */
-    public $use_interception;
+    public $use_interception = "0";
 
     /**
      *
-     * @Column(type="integer", nullable=true)
+     * @Column(type="integer", nullable=true, default="20")
      */
-    public $interception_call_duration;
+    public $interception_call_duration = "20";
 
     /**
      *

@@ -160,12 +160,16 @@ class ModuleBitrix24IntegrationController extends BaseController
                             $extensionTable[$extension->userid]['avatar'] = "{$this->url->get()}assets/img/cache/{$filename}.jpg";
                         }
                     }
+                    $openCardMode = Bitrix24Integration::OPEN_CARD_DIRECTLY;
                     $key = array_search($extension->userid, $bitrix24UsersIds, true);
                     if ($key !== false) {
                         $extensionTable[$extension->userid]['status'] = (intval($bitrix24Users[$key]['disabled']) === 1) ? 'disabled' : '';
-                        $extensionTable[$extension->userid]['open_card_mode'] = empty($bitrix24Users[$key]['open_card_mode']) ? Bitrix24Integration::OPEN_CARD_DIRECTLY : $bitrix24Users[$key]['open_card_mode'];
+                        $tmpOpenCardMode = $bitrix24Users[$key]['open_card_mode']??'';
+                        if(!empty($tmpOpenCardMode)){
+                            $openCardMode =  $tmpOpenCardMode;
+                        }
                     }
-
+                    $extensionTable[$extension->userid]['open_card_mode'] = $openCardMode;
                     break;
                 case 'EXTERNAL':
                     $extensionTable[$extension->userid]['mobile'] = $extension->number;

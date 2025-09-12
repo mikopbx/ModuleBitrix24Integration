@@ -127,6 +127,8 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $arg = [];
         if($action === 'scope'){
             $arg = $this->b24->getScopeAsync($data['inbox_tube']??'');
+        }elseif($action === 'needRestart'){
+            $this->needRestart = true;
         }
         if(!empty($arg)){
             $this->b24->logger->writeInfo("Add action $action in queue...");

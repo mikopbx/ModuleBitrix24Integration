@@ -11,6 +11,7 @@ namespace Modules\ModuleBitrix24Integration\Lib;
 use MikoPBX\Common\Models\Extensions;
 use MikoPBX\Core\System\Configs\CronConf;
 use MikoPBX\Core\System\PBX;
+use MikoPBX\Core\System\Processes;
 use MikoPBX\Core\System\Util;
 use MikoPBX\Modules\Config\ConfigClass;
 use MikoPBX\Core\Workers\Cron\WorkerSafeScriptsCore;
@@ -19,12 +20,30 @@ use Modules\ModuleBitrix24Integration\bin\ConnectorDb;
 use Modules\ModuleBitrix24Integration\bin\UploaderB24;
 use Modules\ModuleBitrix24Integration\bin\WorkerBitrix24IntegrationAMI;
 use Modules\ModuleBitrix24Integration\bin\WorkerBitrix24IntegrationHTTP;
+use Modules\ModuleBitrix24Integration\Lib\RestAPI\GetController;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24ExternalLines;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Users;
 
 class Bitrix24IntegrationConf extends ConfigClass
 {
+
+    /**
+     * Returns array of additional routes for PBXCoreREST interface from module
+     *
+     * [ControllerClass, ActionMethod, RequestTemplate, HttpMethod, RootUrl, NoAuth ]
+     *
+     * @return array
+     * @example
+     *  [[GetController::class, 'callAction', '/pbxcore/api/backup/{actionName}', 'get', '/', false],
+     */
+    public function getPBXCoreRESTAdditionalRoutes(): array
+    {
+        return [
+            [GetController::class, 'getWorkerState', '/pbxcore/api/bitrix-integration/workers/state',  'get', '/', true],
+        ];
+    }
+
     /**
      * Обработчик события изменения данных в базе настроек mikopbx.db.
      *
@@ -59,20 +78,43 @@ class Bitrix24IntegrationConf extends ConfigClass
             [
                 'type'           => WorkerSafeScriptsCore::CHECK_BY_BEANSTALK,
                 'worker'         => WorkerBitrix24IntegrationHTTP::class,
+                'label'          => 'HTTP'
             ],
             [
                 'type'           => WorkerSafeScriptsCore::CHECK_BY_BEANSTALK,
                 'worker'         => UploaderB24::class,
+                'label'          => 'UPLOAD'
             ],
             [
                 'type'           => WorkerSafeScriptsCore::CHECK_BY_AMI,
                 'worker'         => WorkerBitrix24IntegrationAMI::class,
+                'label'          => 'AMI'
             ],
             [
                 'type'           => WorkerSafeScriptsCore::CHECK_BY_BEANSTALK,
                 'worker'         => ConnectorDb::class,
+                'label'          => 'DB'
             ],
         ];
+    }
+
+    /**
+     * Return worker state.
+     * @return array[]
+     */
+    private function workerState(): array
+    {
+        $workers = $this->getModuleWorkers();
+        foreach ($workers as &$workerData) {
+            $pid = Processes::getPidOfProcess($workerData['worker']);
+            if (empty($pid)) {
+                $workerData['state'] = 'FAIL';
+            }else{
+                $workerData['state'] = 'OK';
+            }
+            unset($workerData['type'], $workerData['worker']);
+        }
+        return $workers;
     }
 
     /**
@@ -86,7 +128,12 @@ class Bitrix24IntegrationConf extends ConfigClass
     {
         $res = new PBXApiResult();
         $action = strtoupper($request['action']);
-        $res->messages[] = "API action '$action' not found in moduleRestAPICallback ModuleBitrix24Integration";
+        if($action === "STATE"){
+            $res->data = $this->workerState();
+            $res->success = true;
+        }else{
+            $res->messages[] = "API action '$action' not found in moduleRestAPICallback ModuleBitrix24Integration";
+        }
         return $res;
     }
 
