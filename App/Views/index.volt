@@ -40,7 +40,7 @@
             <label >{{ t._('mod_b24_i_PortalUrl') }}</label>
             <div class="ui fluid action input">
                 {{ form.render('portal') }}
-                <button class="ui positive basic button disability" id="login-button">{{ t._("mod_b24_i_Auth") }}</button>
+                <button class="ui primary basic button disability" id="login-button">{{ t._("mod_b24_i_Auth") }}</button>
             </div>
         </div>
         <div class="field">
