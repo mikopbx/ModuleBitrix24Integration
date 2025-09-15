@@ -182,7 +182,6 @@ class Bitrix24Integration extends PbxExtensionBase
         ];
         ConnectorDb::invoke(ConnectorDb::FUNC_GET_USERS, [$parameters]);
         $bitrix24UsersTmp = CacheManager::getCacheData(ModuleBitrix24Users::class);
-        $this->mainLogger->writeInfo($bitrix24UsersTmp, 'usersSettingsB24 from cache');
 
         $uSettings = [];
         foreach ($bitrix24UsersTmp as $uData){
@@ -205,7 +204,6 @@ class Bitrix24Integration extends PbxExtensionBase
         foreach ($dbData as $row){
             $settings[$row['number']] = $uSettings[$row['userid']];
         }
-        $this->mainLogger->writeInfo($settings, 'Results usersSettingsB24');
         return $settings;
     }
 
@@ -1254,21 +1252,23 @@ class Bitrix24Integration extends PbxExtensionBase
 
     /**
      * Регистрация факта завершения звонка в b24.
-     *
      * @param $options
+     * @param $tmpCallsData
      *
-     * @return array|null
+     * @return array
      */
     public function telephonyExternalCallFinish($options, &$tmpCallsData): array
     {
         $arg     = [];
-        $CALL_ID = '';
+        $callId = '';
+        $callDataFromDB = [];
+
         $result = ConnectorDb::invoke(ConnectorDb::FUNC_GET_CDR_BY_LINKED_ID, [$options]);
         if(!empty($result)){
-            [$CALL_DATA, $CALL_ID] = $result;
+            [$callDataFromDB, $callId] = $result;
         }
         $id = $options['linkedid'];
-        if (empty($CALL_ID)) {
+        if (empty($callId)) {
             $this->mainLogger->writeInfo($options, "ConnectorDb did not return a reply. CALL_ID is empty ($id)");
             return [];
         }
@@ -1282,7 +1282,7 @@ class Bitrix24Integration extends PbxExtensionBase
             !empty($regData)) {
             // Нужно зарегистрировать новый вызов
             [$arg, $key] = $tmpCallsData[$id]['ARGS_REGISTER_'.$options['UNIQUEID']];
-            $CALL_ID = '$result['.$key.'][CALL_ID]';
+            $callId = '$result['.$key.'][CALL_ID]';
             $callData['FILE_'.$options['UNIQUEID']] = $options['FILE'];
         }
         if(!isset($callData['MAIN_FILE'])){
@@ -1291,9 +1291,9 @@ class Bitrix24Integration extends PbxExtensionBase
         //
         ///////////////////////////////////////////////////////////////
 
-        $userId = (intval($CALL_DATA['answer']??0) === 1) ? $CALL_DATA['user_id']??'' : '';
+        $userId = (intval($callDataFromDB['answer']??0) === 1) ? $callDataFromDB['user_id']??'' : '';
         $params = [
-            'CALL_ID'       => $CALL_ID,
+            'CALL_ID'       => $callId,
             'USER_ID'       => $userId,
             'DURATION'      => '',
             'COST'          => '', // Стоимость звонка.
@@ -1310,17 +1310,17 @@ class Bitrix24Integration extends PbxExtensionBase
         $finishKey       = self::API_CALL_FINISH.'_'.$id.'_' . uniqid('', true);
         $arg[$finishKey] = self::API_CALL_FINISH.'?' . http_build_query($params);
         if ($options['export_records']) {
-            $this->telephonyExternalCallAttachRecord($options['FILE'], $CALL_ID, $arg);
+            $this->telephonyExternalCallAttachRecord($options['FILE'], $callId, $arg);
         }
 
         if ($options['GLOBAL_STATUS'] === 'ANSWERED' && $options['disposition'] !== 'ANSWERED') {
-            $this->mem_cache[$finishKey] = $CALL_DATA;
+            $this->mem_cache[$finishKey] = $callDataFromDB;
         }
         if ($options['GLOBAL_STATUS'] !== 'ANSWERED') {
-            $this->mem_cache["$finishKey-missed"]   = $CALL_DATA;
+            $this->mem_cache["$finishKey-missed"]   = $callDataFromDB;
         }
         if ($options['GLOBAL_STATUS'] === 'ANSWERED' && $options['disposition'] === 'ANSWERED') {
-            $this->mem_cache["$finishKey-answered"] = $CALL_DATA;
+            $this->mem_cache["$finishKey-answered"] = $callDataFromDB;
         }
         return $arg;
     }
