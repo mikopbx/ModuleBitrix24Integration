@@ -611,6 +611,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'did'              => $data['did']
                 ];
                 $this->Action_SendToBeanstalk($req_data);
+                $this->b24->saveCache('reg-cdr-'.$data['linkedid'], true, 600);
             }
 
             $this->logger->writeInfo("Send finish event...".$linkedId);

@@ -151,11 +151,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     public function b24ChannelSearch($client): void
     {
         $data = json_decode($client->getBody(), true);
-        $phone = $data['PHONE_NUMBER']??'';
-        if(!empty($phone)){
-            // Добавляем запрос в очередь
-            $this->createTmpCallData($data);
-        }
+        $this->createTmpCallData($data);
     }
 
     /**
@@ -353,22 +349,13 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $this->b24->logger->writeError("Empty UID $id...".json_encode($data, JSON_UNESCAPED_SLASHES));
             return false;
         }
-
-//        if ($action !== 'telephonyExternalCallRegister' && !empty($id)) {
-//            $callId = $this->tmpCallsData[$id]['CALL_ID'] ?? '';
-//            $needWaitCallId = empty($callId) || stripos($callId, Bitrix24Integration::API_CALL_REGISTER) !== false;
-//            if ($needWaitCallId) {
-//                $this->b24->logger->writeInfo("Event wait call register (1)... $id: ".json_encode($data, JSON_UNESCAPED_SLASHES));
-//                return true;
-//            }
-//        }
         $needActions = true;
         if ($this->searchEntities) {
-            if (!isset($this->tmpCallsData[$id]) && $data['action'] === 'telephonyExternalCallRegister') {
+            if (!isset($this->tmpCallsData[$id]) && $action === 'telephonyExternalCallRegister') {
                 $this->createTmpCallData($data);
             }
             $callData = &$this->tmpCallsData[$id];
-            if ($data['action'] === 'telephonyExternalCallRegister'
+            if ($action === 'telephonyExternalCallRegister'
                 && ($callData['data']['action']??'') !== 'telephonyExternalCallRegister'){
                 $callData['data'] = $data;
                 $data['CRM_ENTITY_TYPE'] = $callData['crm-data']['CRM_ENTITY_TYPE'];
@@ -395,6 +382,10 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
      */
     private function createTmpCallData($data):void
     {
+        if(isset($this->tmpCallsData[$data['linkedid']])){
+            // Выполнять однократно.
+            return;
+        }
         $this->tmpCallsData[$data['linkedid']] = [
             'wait'       => true,
             'events'     => [],
