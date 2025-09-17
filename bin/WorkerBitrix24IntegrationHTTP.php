@@ -693,7 +693,6 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                     $callData['wait']            = false;
                     $callData['responsible']     = $innerPhone;
                     $callData['responsibleName'] = $phoneData['name'];
-                    $this->addEventsToMainQueue($linkedId, 'LEAD', $phoneData['b24id']);
                     break;
                 }
             }
