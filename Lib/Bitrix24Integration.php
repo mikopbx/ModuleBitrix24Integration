@@ -431,7 +431,7 @@ class Bitrix24Integration extends PbxExtensionBase
                 if(empty($result)){
                     $this->mainLogger->writeError($response, 'EMPTY RESPONSE[result][result]');
                 }else{
-                    $this->mainLogger->writeInfo($result, 'RESPONSE');
+                    $this->mainLogger->writeInfo($response, 'RESPONSE');
                 }
             }
         }

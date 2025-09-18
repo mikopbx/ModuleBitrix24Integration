@@ -109,7 +109,7 @@ class Logger
         $this->rotate();
         if ($this->debug) {
             if(!empty($header)){
-                $header.= ": ";
+                $header.= '('.posix_getpid()."): ";
             }
             $this->logger->error($header . $this->getDecodedString($data));
         }
@@ -120,7 +120,7 @@ class Logger
         $this->rotate();
         if ($this->debug) {
             if(!empty($header)){
-                $header.= ": ";
+                $header.= '('.posix_getpid()."): ";
             }
             $this->logger->info($header . $this->getDecodedString($data));
         }
