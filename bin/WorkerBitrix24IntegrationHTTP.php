@@ -67,7 +67,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         if (!$this->b24->initialized) {
             die('Settings not set...');
         }
-        $this->b24->logger->writeInfo('Starting...');
+        $this->b24->mainLogger->writeInfo('Starting...');
         $this->b24->checkNeedUpdateToken();
         // При старте синхронизируем внешние линии.
         $externalLines = $this->b24->syncExternalLines();
@@ -109,7 +109,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     }
     public function pingCallBack(BeanstalkClient $message): void
     {
-        $this->b24->logger->writeInfo('Get ping event...');
+        $this->b24->mainLogger->writeInfo('Get ping event...');
         parent::pingCallBack($message);
     }
 
@@ -129,7 +129,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $this->needRestart = true;
         }
         if(!empty($arg)){
-            $this->b24->logger->writeInfo("Add action $action in queue...");
+            $this->b24->mainLogger->writeInfo($data, "Add action $action in queue...");
             $this->q_req = array_merge($this->q_req, $arg);
         }
     }
@@ -160,14 +160,14 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     public function b24ChannelCallBack($client): void
     {
         $srcData = $client->getBody();
-        $this->b24->logger->writeInfo('Get AMI Event'. $srcData);
         try {
             /** @var array $data */
             $data = json_decode($srcData, true, 512, JSON_THROW_ON_ERROR);
         }catch (Exception $e){
-            $this->b24->logger->writeInfo('AMI Event'. $e->getMessage());
+            $this->mainLogger->logger->writeInfo('AMI Event'. $e->getMessage());
             return;
         }
+        $this->b24->mainLogger->writeInfo($data, 'Get AMI Event');
         $linkedId = $data['linkedid']??'';
         if(empty($linkedId)){
             return;
@@ -346,7 +346,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $id     = $data['linkedid']??'';
 
         if($data['UNIQUEID'] === ''){
-            $this->b24->logger->writeError("Empty UID $id...".json_encode($data, JSON_UNESCAPED_SLASHES));
+            $this->b24->mainLogger->writeError($data, "Empty UID $id...");
             return false;
         }
         $needActions = true;
@@ -363,13 +363,13 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             }
             $wait = $callData['wait']?? false;
             if ($wait === false) {
-                $this->b24->logger->writeInfo("Process (1) $id...".json_encode($data, JSON_UNESCAPED_SLASHES));
+                $this->b24->mainLogger->writeInfo($data, "Process (1) $id...");
                 $needActions = false;
             }else{
-                $this->b24->logger->writeInfo("Event wait call register(2)... $id: ".json_encode($data, JSON_UNESCAPED_SLASHES));
+                $this->b24->mainLogger->writeInfo($data, "Event wait call register(2)... $id: ");
             }
         } else {
-            $this->b24->logger->writeInfo("Process (2) $id...".json_encode($data, JSON_UNESCAPED_SLASHES));
+            $this->b24->mainLogger->writeInfo($data, "Process (2) $id...");
             $needActions = false;
         }
         return $needActions;
@@ -401,7 +401,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         ];
         $phone = $data['PHONE_NUMBER'] ?? '';
         if(empty($phone)){
-            $this->b24->logger->writeError('Empty phone number... '. json_encode($data, JSON_UNESCAPED_UNICODE));
+            $this->b24->mainLogger->writeError($data, 'Empty phone number... ');
         }elseif ($this->tmpCallsData[$data['linkedid']]['search'] === -1 ) {
             $this->tmpCallsData[$data['linkedid']]['search'] = 1;
             $this->findEntitiesByPhone($phone, $data['linkedid']);
@@ -493,10 +493,10 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $this->timeSyncProcContacts = time();
         $this->pidSyncProcContacts = pcntl_fork();
         if ($this->pidSyncProcContacts == -1) {
-            $this->b24->logger->writeError('Fail fork sync contacts... ');
+            $this->b24->mainLogger->writeError('Fail fork sync contacts... ');
             return;
         } elseif ($this->pidSyncProcContacts) {
-            $this->b24->logger->writeInfo('Start sync contacts... '.$this->pidSyncProcContacts);
+            $this->b24->mainLogger->writeInfo('Start sync contacts... '.$this->pidSyncProcContacts);
             usleep(100000);
             return;
         }
@@ -630,10 +630,10 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 $resultRegister = $this->b24->telephonyExternalCallPostRegister($key, $partResponse);
                 if(!empty($resultRegister)){
                     [$linkedId, $callId] = $resultRegister;
-                    $this->b24->logger->writeInfo("Update call_id for $linkedId - $callId");
+                    $this->b24->mainLogger->writeInfo("Update call_id for $linkedId - $callId");
                     $this->tmpCallsData[$linkedId]['CALL_ID'] = $callId;
                 }else{
-                    $this->b24->logger->writeInfo("fail Update call_id for $key");
+                    $this->b24->mainLogger->writeInfo("fail Update call_id for $key");
                 }
             } elseif (in_array($actionName,[Bitrix24Integration::API_CRM_CONTACT_COMPANY,Bitrix24Integration::API_CRM_COMPANY_CONTACT], true)) {
                 ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_LINKS, [[$key => $partResponse]], false);
@@ -684,7 +684,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 }
                 $innerPhone = $this->b24->b24Users[$phoneData['userId']]??'';
                 if ($chooseFirst || in_array($innerPhone, $users, true)) {
-                    $this->b24->logger->writeInfo("findContactByPhone: $type id:". $phoneData['b24id']. ', TITLE: '.$phoneData['name']. ', responsible id: '.$phoneData['userId'].', responsible number: '. $innerPhone);
+                    $this->b24->mainLogger->writeInfo("findContactByPhone: $type id:". $phoneData['b24id']. ', TITLE: '.$phoneData['name']. ', responsible id: '.$phoneData['userId'].', responsible number: '. $innerPhone);
                     $callData['crm-data']    = [
                         'ID' => $phoneData['b24id'],
                         'CRM_ENTITY_TYPE' => $type,

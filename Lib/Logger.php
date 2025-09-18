@@ -93,7 +93,7 @@ class Logger
         $rotation = new Rotation([
             'files'    => 9,
             'compress' => false,
-            'min-size' => 10 * 1024 * 1024,
+            'min-size' => 40 * 1024 * 1024,
             'truncate' => false,
             'catch'    => function (RotationFailed $exception) {
                 SystemMessages::sysLogMsg($this->module_name, $exception->getMessage());

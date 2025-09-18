@@ -14,7 +14,6 @@ use Phalcon\Mvc\Model\Manager;
 use MikoPBX\Common\Models\CallQueues;
 use MikoPBX\Common\Models\IncomingRoutingTable;
 use MikoPBX\Common\Models\Extensions;
-use MikoPBX\Modules\Logger;
 use MikoPBX\Modules\PbxExtensionBase;
 use MikoPBX\PBXCoreREST\Lib\PBXApiResult;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
@@ -107,8 +106,6 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->client_id        = ''.$data->client_id;
         $this->client_secret    = ''.$data->client_secret;
         $this->initialized      = true;
-
-        $this->requestLogger =  new Logger('requests', $this->moduleUniqueId);
         if('_www' !== $logPrefix){
             // Это работа web интерфейса. Обновление настроек не требуется.
             $this->updateSettings($data);
