@@ -243,64 +243,62 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 }
                 unset($callId);
             }
-        } else {
-            if ('action_hangup_chan' === $data['action']) {
-                // Надежнее вычислить внутренний номер из канала.
-                $number = $this->parsePJSIP($data['channel']);
-                $callData = $this->tmpCallsData[$data['linkedid']] ?? [];
-                $data['CALL_ID'] = $callData['CALL_ID']??'';
-                $data['USER_ID'] = $this->b24->inner_numbers[$number]['ID']??'';
-                if (!empty($data['CALL_ID']) && !empty($data['USER_ID'])) {
-                    $arg = $this->b24->telephonyExternalCallHide($data);
-                    $this->q_req = array_merge($this->q_req, $arg);
-                }
-            } elseif ('action_dial_answer' === $data['action']) {
-                $tmpArr = [];
-                $userId = $this->tmpCallsData[$data['linkedid']]['ARG_REGISTER_USER_'.$data['UNIQUEID']]??'';
-                $dealId = '';
-                $leadId = '';
-                $filter = [
-                    "linkedid='{$data['linkedid']}'",
-                    'order' => 'uniq_id'
-                ];
-                $b24CdrRows = ConnectorDb::invoke(ConnectorDb::FUNC_GET_CDR_BY_FILTER, [$filter]);
-                foreach ($b24CdrRows as $cdrData) {
-                    $row = (object)$cdrData;
-                    $cdr = $row;
-                    if (!empty($cdr->dealId)) {
-                        $dealId = max($dealId, $cdr->dealId);
-                    }
-                    if (!empty($cdr->lead_id)) {
-                        $leadId = max($leadId, $cdr->lead_id);
-                    }
-                    // Отмечаем вызов как отвеченный.
-                    $cdr->answer = 1;
-                    ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_FROM_ARRAY_CDR_BY_UID, [$row->uniq_id, (array)$cdr]);
-                    if ($userId !== $row->user_id) {
-                        // Открываем карточку клиента тому, кто ответил. (если разрешено).
-                        $data['CALL_ID'] = $row->call_id;
-                        $data['USER_ID'] = (int)$userId;
-                        // Поиск внутреннего номера пользователя b24.
-                        if($this->needOpenCard($userId)){
-                            $tmpArr[] = $this->b24->telephonyExternalCallShow($data);
-                        }
-                    }
-                }
-                if (!empty($leadId) && !empty($userId)) {
-                    $tmpArr[] = $this->b24->crmLeadUpdate($leadId, $userId, $data['linkedid']);
-                }
-                // Если лид добавляется вручную, до звонка методом crm.lead.add
-                if(($this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_TYPE']??'') === 'LEAD'
-                   && !isset($this->tmpCallsData[$data['linkedid']]['crm-data']['ID'])){
-                    $tmpArr[] = $this->b24->crmLeadUpdate($this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_ID'], $userId, $data['linkedid']);
-                }
-                if(!empty($tmpArr)){
-                    $this->q_req = array_merge($this->q_req, ...$tmpArr);
-                }
-            } elseif ('telephonyExternalCallFinish' === $data['action']) {
-                $arg = $this->b24->telephonyExternalCallFinish($data, $this->tmpCallsData);
+        } elseif ('action_hangup_chan' === $data['action']) {
+            // Надежнее вычислить внутренний номер из канала.
+            $number = $this->parsePJSIP($data['channel']);
+            $callData = $this->tmpCallsData[$data['linkedid']] ?? [];
+            $data['CALL_ID'] = $callData['CALL_ID']??'';
+            $data['USER_ID'] = $this->b24->inner_numbers[$number]['ID']??'';
+            if (!empty($data['CALL_ID']) && !empty($data['USER_ID'])) {
+                $arg = $this->b24->telephonyExternalCallHide($data);
                 $this->q_req = array_merge($this->q_req, $arg);
             }
+        } elseif ('action_dial_answer' === $data['action']) {
+            $tmpArr = [];
+            $userId = $this->tmpCallsData[$data['linkedid']]['ARG_REGISTER_USER_'.$data['UNIQUEID']]??'';
+            $dealId = '';
+            $leadId = '';
+            $filter = [
+                "linkedid='{$data['linkedid']}'",
+                'order' => 'uniq_id'
+            ];
+            $b24CdrRows = ConnectorDb::invoke(ConnectorDb::FUNC_GET_CDR_BY_FILTER, [$filter]);
+            foreach ($b24CdrRows as $cdrData) {
+                $row = (object)$cdrData;
+                $cdr = $row;
+                if (!empty($cdr->dealId)) {
+                    $dealId = max($dealId, $cdr->dealId);
+                }
+                if (!empty($cdr->lead_id)) {
+                    $leadId = max($leadId, $cdr->lead_id);
+                }
+                // Отмечаем вызов как отвеченный.
+                $cdr->answer = 1;
+                ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_FROM_ARRAY_CDR_BY_UID, [$row->uniq_id, (array)$cdr]);
+                if ($userId !== $row->user_id) {
+                    // Открываем карточку клиента тому, кто ответил. (если разрешено).
+                    $data['CALL_ID'] = $row->call_id;
+                    $data['USER_ID'] = (int)$userId;
+                    // Поиск внутреннего номера пользователя b24.
+                    if($this->needOpenCard($userId)){
+                        $tmpArr[] = $this->b24->telephonyExternalCallShow($data);
+                    }
+                }
+            }
+            if (!empty($leadId) && !empty($userId)) {
+                $tmpArr[] = $this->b24->crmLeadUpdate($leadId, $userId, $data['linkedid']);
+            }
+            // Если лид добавляется вручную, до звонка методом crm.lead.add
+            if(($this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_TYPE']??'') === 'LEAD'
+               && !isset($this->tmpCallsData[$data['linkedid']]['crm-data']['ID'])){
+                $tmpArr[] = $this->b24->crmLeadUpdate($this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_ID'], $userId, $data['linkedid']);
+            }
+            if(!empty($tmpArr)){
+                $this->q_req = array_merge($this->q_req, ...$tmpArr);
+            }
+        } elseif ('telephonyExternalCallFinish' === $data['action']) {
+            $arg = $this->b24->telephonyExternalCallFinish($data, $this->tmpCallsData);
+            $this->q_req = array_merge($this->q_req, $arg);
         }
         if (count($this->q_req) >= 49) {
             $this->executeTasks();
@@ -568,8 +566,8 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         // Получать новые события будем каждое 2ое обращение к этой функции ~ 1.2 секунды.
         $this->need_get_events = !$this->need_get_events;
 
-        // Обработка per-linkedid очередей: по одному событию с головы для каждой очереди
-        foreach ($this->perCallQueues as $linkedId => $queue) {
+        // Обработка очередей: по одному событию с головы для каждой очереди
+        foreach ($this->perCallQueues as $queue) {
             if ($queue->isEmpty()) {
                 continue;
             }
@@ -577,8 +575,8 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             if ($this->shouldDeferForPreAction($event)) {
                 continue;
             }
-            $this->addDataToQueue($event);
             $queue->dequeue();
+            $this->addDataToQueue($event);
         }
 
         if ($this->need_get_events) {
