@@ -1267,9 +1267,14 @@ class Bitrix24Integration extends PbxExtensionBase
         $id = $options['linkedid'];
         if (empty($callId)) {
             $this->mainLogger->writeInfo($options, "ConnectorDb did not return a reply. CALL_ID is empty ($id)");
-            return [];
+            return $arg;
         }
-
+        $finishOneKey = self::API_CALL_FINISH.'_'.$options['UNIQUEID'];
+        if($this->getCache($finishOneKey)){
+            $this->mainLogger->writeInfo($options, "The challenge has already been finish earlier.");
+            return $arg;
+        }
+        $this->saveCache($finishOneKey, true, 30);
         ///////////////////////////////////////////////////////////////
         // Проверим, была ли уже отправлена запись разговора.
         $callData = &$tmpCallsData[$id];
@@ -1339,7 +1344,7 @@ class Bitrix24Integration extends PbxExtensionBase
         if($cacheData === null){
             $cacheData = $this->getMemCache("$finishKey-missed");
         }
-        $id = str_replace('telephony.externalcall.finish', '', $finishKey);
+        $id = str_replace(self::API_CALL_FINISH, '', $finishKey);
 
         if(isset($cacheData['contact_id'])){
             $queryArray[] = $this->crmContactUpdate($cacheData['contact_id'], $response['PORTAL_USER_ID'], $id);
