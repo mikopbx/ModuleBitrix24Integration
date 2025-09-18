@@ -17,6 +17,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
+use MikoPBX\Core\System\Util;
 use MikoPBX\Core\System\Processes;
 use MikoPBX\Core\System\SystemMessages;
 use MikoPBX\Modules\PbxExtensionUtils;
@@ -31,8 +32,17 @@ $conf = new Bitrix24IntegrationConf();
 $workers = $conf->getModuleWorkers();
 foreach ($workers as $workerData) {
     $WorkerPID = Processes::getPidOfProcess($workerData['worker']);
+    print_r($WorkerPID.PHP_EOL);
     if (empty($WorkerPID)) {
         Processes::processPHPWorker($workerData['worker']);
         SystemMessages::sysLogMsg('B24_SAFE', "Service {$workerData['worker']} started.", LOG_NOTICE);
+    }else{
+        // Проверка дубликата процесса.
+        $allButLast = array_slice(explode(' ', $WorkerPID), 0, -1);
+        if(!empty($allButLast)){
+            // Завершаем дубликаты процессов.
+            $bbPath = Util::which('busybox');
+            shell_exec("$bbPath kill -SIGUSR2 ". implode(" ", $allButLast));
+        }
     }
 }
