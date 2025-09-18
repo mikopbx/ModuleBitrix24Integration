@@ -596,7 +596,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             if(!$isOutgoing && strlen($data['src_num']) > $this->extensionLength
                 && !( $this->b24->getCache($regCacheKey) !== null || isset($this->msg[$regCacheKey])))
             {
-                $this->logger->writeInfo("Send Register event... For incoming users only. If it is a missed one, then you need to register it first.".$linkedId);
+                $this->logger->writeInfo($linkedId,"Send Register event... For incoming users only. If it is a missed one, then you need to register it first.".posix_getpid());
                 $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_OUT && $this->crmCreateLead)?'1':'0';
                 $req_data = [
                     'UNIQUEID'         => $data['UNIQUEID'],
@@ -618,9 +618,9 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 $resSave = $this->b24->getCache($regCacheKey);
                 $this->msg[$regCacheKey] = time();
                 if($resSave === true){
-                    $this->logger->writeInfo("Save cache reg-cdr-".$linkedId);
+                    $this->logger->writeInfo($linkedId, "Save cache reg-cdr-".posix_getpid());
                 }else{
-                    $this->logger->writeInfo("Fail save cache reg-cdr-".$linkedId);
+                    $this->logger->writeInfo($linkedId, "Fail save cache reg-cdr-".posix_getpid());
                 }
             }
 
