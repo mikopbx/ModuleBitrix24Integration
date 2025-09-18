@@ -594,7 +594,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             $LINE_NUMBER = $this->external_lines[$data['did']]??'';
             $regCacheKey = 'reg-cdr-'.$data['linkedid'];
             if(!$isOutgoing && strlen($data['src_num']) > $this->extensionLength
-                && !( $this->b24->getCache($regCacheKey)!==true || isset($this->msg[$regCacheKey])))
+                && !( $this->b24->getCache($regCacheKey) !== null || isset($this->msg[$regCacheKey])))
             {
                 $this->logger->writeInfo("Send Register event... For incoming users only. If it is a missed one, then you need to register it first.".$linkedId);
                 $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_OUT && $this->crmCreateLead)?'1':'0';
