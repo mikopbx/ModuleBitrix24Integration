@@ -759,6 +759,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 }
                 unset($this->tmpCallsData[$linkedid]);
                 unset($this->perCallQueues[$linkedid]);
+                $this->b24->mainLogger->writeInfo("Clearing the event queue. All channels are completed $linkedid");
             }
         }
     }
