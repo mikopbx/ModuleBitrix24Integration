@@ -753,10 +753,12 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $channels = $am->GetChannels();
         foreach ($this->tmpCallsData as $linkedid => $data){
             if($data['wait'] === false && !isset($channels[$linkedid])){
-                unset($this->tmpCallsData[$linkedid]);
-                if(isset($this->perCallQueues[$linkedid])){
-                    unset($this->perCallQueues[$linkedid]);
+                if (isset($this->perCallQueues[$linkedid])
+                    && !$this->perCallQueues[$linkedid]->isEmpty()) {
+                    continue; // Есть события, не чистим.
                 }
+                unset($this->tmpCallsData[$linkedid]);
+                unset($this->perCallQueues[$linkedid]);
             }
         }
     }
