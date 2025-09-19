@@ -109,6 +109,10 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     }
     public function pingCallBack(BeanstalkClient $message): void
     {
+        if($this->needRestart){
+            // Нет смысла отвечать,
+            return;
+        }
         $this->b24->mainLogger->writeInfo('Get ping event...');
         parent::pingCallBack($message);
     }
@@ -502,11 +506,10 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             usleep(100000);
             return;
         }
-        $this->needRestart = true;
         $this->b24->setIsNotMainProcess();
-
+        $this->needRestart = true;
         set_time_limit(50);
-        cli_set_process_title(cli_get_process_title()."_SYNC_CONTACTS");
+        cli_set_process_title("B24_HTTP_SYNC_CONTACTS");
         $syncProcReq = [];
         $arg = $this->b24->crmListEnt(Bitrix24Integration::API_CRM_LIST_CONTACT);
         $syncProcReq = array_merge($syncProcReq, $arg);
@@ -562,7 +565,6 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $this->b24->b24GetPhones();
             $this->b24->updateSettings();
             $this->last_update_inner_num = time();
-            // Очистка $this->tmpCallsData
             $this->checkActiveChannels();
             $this->syncProcContacts();
         }

@@ -116,6 +116,7 @@ class Bitrix24Integration extends PbxExtensionBase
     public function setIsNotMainProcess():void
     {
         $this->mainProcess = false;
+        $this->mainLogger =  new MainLogger('HttpConnection_SYNC', 'ModuleBitrix24Integration');
     }
 
     public function updateSettings($settings=null):void
