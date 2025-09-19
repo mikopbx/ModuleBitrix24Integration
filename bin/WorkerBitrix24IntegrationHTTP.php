@@ -302,7 +302,10 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 $this->q_req = array_merge($this->q_req, ...$tmpArr);
             }
         } elseif ('telephonyExternalCallFinish' === $data['action']) {
-            $arg = $this->b24->telephonyExternalCallFinish($data, $this->tmpCallsData);
+            [$arg,$finishKey] = $this->b24->telephonyExternalCallFinish($data, $this->tmpCallsData);
+            $this->q_req = array_merge($this->q_req, $arg);
+
+            $arg = $this->b24->crmActivityUpdate('$result['.$finishKey.'][CRM_ACTIVITY_ID]', $data['linkedid'], $data['linkedid']);
             $this->q_req = array_merge($this->q_req, $arg);
         }else{
             $this->b24->mainLogger->writeInfo($data, "The event handler was not found ($data[linkedid])");
@@ -347,7 +350,6 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
 
     public function shouldDeferForPreAction(&$data): bool
     {
-        // Глобальная блокировка: все события, кроме register, ждут готовности CALL_ID
         $action = $data['action']??'';
         $id     = $data['linkedid']??'';
 

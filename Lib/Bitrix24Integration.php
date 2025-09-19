@@ -1326,7 +1326,7 @@ class Bitrix24Integration extends PbxExtensionBase
             $this->mem_cache["$finishKey-answered"] = $callDataFromDB;
         }
         $this->mainLogger->writeInfo($params, "Add finish req ($id)");
-        return $arg;
+        return [$arg,$finishKey];
     }
 
     /**
@@ -1530,6 +1530,27 @@ class Bitrix24Integration extends PbxExtensionBase
         $arg                                        = [];
         $arg['crm.lead.update_'.$linkedId.'_'. uniqid('', true)] = 'crm.lead.update?' . http_build_query($params);
 
+        return $arg;
+    }
+
+    /**
+     * Обновление дела звонка,
+     * @param string $id
+     * @param string $linkedId
+     * @param string $description
+     * @return array
+     */
+    public function crmActivityUpdate(string $id, string $linkedId, string $description): array
+    {
+        $params = [
+            'id'   => $id,
+            'fields' => [
+                'DESCRIPTION' => $description
+            ],
+            'auth' => $this->getAccessToken(),
+        ];
+        $arg = [];
+        $arg['crm.activity.update_'.$linkedId.'_'. uniqid('', true)] = 'crm.activity.update?' . http_build_query($params);
         return $arg;
     }
 
