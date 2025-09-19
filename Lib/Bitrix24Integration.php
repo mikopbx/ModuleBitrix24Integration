@@ -1324,6 +1324,7 @@ class Bitrix24Integration extends PbxExtensionBase
         if ($options['GLOBAL_STATUS'] === 'ANSWERED' && $options['disposition'] === 'ANSWERED') {
             $this->mem_cache["$finishKey-answered"] = $callDataFromDB;
         }
+        $this->mainLogger->writeInfo($params, "Add finish req ($id)");
         return $arg;
     }
 
