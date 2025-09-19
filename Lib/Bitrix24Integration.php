@@ -1269,12 +1269,7 @@ class Bitrix24Integration extends PbxExtensionBase
             $this->mainLogger->writeInfo($options, "ConnectorDb did not return a reply. CALL_ID is empty ($id)");
             return $arg;
         }
-        $finishOneKey = self::API_CALL_FINISH.'_'.$options['UNIQUEID'];
-        if($this->getCache($finishOneKey)){
-            $this->mainLogger->writeInfo($options, "The challenge has already been finish earlier.");
-            return $arg;
-        }
-        $this->saveCache($finishOneKey, true, 30);
+
         ///////////////////////////////////////////////////////////////
         // Проверим, была ли уже отправлена запись разговора.
         $callData = &$tmpCallsData[$id];
@@ -1292,6 +1287,12 @@ class Bitrix24Integration extends PbxExtensionBase
         }
         //
         ///////////////////////////////////////////////////////////////
+        $finishOneKey = self::API_CALL_FINISH.'_'.$callId;
+        if($this->getCache($finishOneKey)){
+            $this->mainLogger->writeInfo($options, "The challenge has already been finish earlier ($callId).");
+            return $arg;
+        }
+        $this->saveCache($finishOneKey, true, 30);
 
         $userId = (intval($callDataFromDB['answer']??0) === 1) ? $callDataFromDB['user_id']??'' : '';
         $params = [
@@ -1306,7 +1307,6 @@ class Bitrix24Integration extends PbxExtensionBase
             'ADD_TO_CHAT'   => 0,
             'auth'          => $this->getAccessToken(),
         ];
-
         $this->fillPropertyValues($options, $params);
 
         $finishKey       = self::API_CALL_FINISH.'_'.$id.'_' . uniqid('', true);
