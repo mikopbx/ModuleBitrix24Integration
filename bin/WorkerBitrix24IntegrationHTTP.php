@@ -305,8 +305,10 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             [$arg,$finishKey] = $this->b24->telephonyExternalCallFinish($data, $this->tmpCallsData);
             $this->q_req = array_merge($this->q_req, $arg);
 
-            $arg = $this->b24->crmActivityUpdate('$result['.$finishKey.'][CRM_ACTIVITY_ID]', $data['linkedid'], $data['linkedid']);
-            $this->q_req = array_merge($this->q_req, $arg);
+            if(!empty($finishKey)){
+                $arg = $this->b24->crmActivityUpdate('$result['.$finishKey.'][CRM_ACTIVITY_ID]', $data['linkedid'], $data['linkedid']);
+                $this->q_req = array_merge($this->q_req, $arg);
+            }
         }else{
             $this->b24->mainLogger->writeInfo($data, "The event handler was not found ($data[linkedid])");
         }

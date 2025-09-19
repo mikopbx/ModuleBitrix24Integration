@@ -1260,6 +1260,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $arg     = [];
         $callId = '';
         $callDataFromDB = [];
+        $finishKey = '';
 
         $result = ConnectorDb::invoke(ConnectorDb::FUNC_GET_CDR_BY_LINKED_ID, [$options]);
         if(!empty($result)){
@@ -1268,7 +1269,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $id = $options['linkedid'];
         if (empty($callId)) {
             $this->mainLogger->writeInfo($options, "ConnectorDb did not return a reply. CALL_ID is empty ($id)");
-            return $arg;
+            return [$arg,$finishKey];
         }
 
         ///////////////////////////////////////////////////////////////
@@ -1291,7 +1292,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $finishOneKey = self::API_CALL_FINISH.'_'.$callId;
         if($this->getCache($finishOneKey)){
             $this->mainLogger->writeInfo($options, "The challenge has already been finish earlier ($callId).");
-            return $arg;
+            return [$arg,$finishKey];
         }
         $this->saveCache($finishOneKey, true, 30);
 
