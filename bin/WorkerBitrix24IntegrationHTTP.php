@@ -755,7 +755,17 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             if($data['wait'] === false && !isset($channels[$linkedid])){
                 if (isset($this->perCallQueues[$linkedid])
                     && !$this->perCallQueues[$linkedid]->isEmpty()) {
-                    continue; // Есть события, не чистим.
+                    continue;
+                }
+                // Используем отложенное удаление, чтобы дождаться finish событий.
+                $cleanTime = $this->tmpCallsData[$linkedid]['cleanTime'] ?? 0;
+                if ($cleanTime === 0) {
+                    $this->tmpCallsData[$linkedid]['cleanTime'] = time();
+                    $this->b24->mainLogger->writeInfo("Clearing the event queue wait 120s. $linkedid");
+                    continue; // Ставим метку времени первой попытки очистки.
+                }
+                if ((time() - $cleanTime) < 120) {
+                    continue;
                 }
                 unset($this->tmpCallsData[$linkedid]);
                 unset($this->perCallQueues[$linkedid]);
