@@ -674,7 +674,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
 
         $did         = $callData['data']['did']??'';
         $chooseFirst = !isset($this->didUsers[$did]);
-        $users       = $this->didUsers[$did];
+        $users       = $this->didUsers[$did]??[];
 
         foreach (['LEAD', 'CONTACT', 'COMPANY'] as $type){
             if($callData['wait'] === false){
@@ -754,7 +754,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $am = Util::getAstManager();
         $channels = $am->GetChannels();
         foreach ($this->tmpCallsData as $linkedid => $data){
-            if($data['wait'] === false && !isset($channels[$linkedid])){
+            if(!isset($channels[$linkedid])){
                 if (isset($this->perCallQueues[$linkedid])
                     && !$this->perCallQueues[$linkedid]->isEmpty()) {
                     continue;
