@@ -222,6 +222,8 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
 
                 $callId = &$this->tmpCallsData[$data['linkedid']]['CALL_ID'];
                 if(empty($callId)){
+                    // Save user id for current unique leg to use on dial_answer
+                    $this->tmpCallsData[$data['linkedid']]['ARG_REGISTER_USER_'.$data['UNIQUEID']] = $data['USER_ID']??'';
                     [$arg, $key] = $this->b24->telephonyExternalCallRegister($data);
                     if(!empty($key)){
                         // Это Метод register
@@ -296,7 +298,12 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             // Если лид добавляется вручную, до звонка методом crm.lead.add
             if(($this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_TYPE']??'') === 'LEAD'
                && !isset($this->tmpCallsData[$data['linkedid']]['crm-data']['ID'])){
-                $tmpArr[] = $this->b24->crmLeadUpdate($this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_ID'], $userId, $data['linkedid']);
+                // Update lead only if we know the responsible user
+                if(!empty($userId)){
+                    $tmpArr[] = $this->b24->crmLeadUpdate($this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_ID'], $userId, $data['linkedid']);
+                }else{
+                    $this->b24->mainLogger->writeInfo($data, "Error empty userId, can not update lead ($data[linkedid])");
+                }
             }
             if(!empty($tmpArr)){
                 $this->q_req = array_merge($this->q_req, ...$tmpArr);
