@@ -485,6 +485,11 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
      */
     public function actionHangupChan($data):void
     {
+        if(empty($data['UNIQUEID'])){
+            $this->logger->writeInfo($data, "Ignore event, empty UNIQUEID".$data['linkedid']);
+            return;
+        }
+
         // Считаем каналы с одинаковым UID
         $countChannel = $this->channelCounter[$data['UNIQUEID']]??0;
         $countChannel--;
@@ -538,10 +543,11 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
      */
     private function actionCompleteCdr($data):void
     {
+        $needReturn = false;
         $linkedId = $data['linkedid']??'';
         if(in_array($data['did'],$this->disabledDid, true)){
             $this->logger->writeInfo("Integration is disabled for this DID ".$linkedId);
-            return;
+            $needReturn = true;
         }
 
         $srsUserId = $this->getInnerNum($data['src_num']);
@@ -553,6 +559,10 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             // Либо это CDR по внутреннему вызову.
             || (!empty($srsUserId) && !empty($dstUserId)) ){
             $this->logger->writeInfo("Not all channels with this ID have been completed. This is probably a multiple registration. Or it's CD R on an internal call.. cancellation".$linkedId);
+            $needReturn = true;
+        }
+
+        if($needReturn === true){
             return;
         }
 
@@ -592,9 +602,11 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
            && !$this->b24->getCache($finishKeyID)){
 
             $LINE_NUMBER = $this->external_lines[$data['did']]??'';
+            $regCacheKey = 'reg-cdr-'.$data['linkedid'];
             if(!$isOutgoing && strlen($data['src_num']) > $this->extensionLength
-                && !$this->b24->getCache('reg-cdr-'.$data['linkedid'])){
-                $this->logger->writeInfo("Send Register event... For incoming users only. If it is a missed one, then you need to register it first.".$linkedId);
+                && !( $this->b24->getCache($regCacheKey) !== null || isset($this->msg[$regCacheKey])))
+            {
+                $this->logger->writeInfo($linkedId,"Send Register event... For incoming users only. If it is a missed one, then you need to register it first.".posix_getpid());
                 $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_OUT && $this->crmCreateLead)?'1':'0';
                 $req_data = [
                     'UNIQUEID'         => $data['UNIQUEID'],
@@ -611,6 +623,15 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'did'              => $data['did']
                 ];
                 $this->Action_SendToBeanstalk($req_data);
+                $this->b24->saveCache($regCacheKey, true, 600);
+
+                $resSave = $this->b24->getCache($regCacheKey);
+                $this->msg[$regCacheKey] = time();
+                if($resSave === true){
+                    $this->logger->writeInfo($linkedId, "Save cache reg-cdr-".posix_getpid());
+                }else{
+                    $this->logger->writeInfo($linkedId, "Fail save cache reg-cdr-".posix_getpid());
+                }
             }
 
             $this->logger->writeInfo("Send finish event...".$linkedId);

@@ -32,6 +32,10 @@ class UploaderB24 extends WorkerBase
     private Bitrix24Integration $b24;
     private BeanstalkClient $queueAgent;
     private Logger $logger;
+    /**
+     * In-memory delayed queue: [timestamp => [task, task, ...]]
+     */
+    private array $query = [];
 
     /**
      * Начало работы демона.
@@ -83,6 +87,53 @@ class UploaderB24 extends WorkerBase
         $this->queueAgent = new BeanstalkClient(self::B24_UPLOADER_CHANNEL);
         $this->queueAgent->subscribe($this->makePingTubeName(self::class), [$this, 'pingCallBack']);
         $this->queueAgent->subscribe(self::B24_UPLOADER_CHANNEL,  [$this, 'callBack']);
+        $this->queueAgent->setTimeoutHandler([$this, 'executeTasks']);
+    }
+
+    public function executeTasks(): void
+    {
+        $now = time();
+        if (empty($this->query)) {
+            return;
+        }
+
+        // Sort scheduled buckets to process the oldest first
+        ksort($this->query);
+
+        foreach ($this->query as $scheduledAt => $tasks) {
+            if ($scheduledAt > $now) {
+                // Remaining tasks are not due yet
+                break;
+            }
+
+            foreach ($tasks as $data) {
+                try {
+                    $filename = $data['FILENAME'] ?? '';
+                    if ($filename === '' || !file_exists($filename)) {
+                        $this->logger->writeError("File '$filename' not exists or empty filename.");
+                        continue;
+                    }
+                    $this->logger->writeInfo("Processing delayed upload for '$filename'.");
+                    $result = $this->b24->uploadRecord($data['uploadUrl'] ?? '', $filename);
+                    try {
+                        $rawResult = json_encode($result, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+                        $this->logger->writeInfo('Result: ' . $rawResult);
+                    } catch (Exception $e) {
+                        $this->logger->writeError('Exception upload file: ' . $e->getMessage());
+                        continue;
+                    }
+                    if (!isset($result['result']["FILE_ID"])) {
+                        $this->logger->writeError('Fail upload file. Req: ' . json_encode($result));
+                    }
+                    usleep(300000);
+                } catch (Exception $e) {
+                    $this->logger->writeError($e->getLine().';'.$e->getCode().';'.$e->getMessage());
+                }
+            }
+
+            // Remove processed bucket
+            unset($this->query[$scheduledAt]);
+        }
     }
 
     /**
@@ -91,7 +142,7 @@ class UploaderB24 extends WorkerBase
     public function callBack(BeanstalkClient $client): void
     {
         $stringData = $client->getBody();
-        $this->logger->writeInfo("Start upload file.");
+        $this->logger->writeInfo("Queue upload task.");
         $this->logger->writeInfo("Raw data: $stringData");
         try {
             /** @var array $data */
@@ -103,23 +154,11 @@ class UploaderB24 extends WorkerBase
             $this->logger->writeError("Data is not valid JSON.");
             return;
         }
-        $filename = $data['FILENAME']??'';
-        if(!file_exists($filename)){
-            $this->logger->writeError("File '$filename' not exists!!!");
-            return;
-        }
-        $result = $this->b24->uploadRecord($data['uploadUrl'], $filename);
-        try {
-            $rawResult = json_encode($result, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
-            $this->logger->writeInfo('Result: ' . $rawResult);
-        }catch (Exception $e){
-            $this->logger->writeError('Exception upload file: ' . $e->getMessage());
-            return;
-        }
-        if(!isset($result['result']["FILE_ID"])){
-            $this->logger->writeError('Fail upload file. Req: ' . $rawResult);
-        }
-        usleep(300000);
+        // Schedule task for delayed processing (30 seconds later)
+        $runAt = time() + 30;
+        $this->query[$runAt] = $this->query[$runAt] ?? [];
+        $this->query[$runAt][] = $data;
+        $this->logger->writeInfo("Task queued to run at $runAt (".date('c', $runAt).")");
     }
 }
 

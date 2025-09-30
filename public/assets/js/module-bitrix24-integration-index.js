@@ -8,6 +8,7 @@
  */
 
 /* global globalRootUrl, globalTranslate, Form, SemanticLocalization, InputMaskPatterns  */
+
 var ModuleBitrix24Integration = {
   $formObj: $('#module-bitrix24-integration-form'),
   $submitButton: $('#submitbutton'),
@@ -50,7 +51,6 @@ var ModuleBitrix24Integration = {
   },
   onChangeRegion: function onChangeRegion() {
     var region = ModuleBitrix24Integration.$elRegion.val();
-
     if (region === 'REST_API') {
       ModuleBitrix24Integration.$formObj.form('set value', 'isREST', true);
       ModuleBitrix24Integration.$elAppData.show();
@@ -58,14 +58,13 @@ var ModuleBitrix24Integration = {
       ModuleBitrix24Integration.$formObj.form('set value', 'isREST', '');
       ModuleBitrix24Integration.$elAppData.hide();
     }
-
     ModuleBitrix24Integration.onChangeField();
   },
   updateAuthInfo: function updateAuthInfo(e) {
     var data = e.originalEvent.data;
-
     if (typeof data !== 'string' && data.code !== undefined) {
       data.region = ModuleBitrix24Integration.$elRegion.val();
+      data.portal = $('#portal').val();
       $.post("".concat(globalRootUrl, "module-bitrix24-integration/activateCode"), data, function (result) {
         console.log(result);
       });
@@ -81,7 +80,6 @@ var ModuleBitrix24Integration = {
   },
   initialize: function initialize() {
     var _this = this;
-
     ModuleBitrix24Integration.checkStatusToggle();
     window.addEventListener('ModuleStatusChanged', ModuleBitrix24Integration.checkStatusToggle);
     ModuleBitrix24Integration.initializeForm();
@@ -103,7 +101,6 @@ var ModuleBitrix24Integration = {
         orderable: false,
         searchable: false
       }, null, null, null, null],
-
       /**
        * Draw event - fired once the table has completed a draw.
        */
@@ -143,14 +140,6 @@ var ModuleBitrix24Integration = {
         ModuleBitrix24Integration.$dirrtyField.val(Math.random());
         ModuleBitrix24Integration.$dirrtyField.trigger('change');
         ModuleBitrix24Integration.onChangeField();
-      },
-      onChecked: function onChecked() {
-        var number = $(this).attr('data-value');
-        $("#".concat(number, " .disability")).removeClass('disabled');
-      },
-      onUnchecked: function onUnchecked() {
-        var number = $(this).attr('data-value');
-        $("#".concat(number, " .disability")).addClass('disabled');
       }
     });
     ModuleBitrix24Integration.$usersCheckBoxes.checkbox('attach events', '.check.button', 'check');
@@ -189,7 +178,6 @@ var ModuleBitrix24Integration = {
       info: false,
       // scrollCollapse: true,
       // scroller: true,
-
       /**
        * Конструктор строки записи
        * @param row
@@ -207,7 +195,6 @@ var ModuleBitrix24Integration = {
         $('td', row).eq(3).html(templateDid);
         $('td', row).eq(4).html(templateDeleteButton);
       },
-
       /**
        * Draw event - fired once the table has completed a draw.
        */
@@ -223,8 +210,9 @@ var ModuleBitrix24Integration = {
       language: SemanticLocalization.dataTableLocalisation,
       ordering: false
     });
-    ModuleBitrix24Integration.dataTable = ModuleBitrix24Integration.$recordsTable.DataTable(); // Двойной клик на поле ввода номера
+    ModuleBitrix24Integration.dataTable = ModuleBitrix24Integration.$recordsTable.DataTable();
 
+    // Двойной клик на поле ввода номера
     $('body').on('focusin', '.external-name, .external-number, .external-aliases ', function (e) {
       $(e.target).transition('glow');
       $(e.target).closest('div').removeClass('transparent').addClass('changed-field');
@@ -233,8 +221,9 @@ var ModuleBitrix24Integration = {
       ModuleBitrix24Integration.$dirrtyField.trigger('change');
       Form.$formObj.form('set value', 'dirrty', Math.random());
       Form.checkValues();
-    }); // Отправка формы на сервер по уходу с поля ввода
+    });
 
+    // Отправка формы на сервер по уходу с поля ввода
     $('body').on('focusout', '.external-name, .external-number, .external-aliases', function (e) {
       $(e.target).closest('div').addClass('transparent').removeClass('changed-field');
       $(e.target).attr('readonly', true);
@@ -242,20 +231,20 @@ var ModuleBitrix24Integration = {
       ModuleBitrix24Integration.$dirrtyField.trigger('change');
       Form.$formObj.form('set value', 'dirrty', Math.random());
       Form.checkValues();
-    }); // Клик на кнопку удалить
+    });
 
+    // Клик на кнопку удалить
     $('body').on('click', 'a.delete', function (e) {
       e.preventDefault();
       $(e.target).closest('tr').remove();
-
       if (ModuleBitrix24Integration.$recordsTable.find('tbody > tr').length === 0) {
         ModuleBitrix24Integration.$recordsTable.find('tbody').append('<tr class="odd"></tr>');
       }
-
       Form.$formObj.form('set value', 'dirrty', Math.random());
       Form.checkValues();
-    }); // Добавление новой строки
+    });
 
+    // Добавление новой строки
     ModuleBitrix24Integration.$addNewButton.on('click', function (e) {
       e.preventDefault();
       $('.dataTables_empty').remove();
@@ -272,7 +261,6 @@ var ModuleBitrix24Integration = {
       $(obj).html(globalTranslate["mod_b24_i_OPEN_CARD_" + $(obj).val()]);
     });
   },
-
   /**
    * Подготавливает список выбора пользователей
    * @param selected
@@ -296,16 +284,14 @@ var ModuleBitrix24Integration = {
     });
     return values;
   },
-
   /**
    * Обработка изменения группы в списке
    */
   changeCardModeInList: function changeCardModeInList(value, text, $choice) {
+    Form.$formObj.form('set value', 'dirrty', Math.random());
     ModuleBitrix24Integration.$dirrtyField.val(Math.random());
     ModuleBitrix24Integration.$dirrtyField.trigger('change');
-    ModuleBitrix24Integration.onChangeField();
   },
-
   /**
    * Изменение статуса кнопок при изменении статуса модуля
    */
@@ -314,16 +300,17 @@ var ModuleBitrix24Integration = {
       $('[data-tab = "general"] .disability').removeClass('disabled');
       $('[data-tab = "users"]').removeClass('disabled');
       $('[data-tab = "external_lines"]').removeClass('disabled');
+      $('.disability').removeClass('disabled');
       ModuleBitrix24Integration.$moduleStatus.show();
       ModuleBitrix24IntegrationStatusWorker.initialize();
     } else {
       ModuleBitrix24Integration.$moduleStatus.hide();
+      $('.disability').addClass('disabled');
       $('[data-tab = "general"] .disability').addClass('disabled');
       $('[data-tab = "users"]').addClass('disabled');
       $('[data-tab = "external_lines"]').addClass('disabled');
     }
   },
-
   /**
    * Инициализирует красивое представление номеров
    */
@@ -332,7 +319,6 @@ var ModuleBitrix24Integration = {
       // Подготовим таблицу для сортировки
       ModuleBitrix24Integration.$maskList = $.masksSort(InputMaskPatterns, ['#'], /[0-9]|#/, 'mask');
     }
-
     $el.inputmasks({
       inputmask: {
         definitions: {
@@ -345,8 +331,8 @@ var ModuleBitrix24Integration = {
         // oncleared: extension.cbOnClearedMobileNumber,
         oncomplete: ModuleBitrix24Integration.cbOnCompleteNumber,
         // clearIncomplete: true,
-        onBeforePaste: ModuleBitrix24Integration.cbOnNumberBeforePaste // regex: /\D+/,
-
+        onBeforePaste: ModuleBitrix24Integration.cbOnNumberBeforePaste
+        // regex: /\D+/,
       },
       match: /[0-9]/,
       replace: '9',
@@ -354,7 +340,6 @@ var ModuleBitrix24Integration = {
       listKey: 'mask'
     });
   },
-
   /**
    * Очистка номера перед вставкой от лишних символов
    * @returns {boolean|*|void|string}
@@ -362,18 +347,15 @@ var ModuleBitrix24Integration = {
   cbOnNumberBeforePaste: function cbOnNumberBeforePaste(pastedValue) {
     return pastedValue.replace(/\D+/g, '');
   },
-
   /**
    * После ввода номера
    */
   cbOnCompleteNumber: function cbOnCompleteNumber(e) {
     var didEl = $(e.target).closest('tr').find('input.external-aliases');
-
     if (didEl.val() === '') {
       didEl.val($(e.target).inputmask('unmaskedvalue'));
     }
   },
-
   /**
    * Колбек перед отправкой формы
    * @param settings
@@ -383,7 +365,7 @@ var ModuleBitrix24Integration = {
     var result = settings;
     result.data = ModuleBitrix24Integration.$formObj.form('get values');
     var arrExternalLines = [];
-    $('#external-line-table tr').each(function (index, obj) {
+    $('#external-line-table tr[id]').each(function (index, obj) {
       arrExternalLines.push({
         disabled: $(obj).find('div.checkbox').checkbox('is checked') === false,
         id: $(obj).attr('id'),
@@ -397,11 +379,9 @@ var ModuleBitrix24Integration = {
     var arrUsers = [];
     $('#extensions-table tr').each(function (index, obj) {
       var uname = $(obj).find('td input[type="checkbox"]').attr('name');
-
       if (uname === undefined) {
         return;
       }
-
       arrUsers.push({
         id: $(obj).attr('id'),
         user_id: uname.replace('user-', ''),
@@ -413,7 +393,6 @@ var ModuleBitrix24Integration = {
     result.data.arrUsers = JSON.stringify(arrUsers);
     return result;
   },
-
   /**
    * Колбек после отправки формы
    */

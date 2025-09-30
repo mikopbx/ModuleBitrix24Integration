@@ -454,10 +454,15 @@ class ConnectorDb extends WorkerBase
      */
     public function saveExternalLinesData(array $externalLinesPost):bool
     {
-        $filter = [
-            'conditions' => 'id NOT IN ({ids:array})',
-            'bind' => ['ids' => array_column($externalLinesPost, 'id')]
-        ];
+        if(empty($externalLinesPost)){
+            // Больше нет внешних линий, чистим все.
+            $filter = [];
+        }else{
+            $filter = [
+                'conditions' => 'id NOT IN ({ids:array})',
+                'bind' => ['ids' => array_column($externalLinesPost, 'id')]
+            ];
+        }
         $externalLines = ModuleBitrix24ExternalLines::find($filter);
         foreach ($externalLines as $externalLine){
             $externalLine->delete();

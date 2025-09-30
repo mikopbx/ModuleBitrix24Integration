@@ -14,7 +14,6 @@ use Phalcon\Mvc\Model\Manager;
 use MikoPBX\Common\Models\CallQueues;
 use MikoPBX\Common\Models\IncomingRoutingTable;
 use MikoPBX\Common\Models\Extensions;
-use MikoPBX\Modules\Logger;
 use MikoPBX\Modules\PbxExtensionBase;
 use MikoPBX\PBXCoreREST\Lib\PBXApiResult;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
@@ -107,15 +106,17 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->client_id        = ''.$data->client_id;
         $this->client_secret    = ''.$data->client_secret;
         $this->initialized      = true;
-
-        $this->requestLogger =  new Logger('requests', $this->moduleUniqueId);
-        $this->updateSettings($data);
+        if('_www' !== $logPrefix){
+            // Это работа web интерфейса. Обновление настроек не требуется.
+            $this->updateSettings($data);
+        }
         unset($data);
     }
 
     public function setIsNotMainProcess():void
     {
         $this->mainProcess = false;
+        $this->mainLogger =  new MainLogger('HttpConnection_SYNC', 'ModuleBitrix24Integration');
     }
 
     public function updateSettings($settings=null):void
@@ -179,7 +180,6 @@ class Bitrix24Integration extends PbxExtensionBase
         ];
         ConnectorDb::invoke(ConnectorDb::FUNC_GET_USERS, [$parameters]);
         $bitrix24UsersTmp = CacheManager::getCacheData(ModuleBitrix24Users::class);
-        $this->mainLogger->writeInfo($bitrix24UsersTmp, 'usersSettingsB24 from cache');
 
         $uSettings = [];
         foreach ($bitrix24UsersTmp as $uData){
@@ -202,7 +202,6 @@ class Bitrix24Integration extends PbxExtensionBase
         foreach ($dbData as $row){
             $settings[$row['number']] = $uSettings[$row['userid']];
         }
-        $this->mainLogger->writeInfo($settings, 'Results usersSettingsB24');
         return $settings;
     }
 
@@ -300,6 +299,11 @@ class Bitrix24Integration extends PbxExtensionBase
         if (isset($query_data["access_token"])) {
             $result = true;
             $this->updateSessionData($query_data);
+            if($grantType == 'authorization_code'){
+                $ir = new Bitrix24InvokeRest();
+                $ir->invoke('needRestart', []);
+            }
+
             $this->mainLogger->writeInfo('The token has been successfully updated');
         }else{
             $this->mainLogger->writeError('Refresh token: response: '.json_encode($query_data).', params:'.json_encode($params));
@@ -428,7 +432,7 @@ class Bitrix24Integration extends PbxExtensionBase
                 if(empty($result)){
                     $this->mainLogger->writeError($response, 'EMPTY RESPONSE[result][result]');
                 }else{
-                    $this->mainLogger->writeInfo($result, 'RESPONSE');
+                    $this->mainLogger->writeInfo($response, 'RESPONSE');
                 }
             }
         }
@@ -1246,23 +1250,26 @@ class Bitrix24Integration extends PbxExtensionBase
 
     /**
      * Регистрация факта завершения звонка в b24.
-     *
      * @param $options
+     * @param $tmpCallsData
      *
-     * @return array|null
+     * @return array
      */
     public function telephonyExternalCallFinish($options, &$tmpCallsData): array
     {
         $arg     = [];
-        $CALL_ID = '';
+        $callId = '';
+        $callDataFromDB = [];
+        $finishKey = '';
+
         $result = ConnectorDb::invoke(ConnectorDb::FUNC_GET_CDR_BY_LINKED_ID, [$options]);
         if(!empty($result)){
-            [$CALL_DATA, $CALL_ID] = $result;
+            [$callDataFromDB, $callId] = $result;
         }
         $id = $options['linkedid'];
-        if (empty($CALL_ID)) {
+        if (empty($callId)) {
             $this->mainLogger->writeInfo($options, "ConnectorDb did not return a reply. CALL_ID is empty ($id)");
-            return [];
+            return [$arg,$finishKey];
         }
 
         ///////////////////////////////////////////////////////////////
@@ -1274,7 +1281,7 @@ class Bitrix24Integration extends PbxExtensionBase
             !empty($regData)) {
             // Нужно зарегистрировать новый вызов
             [$arg, $key] = $tmpCallsData[$id]['ARGS_REGISTER_'.$options['UNIQUEID']];
-            $CALL_ID = '$result['.$key.'][CALL_ID]';
+            $callId = '$result['.$key.'][CALL_ID]';
             $callData['FILE_'.$options['UNIQUEID']] = $options['FILE'];
         }
         if(!isset($callData['MAIN_FILE'])){
@@ -1282,10 +1289,16 @@ class Bitrix24Integration extends PbxExtensionBase
         }
         //
         ///////////////////////////////////////////////////////////////
+        $finishOneKey = self::API_CALL_FINISH.'_'.$callId;
+        if($this->getCache($finishOneKey)){
+            $this->mainLogger->writeInfo($options, "The challenge has already been finish earlier ($callId).");
+            return [$arg,$finishKey];
+        }
+        $this->saveCache($finishOneKey, true, 30);
 
-        $userId = (intval($CALL_DATA['answer']??0) === 1) ? $CALL_DATA['user_id']??'' : '';
+        $userId = (intval($callDataFromDB['answer']??0) === 1) ? $callDataFromDB['user_id']??'' : '';
         $params = [
-            'CALL_ID'       => $CALL_ID,
+            'CALL_ID'       => $callId,
             'USER_ID'       => $userId,
             'DURATION'      => '',
             'COST'          => '', // Стоимость звонка.
@@ -1296,25 +1309,25 @@ class Bitrix24Integration extends PbxExtensionBase
             'ADD_TO_CHAT'   => 0,
             'auth'          => $this->getAccessToken(),
         ];
-
         $this->fillPropertyValues($options, $params);
 
         $finishKey       = self::API_CALL_FINISH.'_'.$id.'_' . uniqid('', true);
         $arg[$finishKey] = self::API_CALL_FINISH.'?' . http_build_query($params);
         if ($options['export_records']) {
-            $this->telephonyExternalCallAttachRecord($options['FILE'], $CALL_ID, $arg);
+            $this->telephonyExternalCallAttachRecord($options['FILE'], $callId, $arg);
         }
 
         if ($options['GLOBAL_STATUS'] === 'ANSWERED' && $options['disposition'] !== 'ANSWERED') {
-            $this->mem_cache[$finishKey] = $CALL_DATA;
+            $this->mem_cache[$finishKey] = $callDataFromDB;
         }
         if ($options['GLOBAL_STATUS'] !== 'ANSWERED') {
-            $this->mem_cache["$finishKey-missed"]   = $CALL_DATA;
+            $this->mem_cache["$finishKey-missed"]   = $callDataFromDB;
         }
         if ($options['GLOBAL_STATUS'] === 'ANSWERED' && $options['disposition'] === 'ANSWERED') {
-            $this->mem_cache["$finishKey-answered"] = $CALL_DATA;
+            $this->mem_cache["$finishKey-answered"] = $callDataFromDB;
         }
-        return $arg;
+        $this->mainLogger->writeInfo($params, "Add finish req ($id)");
+        return [$arg,$finishKey];
     }
 
     /**
@@ -1334,7 +1347,7 @@ class Bitrix24Integration extends PbxExtensionBase
         if($cacheData === null){
             $cacheData = $this->getMemCache("$finishKey-missed");
         }
-        $id = str_replace('telephony.externalcall.finish', '', $finishKey);
+        $id = str_replace(self::API_CALL_FINISH, '', $finishKey);
 
         if(isset($cacheData['contact_id'])){
             $queryArray[] = $this->crmContactUpdate($cacheData['contact_id'], $response['PORTAL_USER_ID'], $id);
@@ -1518,6 +1531,27 @@ class Bitrix24Integration extends PbxExtensionBase
         $arg                                        = [];
         $arg['crm.lead.update_'.$linkedId.'_'. uniqid('', true)] = 'crm.lead.update?' . http_build_query($params);
 
+        return $arg;
+    }
+
+    /**
+     * Обновление дела звонка,
+     * @param string $id
+     * @param string $linkedId
+     * @param string $description
+     * @return array
+     */
+    public function crmActivityUpdate(string $id, string $linkedId, string $description): array
+    {
+        $params = [
+            'id'   => $id,
+            'fields' => [
+                'DESCRIPTION' => $description
+            ],
+            'auth' => $this->getAccessToken(),
+        ];
+        $arg = [];
+        $arg['crm.activity.update_'.$linkedId.'_'. uniqid('', true)] = 'crm.activity.update?' . http_build_query($params);
         return $arg;
     }
 

@@ -31,12 +31,9 @@ use Modules\ModuleBitrix24Integration\Lib\CacheManager;
 class WorkerBitrix24IntegrationHTTP extends WorkerBase
 {
     private Bitrix24Integration $b24;
-
     private $pidSyncProcContacts;
     private $timeSyncProcContacts;
     private array $q_req = [];
-    private array $q_pre_req = [];
-    private array $q_pre_req2 = [];
     private bool $need_get_events = false;
     private int $last_update_inner_num = 0;
     private BeanstalkClient $queueAgent;
@@ -44,6 +41,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     private bool  $searchEntities = false;
     private array $tmpCallsData = [];
     private array $didUsers = [];
+    private array $perCallQueues = [];
 
     /**
      * Handles the received signal.
@@ -69,7 +67,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         if (!$this->b24->initialized) {
             die('Settings not set...');
         }
-        $this->b24->logger->writeInfo('Starting...');
+        $this->b24->mainLogger->writeInfo('Starting...');
         $this->b24->checkNeedUpdateToken();
         // При старте синхронизируем внешние линии.
         $externalLines = $this->b24->syncExternalLines();
@@ -111,7 +109,11 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     }
     public function pingCallBack(BeanstalkClient $message): void
     {
-        $this->b24->logger->writeInfo('Get ping event...');
+        if($this->needRestart){
+            // Нет смысла отвечать,
+            return;
+        }
+        $this->b24->mainLogger->writeInfo('Get ping event...');
         parent::pingCallBack($message);
     }
 
@@ -127,10 +129,12 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $arg = [];
         if($action === 'scope'){
             $arg = $this->b24->getScopeAsync($data['inbox_tube']??'');
+        }elseif($action === 'needRestart'){
+            $this->needRestart = true;
         }
         if(!empty($arg)){
-            $this->b24->logger->writeInfo("Add action $action in queue...");
-            $this->q_req = array_merge($arg, $this->q_req);
+            $this->b24->mainLogger->writeInfo($data, "Add action $action in queue...");
+            $this->q_req = array_merge($this->q_req, $arg);
         }
     }
 
@@ -151,11 +155,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     public function b24ChannelSearch($client): void
     {
         $data = json_decode($client->getBody(), true);
-        $phone = $data['PHONE_NUMBER']??'';
-        if(!empty($phone)){
-            // Добавляем запрос в очередь
-            $this->createTmpCallData($data);
-        }
+        $this->createTmpCallData($data);
     }
 
     /**
@@ -164,28 +164,36 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     public function b24ChannelCallBack($client): void
     {
         $srcData = $client->getBody();
-        $this->b24->logger->writeInfo('Get AMI Event'. $srcData);
         try {
             /** @var array $data */
             $data = json_decode($srcData, true, 512, JSON_THROW_ON_ERROR);
         }catch (Exception $e){
-            $this->b24->logger->writeInfo('AMI Event'. $e->getMessage());
+            $this->mainLogger->logger->writeInfo('AMI Event'. $e->getMessage());
             return;
         }
-
-        $id = $data['linkedid']??'';
-        if ($this->checkPreAction($data)) {
-            // Получение сведений об организации по номеру телефона
-            // Формирование лида.
-            // Предварительные действия перед обработкой звонков.
-            // Отрабатывает только если заполенн "$didUsers"
-            $this->b24->logger->writeInfo('Ignore event...'.$id);
+        $linkedId = $data['linkedid']??'';
+        if(empty($linkedId)){
+            $this->b24->mainLogger->writeError($data, 'Get AMI, EMPTY linkedid');
             return;
         }
-        $this->addDataToQueue($data);
+        $this->b24->mainLogger->writeInfo($data, 'Get AMI Event');
+        if ($this->searchEntities
+            && !isset($this->tmpCallsData[$linkedId])
+            && $data['action'] === 'telephonyExternalCallRegister') {
+            $this->createTmpCallData($data);
+        }
+        if(!isset($this->perCallQueues[$linkedId])){
+            $this->perCallQueues[$linkedId] = new \SplQueue();
+        }
+        $this->perCallQueues[$linkedId]->enqueue($data);
     }
 
-    private function addDataToQueue(array $data):void
+    /**
+     * Add job to req queue
+     * @param array $data
+     * @return void
+     */
+    private function addDataToQueue(array $data): void
     {
         if ('telephonyExternalCallRegister' === $data['action']) {
             $cache_key = 'tmp10' . __FUNCTION__ . $data['UNIQUEID'] . '_' . $data['USER_PHONE_INNER'];
@@ -214,6 +222,8 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
 
                 $callId = &$this->tmpCallsData[$data['linkedid']]['CALL_ID'];
                 if(empty($callId)){
+                    // Save user id for current unique leg to use on dial_answer
+                    $this->tmpCallsData[$data['linkedid']]['ARG_REGISTER_USER_'.$data['UNIQUEID']] = $data['USER_ID']??'';
                     [$arg, $key] = $this->b24->telephonyExternalCallRegister($data);
                     if(!empty($key)){
                         // Это Метод register
@@ -223,12 +233,16 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                     $this->tmpCallsData[$data['linkedid']]['ARG_REGISTER_USER_'.$data['UNIQUEID']] = $data['USER_ID']??'';
                     $this->tmpCallsData[$data['linkedid']]['ARGS_REGISTER_'.$data['UNIQUEID']] = $this->b24->telephonyExternalCallRegister($data);
                     $data['CALL_ID'] = $callId;
-                    $arg = $this->b24->telephonyExternalCallShow($data);
+                    if($this->needOpenCard($data['USER_ID'])){
+                        $arg = $this->b24->telephonyExternalCallShow($data);
+                    }
                 }else{
                     $this->tmpCallsData[$data['linkedid']]['ARG_REGISTER_USER_'.$data['UNIQUEID']] = $data['USER_ID']??'';
                     $this->tmpCallsData[$data['linkedid']]['ARGS_REGISTER_'.$data['UNIQUEID']] = $this->b24->telephonyExternalCallRegister($data);
                     $data['CALL_ID'] = '$result['.$callId.'][CALL_ID]';
-                    $arg = $this->b24->telephonyExternalCallShow($data);
+                    if($this->needOpenCard($data['USER_ID'])){
+                        $arg = $this->b24->telephonyExternalCallShow($data);
+                    }
                 }
                 if (count($arg) > 0) {
                     // Основная очередь запросов.
@@ -236,26 +250,129 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 }
                 unset($callId);
             }
-        } else {
-            // Дополнительная очередь ожидания.
-            // Будет обработана после поулчения результата telephonyExternalCallRegister.
-            $this->q_pre_req[uniqid('', true)] = $data;
+        } elseif ('action_hangup_chan' === $data['action']) {
+            // Надежнее вычислить внутренний номер из канала.
+            $number = $this->parsePJSIP($data['channel']);
+            $callData = $this->tmpCallsData[$data['linkedid']] ?? [];
+            $data['CALL_ID'] = $callData['CALL_ID']??'';
+            $data['USER_ID'] = $this->b24->inner_numbers[$number]['ID']??'';
+            if (!empty($data['CALL_ID']) && !empty($data['USER_ID'])) {
+                $arg = $this->b24->telephonyExternalCallHide($data);
+                $this->q_req = array_merge($this->q_req, $arg);
+            }
+        } elseif ('action_dial_answer' === $data['action']) {
+            $tmpArr = [];
+            $userId = $this->tmpCallsData[$data['linkedid']]['ARG_REGISTER_USER_'.$data['UNIQUEID']]??'';
+            $dealId = '';
+            $leadId = '';
+            $filter = [
+                "linkedid='{$data['linkedid']}'",
+                'order' => 'uniq_id'
+            ];
+            $b24CdrRows = ConnectorDb::invoke(ConnectorDb::FUNC_GET_CDR_BY_FILTER, [$filter]);
+            foreach ($b24CdrRows as $cdrData) {
+                $row = (object)$cdrData;
+                $cdr = $row;
+                if (!empty($cdr->dealId)) {
+                    $dealId = max($dealId, $cdr->dealId);
+                }
+                if (!empty($cdr->lead_id)) {
+                    $leadId = max($leadId, $cdr->lead_id);
+                }
+                // Отмечаем вызов как отвеченный.
+                $cdr->answer = 1;
+                ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_FROM_ARRAY_CDR_BY_UID, [$row->uniq_id, (array)$cdr]);
+                if (intval($userId) !== intval($row->user_id)) {
+                    // Открываем карточку клиента тому, кто ответил. (если разрешено).
+                    $data['CALL_ID'] = $row->call_id;
+                    $data['USER_ID'] = (int)$userId;
+                    // Поиск внутреннего номера пользователя b24.
+                    if($this->needOpenCard($userId)){
+                        $tmpArr[] = $this->b24->telephonyExternalCallShow($data);
+                    }
+                }
+            }
+            if (!empty($leadId) && !empty($userId)) {
+                $tmpArr[] = $this->b24->crmLeadUpdate($leadId, $userId, $data['linkedid']);
+            }
+            // Если лид добавляется вручную, до звонка методом crm.lead.add
+            if(($this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_TYPE']??'') === 'LEAD'
+               && !isset($this->tmpCallsData[$data['linkedid']]['crm-data']['ID'])){
+                // Update lead only if we know the responsible user
+                if(!empty($userId)){
+                    $tmpArr[] = $this->b24->crmLeadUpdate($this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_ID'], $userId, $data['linkedid']);
+                }else{
+                    $this->b24->mainLogger->writeInfo($data, "Error empty userId, can not update lead ($data[linkedid])");
+                }
+            }
+            if(!empty($tmpArr)){
+                $this->q_req = array_merge($this->q_req, ...$tmpArr);
+            }
+        } elseif ('telephonyExternalCallFinish' === $data['action']) {
+            [$arg,$finishKey] = $this->b24->telephonyExternalCallFinish($data, $this->tmpCallsData);
+            $this->q_req = array_merge($this->q_req, $arg);
+
+            if(!empty($finishKey)){
+                $arg = $this->b24->crmActivityUpdate('$result['.$finishKey.'][CRM_ACTIVITY_ID]', $data['linkedid'], $data['linkedid']);
+                $this->q_req = array_merge($this->q_req, $arg);
+            }
+        }else{
+            $this->b24->mainLogger->writeInfo($data, "The event handler was not found ($data[linkedid])");
         }
+
         if (count($this->q_req) >= 49) {
             $this->executeTasks();
         }
     }
 
-    public function checkPreAction(&$data): bool
+    /**
+     * @param $s
+     * @return string|null
+     */
+    private function parsePJSIP($s):?string
     {
+        if (strpos($s, 'PJSIP/') === 0) {
+            $s = substr($s, 6);
+        }else{
+            return null;
+        }
+        $parts = explode('-', $s);
+        if (count($parts) < 2) {
+            return null;
+        }
+        array_pop($parts);
+        return implode('-', $parts);
+    }
+
+    /**
+     * Проверка, нужно ли открывать карточку пользователю bitrix24
+     * @param $userId
+     * @return bool
+     */
+    private function needOpenCard($userId)
+    {
+        $tmpInnerNumArray = array_values($this->b24->inner_numbers);
+        // Поиск внутреннего номера пользователя b24.
+        $innerNumber      = $tmpInnerNumArray[array_search($userId, array_column($tmpInnerNumArray, 'ID'),true)]['UF_PHONE_INNER']??'';
+        return ($this->b24->usersSettingsB24[$innerNumber]['open_card_mode']??'') === Bitrix24Integration::OPEN_CARD_ANSWERED;
+    }
+
+    public function shouldDeferForPreAction(&$data): bool
+    {
+        $action = $data['action']??'';
+        $id     = $data['linkedid']??'';
+
+        if($data['UNIQUEID'] === ''){
+            $this->b24->mainLogger->writeError($data, "Empty UID $id...");
+            return false;
+        }
         $needActions = true;
-        $id = $data['linkedid']??'';
         if ($this->searchEntities) {
-            if (!isset($this->tmpCallsData[$data['linkedid']]) && $data['action'] === 'telephonyExternalCallRegister') {
+            if (!isset($this->tmpCallsData[$id]) && $action === 'telephonyExternalCallRegister') {
                 $this->createTmpCallData($data);
             }
-            $callData = &$this->tmpCallsData[$data['linkedid']];
-            if ($data['action'] === 'telephonyExternalCallRegister'
+            $callData = &$this->tmpCallsData[$id];
+            if ($action === 'telephonyExternalCallRegister'
                 && ($callData['data']['action']??'') !== 'telephonyExternalCallRegister'){
                 $callData['data'] = $data;
                 $data['CRM_ENTITY_TYPE'] = $callData['crm-data']['CRM_ENTITY_TYPE'];
@@ -263,13 +380,13 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             }
             $wait = $callData['wait']?? false;
             if ($wait === false) {
-                $this->b24->logger->writeInfo('checkPreAction wait === false...'.$id);
-                // Не требуется предварительная обработка. Выполнить сразу.
-                return false;
+                $this->b24->mainLogger->writeInfo($data, "Process (1) $id...");
+                $needActions = false;
+            }else{
+                $this->b24->mainLogger->writeInfo($data, "Event wait call register(2)... $id: ");
             }
-            $callData['events'][] = $data;
         } else {
-            $this->b24->logger->writeInfo('checkPreAction needActions = false...'.$id);
+            $this->b24->mainLogger->writeInfo($data, "Process (2) $id...");
             $needActions = false;
         }
         return $needActions;
@@ -282,6 +399,10 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
      */
     private function createTmpCallData($data):void
     {
+        if(isset($this->tmpCallsData[$data['linkedid']])){
+            // Выполнять однократно.
+            return;
+        }
         $this->tmpCallsData[$data['linkedid']] = [
             'wait'       => true,
             'events'     => [],
@@ -297,7 +418,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         ];
         $phone = $data['PHONE_NUMBER'] ?? '';
         if(empty($phone)){
-            $this->b24->logger->writeError('Empty phone number... '. json_encode($data, JSON_UNESCAPED_UNICODE));
+            $this->b24->mainLogger->writeError($data, 'Empty phone number... ');
         }elseif ($this->tmpCallsData[$data['linkedid']]['search'] === -1 ) {
             $this->tmpCallsData[$data['linkedid']]['search'] = 1;
             $this->findEntitiesByPhone($phone, $data['linkedid']);
@@ -343,7 +464,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $this->b24->handleEvent([ 'event' => $event, 'data'  => $eventData]);
         }
         if(!empty($args)){
-            $this->q_req = array_merge(array_merge(...$args), $this->q_req);
+            $this->q_req = array_merge($this->q_req, array_merge(...$args));
         }
     }
 
@@ -389,27 +510,26 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $this->timeSyncProcContacts = time();
         $this->pidSyncProcContacts = pcntl_fork();
         if ($this->pidSyncProcContacts == -1) {
-            $this->b24->logger->writeError('Fail fork sync contacts... ');
+            $this->b24->mainLogger->writeError('Fail fork sync contacts... ');
             return;
         } elseif ($this->pidSyncProcContacts) {
-            $this->b24->logger->writeInfo('Start sync contacts... '.$this->pidSyncProcContacts);
+            $this->b24->mainLogger->writeInfo('Start sync contacts... '.$this->pidSyncProcContacts);
             usleep(100000);
             return;
         }
-        $this->needRestart = true;
         $this->b24->setIsNotMainProcess();
-
+        $this->needRestart = true;
         set_time_limit(50);
-        cli_set_process_title(cli_get_process_title()."_SYNC_CONTACTS");
+        cli_set_process_title("B24_HTTP_SYNC_CONTACTS");
         $syncProcReq = [];
         $arg = $this->b24->crmListEnt(Bitrix24Integration::API_CRM_LIST_CONTACT);
-        $syncProcReq = array_merge($arg, $syncProcReq);
+        $syncProcReq = array_merge($syncProcReq, $arg);
 
         $arg = $this->b24->crmListEnt(Bitrix24Integration::API_CRM_LIST_COMPANY);
-        $syncProcReq = array_merge($arg, $syncProcReq);
+        $syncProcReq = array_merge($syncProcReq, $arg);
 
         $arg = $this->b24->crmListEnt(Bitrix24Integration::API_CRM_LIST_LEAD);
-        $syncProcReq = array_merge($arg, $syncProcReq);
+        $syncProcReq = array_merge($syncProcReq, $arg);
 
         $response = $this->b24->sendBatch($syncProcReq);
         $result = $response['result']['result'] ?? [];
@@ -423,10 +543,10 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 foreach ($partResponse as $data){
                     if(Bitrix24Integration::API_CRM_LIST_COMPANY === $actionName){
                         $arg = $this->b24->getCompanyContacts($data['ID']);
-                        $syncProcReqCompany = array_merge($arg, $syncProcReqCompany);
+                        $syncProcReqCompany = array_merge($syncProcReqCompany, $arg);
                     }elseif (Bitrix24Integration::API_CRM_LIST_CONTACT === $actionName){
                         $arg = $this->b24->getContactCompany($data['ID']);
-                        $syncProcReqContact = array_merge($arg, $syncProcReqContact);
+                        $syncProcReqContact = array_merge($syncProcReqContact, $arg);
                     }
                 }
             }
@@ -456,7 +576,6 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $this->b24->b24GetPhones();
             $this->b24->updateSettings();
             $this->last_update_inner_num = time();
-            // Очистка $this->tmpCallsData
             $this->checkActiveChannels();
             $this->syncProcContacts();
         }
@@ -464,94 +583,36 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         // Получать новые события будем каждое 2ое обращение к этой функции ~ 1.2 секунды.
         $this->need_get_events = !$this->need_get_events;
 
+        // Обработка очередей: по одному событию с головы для каждой очереди
+        foreach ($this->perCallQueues as $queue) {
+            if ($queue->isEmpty()) {
+                continue;
+            }
+            $event = $queue->bottom();
+            if ($this->shouldDeferForPreAction($event)) {
+                continue;
+            }
+            $queue->dequeue();
+            $this->addDataToQueue($event);
+        }
+
         if ($this->need_get_events) {
             // Запрос на получение offline событий.
             $arg = $this->b24->eventOfflineGet();
-            $this->q_req = array_merge($arg, $this->q_req);
+            $this->q_req = array_merge($this->q_req, $arg);
         }
         if (count($this->q_req) > 0) {
             $chunks = $this->chunkAssociativeArray($this->q_req);
             $finalResult = [];
-            $errors = [];
             foreach ($chunks as $chunk) {
                 $response = $this->b24->sendBatch($chunk);
                 $finalResult[] = $response['result']['result'] ?? [];
-                $errors[]      = $response['result']['result_error']??[];
             }
             $result = array_merge(...$finalResult);
             // Чистим очередь запросов.
             $this->q_req = [];
             $this->postReceivingResponseProcessing($result);
             $this->handleEvent($result);
-
-            CacheManager::setCacheData('module_state', array_merge(...$errors), 60);
-        }
-
-        if (count($this->q_pre_req) > 0) {
-            $tmpArr = [$this->q_req];
-            foreach ($this->q_pre_req as $data) {
-                if ('action_hangup_chan' === $data['action']) {
-                    $callData = $this->tmpCallsData[$data['linkedid']];
-                    $data['CALL_ID'] = $callData['CALL_ID']??'';
-                    $data['USER_ID'] = $callData['ARG_REGISTER_USER_'.$data['UNIQUEID']]??'';
-                    if (!empty($data['CALL_ID']) && !empty($data['USER_ID'])) {
-                        $tmpArr[] = $this->b24->telephonyExternalCallHide($data);
-                    }
-                    unset($callData);
-                } elseif ('action_dial_answer' === $data['action']) {
-                    $cdr = null;
-                    $userId = $this->tmpCallsData[$data['linkedid']]['ARG_REGISTER_USER_'.$data['UNIQUEID']]??'';
-                    $dealId = '';
-                    $leadId = '';
-                    $filter = [
-                        "linkedid='{$data['linkedid']}'",
-                        'order' => 'uniq_id'
-                    ];
-                    $b24CdrRows = ConnectorDb::invoke(ConnectorDb::FUNC_GET_CDR_BY_FILTER, [$filter]);
-                    foreach ($b24CdrRows as $cdrData) {
-                        $row = (object)$cdrData;
-                        $cdr = $row;
-                        if (!empty($cdr->dealId)) {
-                            $dealId = max($dealId, $cdr->dealId);
-                        }
-                        if (!empty($cdr->lead_id)) {
-                            $leadId = max($leadId, $cdr->lead_id);
-                        }
-                        // Отмечаем вызов как отвеченный.
-                        $cdr->answer = 1;
-                        ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_FROM_ARRAY_CDR_BY_UID, [$row->uniq_id, (array)$cdr]);
-                        if ($userId !== $row->user_id) {
-                            // Открываем карточку клиента тому, кто ответил. (если разрешено).
-                            $data['CALL_ID'] = $row->call_id;
-                            $data['USER_ID'] = (int)$userId;
-                            $tmpInnerNumArray = array_values($this->b24->inner_numbers);
-                            // Поиск внутреннего номера пользователя b24.
-                            $innerNumber      = $tmpInnerNumArray[array_search($userId, array_column($tmpInnerNumArray, 'ID'),true)]['UF_PHONE_INNER']??'';
-                            $cardOpenSetting  = $this->b24->usersSettingsB24[$innerNumber]['open_card_mode']??'';
-                            if($cardOpenSetting === Bitrix24Integration::OPEN_CARD_ANSWERED){
-                                $tmpArr[] = $this->b24->telephonyExternalCallShow($data);
-                            }
-                        }
-                    }
-                    if (!empty($leadId) && !empty($userId)) {
-                        $tmpArr[] = $this->b24->crmLeadUpdate($leadId, $userId, $data['linkedid']);
-                    }
-                    // Если лид добавляется вручную, до звонка методом crm.lead.add
-                    if(($this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_TYPE']??'') === 'LEAD'
-                       && !isset($this->tmpCallsData[$data['linkedid']]['crm-data']['ID'])){
-                        $tmpArr[] = $this->b24->crmLeadUpdate($this->tmpCallsData[$data['linkedid']]['crm-data']['CRM_ENTITY_ID'], $userId, $data['linkedid']);
-                    }
-                } elseif ('telephonyExternalCallFinish' === $data['action']) {
-                    $tmpArr[] = $this->b24->telephonyExternalCallFinish($data, $this->tmpCallsData);
-                }
-            }
-            $this->q_req = array_merge(...$tmpArr);
-            unset($tmpArr);
-            // Обработали все пердварительные данные.
-            $this->q_pre_req = [];
-        }
-        foreach ($this->q_pre_req2 as $event){
-            $this->addDataToQueue($event);
         }
     }
 
@@ -578,10 +639,10 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 $resultRegister = $this->b24->telephonyExternalCallPostRegister($key, $partResponse);
                 if(!empty($resultRegister)){
                     [$linkedId, $callId] = $resultRegister;
-                    $this->b24->logger->writeInfo("Update call_id for $linkedId - $callId");
+                    $this->b24->mainLogger->writeInfo("Update call_id for $linkedId - $callId");
                     $this->tmpCallsData[$linkedId]['CALL_ID'] = $callId;
                 }else{
-                    $this->b24->logger->writeInfo("fail Update call_id for $key");
+                    $this->b24->mainLogger->writeInfo("fail Update call_id for $key");
                 }
             } elseif (in_array($actionName,[Bitrix24Integration::API_CRM_CONTACT_COMPANY,Bitrix24Integration::API_CRM_COMPANY_CONTACT], true)) {
                 ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_LINKS, [[$key => $partResponse]], false);
@@ -604,7 +665,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             }
         }
         $tmpArr = array_merge(...$tmpArr);
-        $this->q_req = array_merge($tmpArr, $this->q_req);
+        $this->q_req = array_merge($this->q_req, $tmpArr);
     }
 
     /**
@@ -620,7 +681,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
 
         $did         = $callData['data']['did']??'';
         $chooseFirst = !isset($this->didUsers[$did]);
-        $users       = $this->didUsers[$did];
+        $users       = $this->didUsers[$did]??[];
 
         foreach (['LEAD', 'CONTACT', 'COMPANY'] as $type){
             if($callData['wait'] === false){
@@ -632,7 +693,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 }
                 $innerPhone = $this->b24->b24Users[$phoneData['userId']]??'';
                 if ($chooseFirst || in_array($innerPhone, $users, true)) {
-                    $this->b24->logger->writeInfo("findContactByPhone: $type id:". $phoneData['b24id']. ', TITLE: '.$phoneData['name']. ', responsible id: '.$phoneData['userId'].', responsible number: '. $innerPhone);
+                    $this->b24->mainLogger->writeInfo("findContactByPhone: $type id:". $phoneData['b24id']. ', TITLE: '.$phoneData['name']. ', responsible id: '.$phoneData['userId'].', responsible number: '. $innerPhone);
                     $callData['crm-data']    = [
                         'ID' => $phoneData['b24id'],
                         'CRM_ENTITY_TYPE' => $type,
@@ -641,7 +702,6 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                     $callData['wait']            = false;
                     $callData['responsible']     = $innerPhone;
                     $callData['responsibleName'] = $phoneData['name'];
-                    $this->addEventsToMainQueue($linkedId, 'LEAD', $phoneData['b24id']);
                     break;
                 }
             }
@@ -665,12 +725,6 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             }
         }
 
-        if($callData['wait'] === false){
-            foreach ($callData['events'] as $event){
-                $this->addDataToQueue($event);
-            }
-        }
-
         if(!empty($callData['inbox_tube'])){
             $this->queueAgent->publish(json_encode($callData), $callData['inbox_tube']);
             $callData['inbox_tube']='';
@@ -687,7 +741,6 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $this->tmpCallsData[$key]['wait'] = false;
         $this->tmpCallsData[$key]['crm-data']['CRM_ENTITY_TYPE'] = 'LEAD';
         $this->tmpCallsData[$key]['crm-data']['CRM_ENTITY_ID']   = $response;
-        $this->addEventsToMainQueue($key, 'LEAD', $response);
     }
 
     public function postCrmAddContact(string $key, $response): void
@@ -698,22 +751,6 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         }
         $this->tmpCallsData[$key]['lead'] = 1;
         $this->tmpCallsData[$key]['wait'] = false;
-        $this->addEventsToMainQueue($key, 'CONTACT', $response);
-    }
-
-    private function addEventsToMainQueue($linkedID, $eType = '', $eID = ''):void
-    {
-        foreach ($this->tmpCallsData[$linkedID]['events'] as $index => $event){
-            if($event['action'] === 'telephonyExternalCallRegister'){
-                $event['CRM_ENTITY_TYPE'] = $eType;
-                $event['CRM_ENTITY_ID']   = $eID;
-                $this->addDataToQueue($event);
-                unset($this->tmpCallsData[$linkedID]['events'][$index]);
-            }
-        }
-        foreach ($this->tmpCallsData[$linkedID]['events'] as $event){
-            $this->q_pre_req2[] = $event;
-        }
     }
 
     private function checkActiveChannels():void
@@ -724,8 +761,24 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $am = Util::getAstManager();
         $channels = $am->GetChannels();
         foreach ($this->tmpCallsData as $linkedid => $data){
-            if($data['wait'] === false && !isset($channels[$linkedid])){
+            if(!isset($channels[$linkedid])){
+                if (isset($this->perCallQueues[$linkedid])
+                    && !$this->perCallQueues[$linkedid]->isEmpty()) {
+                    continue;
+                }
+                // Используем отложенное удаление, чтобы дождаться finish событий.
+                $cleanTime = $this->tmpCallsData[$linkedid]['cleanTime'] ?? 0;
+                if ($cleanTime === 0) {
+                    $this->tmpCallsData[$linkedid]['cleanTime'] = time();
+                    $this->b24->mainLogger->writeInfo("Clearing the event queue wait 120s. $linkedid");
+                    continue; // Ставим метку времени первой попытки очистки.
+                }
+                if ((time() - $cleanTime) < 120) {
+                    continue;
+                }
                 unset($this->tmpCallsData[$linkedid]);
+                unset($this->perCallQueues[$linkedid]);
+                $this->b24->mainLogger->writeInfo("Clearing the event queue. All channels are completed $linkedid");
             }
         }
     }
