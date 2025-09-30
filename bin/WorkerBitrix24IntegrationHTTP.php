@@ -282,7 +282,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 // Отмечаем вызов как отвеченный.
                 $cdr->answer = 1;
                 ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_FROM_ARRAY_CDR_BY_UID, [$row->uniq_id, (array)$cdr]);
-                if ($userId !== $row->user_id) {
+                if (intval($userId) !== intval($row->user_id)) {
                     // Открываем карточку клиента тому, кто ответил. (если разрешено).
                     $data['CALL_ID'] = $row->call_id;
                     $data['USER_ID'] = (int)$userId;
@@ -354,7 +354,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $tmpInnerNumArray = array_values($this->b24->inner_numbers);
         // Поиск внутреннего номера пользователя b24.
         $innerNumber      = $tmpInnerNumArray[array_search($userId, array_column($tmpInnerNumArray, 'ID'),true)]['UF_PHONE_INNER']??'';
-        return $this->b24->usersSettingsB24[$innerNumber]['open_card_mode']??'' === Bitrix24Integration::OPEN_CARD_ANSWERED;
+        return ($this->b24->usersSettingsB24[$innerNumber]['open_card_mode']??'') === Bitrix24Integration::OPEN_CARD_ANSWERED;
     }
 
     public function shouldDeferForPreAction(&$data): bool
