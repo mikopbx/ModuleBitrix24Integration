@@ -154,15 +154,7 @@ const ModuleBitrix24Integration = {
 				ModuleBitrix24Integration.$dirrtyField.val(Math.random());
 				ModuleBitrix24Integration.$dirrtyField.trigger('change');
 				ModuleBitrix24Integration.onChangeField()
-			},
-			onChecked() {
-				const number = $(this).attr('data-value');
-				$(`#${number} .disability`).removeClass('disabled');
-			},
-			onUnchecked() {
-				const number = $(this).attr('data-value');
-				$(`#${number} .disability`).addClass('disabled');
-			},
+			}
 		});
 		ModuleBitrix24Integration.$usersCheckBoxes.checkbox('attach events', '.check.button', 'check');
 		ModuleBitrix24Integration.$usersCheckBoxes.checkbox('attach events', '.uncheck.button', 'uncheck');
@@ -347,9 +339,9 @@ const ModuleBitrix24Integration = {
 	 * Обработка изменения группы в списке
 	 */
 	changeCardModeInList(value, text, $choice) {
+		Form.$formObj.form('set value', 'dirrty', Math.random());
 		ModuleBitrix24Integration.$dirrtyField.val(Math.random());
 		ModuleBitrix24Integration.$dirrtyField.trigger('change');
-		ModuleBitrix24Integration.onChangeField()
 	},
 
 	/**
