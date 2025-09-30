@@ -485,6 +485,11 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
      */
     public function actionHangupChan($data):void
     {
+        if(empty($data['UNIQUEID'])){
+            $this->logger->writeInfo($data, "Ignore event, empty UNIQUEID".$data['linkedid']);
+            return;
+        }
+
         // Считаем каналы с одинаковым UID
         $countChannel = $this->channelCounter[$data['UNIQUEID']]??0;
         $countChannel--;
@@ -538,10 +543,11 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
      */
     private function actionCompleteCdr($data):void
     {
+        $needReturn = false;
         $linkedId = $data['linkedid']??'';
         if(in_array($data['did'],$this->disabledDid, true)){
             $this->logger->writeInfo("Integration is disabled for this DID ".$linkedId);
-            return;
+            $needReturn = true;
         }
 
         $srsUserId = $this->getInnerNum($data['src_num']);
@@ -553,6 +559,10 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             // Либо это CDR по внутреннему вызову.
             || (!empty($srsUserId) && !empty($dstUserId)) ){
             $this->logger->writeInfo("Not all channels with this ID have been completed. This is probably a multiple registration. Or it's CD R on an internal call.. cancellation".$linkedId);
+            $needReturn = true;
+        }
+
+        if($needReturn === true){
             return;
         }
 
