@@ -180,7 +180,11 @@ class ConnectorDb extends WorkerBase
                         }
                     }
                 }else{
-                    $res_data = $this->$funcName(...$args);
+                    if(array_keys($args) !== range(0, count($args) - 1)){
+                        $this->logger->writeError(['function' => $funcName, 'keys' => array_keys($args)], 'String keys in args, skip request');
+                    }else{
+                        $res_data = $this->$funcName(...$args);
+                    }
                 }
                 $resDataFilename = self::saveResultInTmpFile($res_data);
 
