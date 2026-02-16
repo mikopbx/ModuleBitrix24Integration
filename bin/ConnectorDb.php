@@ -243,8 +243,7 @@ class ConnectorDb extends WorkerBase
             return '';
         }
         $tmpDir     = self::getTempDir();
-        $fileBaseName = md5(microtime(true));
-        $filename = $tmpDir . '/temp-' . $fileBaseName;
+        $filename = tempnam($tmpDir, 'b24-');
         file_put_contents($filename, $res_data);
         chown($filename, 'www');
         return $filename;
@@ -928,6 +927,9 @@ class ConnectorDb extends WorkerBase
     public function updateCdrFromArrayByUID(string $uid, array $data):bool
     {
         $record = $this->findCdrByUID($uid);
+        if ($record === null) {
+            return false;
+        }
         foreach ($record as $key => $value) {
             if (array_key_exists($key, $data)) {
                 $record->$key = $data[$key];
