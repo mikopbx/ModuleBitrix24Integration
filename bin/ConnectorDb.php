@@ -664,21 +664,21 @@ class ConnectorDb extends WorkerBase
      */
     public function deletePhoneContact(string $contactType, $b24id, array $phoneIds = []):bool
     {
-        $filter = [
-            'conditions' => 'contactType = :contactType: AND b24id = :id:',
-            'bind' => [
-                'id' => $b24id,
-                'contactType' => $contactType,
-            ],
-        ];
-        /*
-        if(is_array($phoneIds) && !empty($phoneIds)) {
-            $filter['conditions'] .= ' AND phoneId NOT IN ({phoneId:array})';
-            $filter['bind']['phoneId'] = $phoneIds;
-        }//*/
         try {
-            $result = B24PhoneBook::find($filter)->delete();
-        }catch (Throwable $exception){
+            $record = new B24PhoneBook();
+            $db = $record->getWriteConnection();
+            $table = $record->getSource();
+
+            $sql = "DELETE FROM {$table} WHERE contactType = ? AND b24id = ?";
+            $params = [$contactType, $b24id];
+
+            if (!empty($phoneIds)) {
+                $placeholders = implode(',', array_fill(0, count($phoneIds), '?'));
+                $sql .= " AND phoneId NOT IN ({$placeholders})";
+                $params = array_merge($params, $phoneIds);
+            }
+            $result = $db->execute($sql, $params);
+        } catch (Throwable $exception) {
             $errorDetails = [
                 'message' => $exception->getMessage(),
                 'code' => $exception->getCode(),
@@ -687,7 +687,7 @@ class ConnectorDb extends WorkerBase
                 'trace' => $exception->getTraceAsString(),
                 'time' => date('Y-m-d H:i:s'),
             ];
-            $this->logger->writeInfo(['filter' => $filter, 'error' => $errorDetails], 'Fail B24PhoneBook delete...');
+            $this->logger->writeInfo(['b24id' => $b24id, 'contactType' => $contactType, 'error' => $errorDetails], 'Fail B24PhoneBook delete...');
             $result = false;
         }
         return $result;
@@ -808,22 +808,20 @@ class ConnectorDb extends WorkerBase
     public function updateLinks($data = []):array
     {
         $result = [];
+        $record = new ContactLinks();
+        $db = $record->getWriteConnection();
+        $table = $record->getSource();
+
         foreach ($data as $key => $linkData){
             [$method, $id] = explode('_', $key);
             if($method === Bitrix24Integration::API_CRM_CONTACT_COMPANY){
                 $companyIDS = array_column($linkData, 'COMPANY_ID');
                 if(!empty($companyIDS)){
-                    $filter = [
-                        'contactId=:contactId: AND companyId NOT IN ({ids:array})',
-                        'bind' => [
-                            'ids' => $companyIDS,
-                            'contactId' => $id
-                        ]
-                    ];
-                    $contacts = ContactLinks::find($filter);
-                    foreach ($contacts as $contact){
-                        $contact->delete();
-                    }
+                    $placeholders = implode(',', array_fill(0, count($companyIDS), '?'));
+                    $db->execute(
+                        "DELETE FROM {$table} WHERE contactId = ? AND companyId NOT IN ({$placeholders})",
+                        array_merge([$id], $companyIDS)
+                    );
                 }
                 foreach ($companyIDS as $companyID){
                     $filter = [
@@ -844,18 +842,12 @@ class ConnectorDb extends WorkerBase
 
             } elseif ($method === Bitrix24Integration::API_CRM_COMPANY_CONTACT){
                 $contactIDS = array_column($linkData, 'CONTACT_ID');
-                if(!empty($companyIDS)) {
-                    $filter = [
-                        'contactId NOT IN ({ids:array})  AND companyId = :companyId:',
-                        'bind' => [
-                            'ids' => $contactIDS,
-                            'companyId' => $id
-                        ]
-                    ];
-                    $links = ContactLinks::find($filter);
-                    foreach ($links as $link){
-                        $link->delete();
-                    }
+                if(!empty($contactIDS)) {
+                    $placeholders = implode(',', array_fill(0, count($contactIDS), '?'));
+                    $db->execute(
+                        "DELETE FROM {$table} WHERE companyId = ? AND contactId NOT IN ({$placeholders})",
+                        array_merge([$id], $contactIDS)
+                    );
                 }
                 foreach ($contactIDS as $contactID){
                     $filter = [
