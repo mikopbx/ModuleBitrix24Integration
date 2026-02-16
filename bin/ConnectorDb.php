@@ -595,19 +595,23 @@ class ConnectorDb extends WorkerBase
             $filtered = array_filter($data, function ($item) {
                 return $item['contactType'] === 'CONTACT';
             });
-            $filter = [
-                'columns' => 'contactId',
-                'conditions' => "contactId IN ({ids:array})",
-                'bind' => [
-                    'ids'   => array_map(function ($item) {return $item['b24id'];}, $filtered)
-                ]
-            ];
-            $links = ContactLinks::find($filter)->toArray();
-            $contactIds = array_column($links, 'contactId');
-            $filtered = array_filter($data, function ($item) use ($contactIds) {
-                return in_array($item['b24id'], $contactIds);
-            });
-            $data = $filtered;
+            $ids = array_map(function ($item) {return $item['b24id'];}, $filtered);
+            if(!empty($ids)){
+                $filter = [
+                    'columns' => 'contactId',
+                    'conditions' => "contactId IN ({ids:array})",
+                    'bind' => [
+                        'ids' => $ids
+                    ]
+                ];
+                $links = ContactLinks::find($filter)->toArray();
+                $contactIds = array_column($links, 'contactId');
+                $data = array_filter($data, function ($item) use ($contactIds) {
+                    return in_array($item['b24id'], $contactIds);
+                });
+            } else {
+                $data = [];
+            }
         }
         ///
         // Сортируем по типу контакта.
