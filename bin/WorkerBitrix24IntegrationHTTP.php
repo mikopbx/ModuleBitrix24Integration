@@ -233,14 +233,14 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                     $this->tmpCallsData[$data['linkedid']]['ARG_REGISTER_USER_'.$data['UNIQUEID']] = $data['USER_ID']??'';
                     $this->tmpCallsData[$data['linkedid']]['ARGS_REGISTER_'.$data['UNIQUEID']] = $this->b24->telephonyExternalCallRegister($data);
                     $data['CALL_ID'] = $callId;
-                    if($this->needOpenCard($data['USER_ID'])){
+                    if($this->needShowCardDirectly($data['USER_ID'])){
                         $arg = $this->b24->telephonyExternalCallShow($data);
                     }
                 }else{
                     $this->tmpCallsData[$data['linkedid']]['ARG_REGISTER_USER_'.$data['UNIQUEID']] = $data['USER_ID']??'';
                     $this->tmpCallsData[$data['linkedid']]['ARGS_REGISTER_'.$data['UNIQUEID']] = $this->b24->telephonyExternalCallRegister($data);
                     $data['CALL_ID'] = '$result['.$callId.'][CALL_ID]';
-                    if($this->needOpenCard($data['USER_ID'])){
+                    if($this->needShowCardDirectly($data['USER_ID'])){
                         $arg = $this->b24->telephonyExternalCallShow($data);
                     }
                 }
@@ -287,7 +287,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                     $data['CALL_ID'] = $row->call_id;
                     $data['USER_ID'] = (int)$userId;
                     // Поиск внутреннего номера пользователя b24.
-                    if($this->needOpenCard($userId)){
+                    if($this->needShowCardOnAnswer($userId)){
                         $tmpArr[] = $this->b24->telephonyExternalCallShow($data);
                     }
                 }
@@ -345,16 +345,38 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     }
 
     /**
-     * Проверка, нужно ли открывать карточку пользователю bitrix24
+     * Нужно ли показать карточку сразу при начале звонка (режим DIRECTLY или по умолчанию).
+     * Используется для второго и последующих участников очереди, которым нужно отправить отдельный show.
      * @param $userId
      * @return bool
      */
-    private function needOpenCard($userId)
+    private function needShowCardDirectly($userId): bool
+    {
+        $mode = $this->getUserOpenCardMode($userId);
+        return $mode === Bitrix24Integration::OPEN_CARD_DIRECTLY || $mode === '';
+    }
+
+    /**
+     * Нужно ли показать карточку при ответе на звонок (режим ANSWERED).
+     * Используется в обработчике action_dial_answer для открытия карточки ответившему сотруднику.
+     * @param $userId
+     * @return bool
+     */
+    private function needShowCardOnAnswer($userId): bool
+    {
+        return $this->getUserOpenCardMode($userId) === Bitrix24Integration::OPEN_CARD_ANSWERED;
+    }
+
+    /**
+     * Получить настройку open_card_mode для пользователя по его ID в Bitrix24.
+     * @param $userId
+     * @return string
+     */
+    private function getUserOpenCardMode($userId): string
     {
         $tmpInnerNumArray = array_values($this->b24->inner_numbers);
-        // Поиск внутреннего номера пользователя b24.
         $innerNumber      = $tmpInnerNumArray[array_search($userId, array_column($tmpInnerNumArray, 'ID'),true)]['UF_PHONE_INNER']??'';
-        return ($this->b24->usersSettingsB24[$innerNumber]['open_card_mode']??'') === Bitrix24Integration::OPEN_CARD_ANSWERED;
+        return $this->b24->usersSettingsB24[$innerNumber]['open_card_mode']??'';
     }
 
     public function shouldDeferForPreAction(&$data): bool
