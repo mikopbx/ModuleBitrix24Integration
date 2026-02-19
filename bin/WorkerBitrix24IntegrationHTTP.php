@@ -220,6 +220,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                     $data['CRM_ENTITY_TYPE'] = $contactsData['contactType']??'';
                 }
 
+                $arg = [];
                 $callId = &$this->tmpCallsData[$data['linkedid']]['CALL_ID'];
                 if(empty($callId)){
                     // Save user id for current unique leg to use on dial_answer
@@ -375,8 +376,12 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     private function getUserOpenCardMode($userId): string
     {
         $tmpInnerNumArray = array_values($this->b24->inner_numbers);
-        $innerNumber      = $tmpInnerNumArray[array_search($userId, array_column($tmpInnerNumArray, 'ID'),true)]['UF_PHONE_INNER']??'';
-        return $this->b24->usersSettingsB24[$innerNumber]['open_card_mode']??'';
+        $index = array_search($userId, array_column($tmpInnerNumArray, 'ID'), true);
+        if ($index === false) {
+            return '';
+        }
+        $innerNumber = $tmpInnerNumArray[$index]['UF_PHONE_INNER'] ?? '';
+        return $this->b24->usersSettingsB24[$innerNumber]['open_card_mode'] ?? '';
     }
 
     public function shouldDeferForPreAction(&$data): bool
