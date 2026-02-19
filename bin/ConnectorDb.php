@@ -244,6 +244,9 @@ class ConnectorDb extends WorkerBase
         }
         $tmpDir     = self::getTempDir();
         $filename = tempnam($tmpDir, 'b24-');
+        if ($filename === false) {
+            return '';
+        }
         file_put_contents($filename, $res_data);
         chown($filename, 'www');
         return $filename;
@@ -610,7 +613,7 @@ class ConnectorDb extends WorkerBase
                 $links = ContactLinks::find($filter)->toArray();
                 $contactIds = array_column($links, 'contactId');
                 $data = array_filter($data, function ($item) use ($contactIds) {
-                    return in_array($item['b24id'], $contactIds);
+                    return in_array($item['b24id'], $contactIds, true);
                 });
             } else {
                 $data = [];
@@ -927,7 +930,7 @@ class ConnectorDb extends WorkerBase
     public function updateCdrFromArrayByUID(string $uid, array $data):bool
     {
         $record = $this->findCdrByUID($uid);
-        if ($record === null) {
+        if (!$record) {
             return false;
         }
         foreach ($record as $key => $value) {
