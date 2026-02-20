@@ -363,6 +363,8 @@ class Bitrix24Integration extends PbxExtensionBase
         $curlOptions[CURLOPT_POST]           = true;
         $curlOptions[CURLOPT_POSTFIELDS]     = ($needBuildQuery)?http_build_query($data):$data;
         $curlOptions[CURLOPT_RETURNTRANSFER] = true;
+        $curlOptions[CURLOPT_TIMEOUT]        = 30;
+        $curlOptions[CURLOPT_CONNECTTIMEOUT] = 10;
 
         $status          = 0;
         $headersResponse = '';
@@ -1268,7 +1270,10 @@ class Bitrix24Integration extends PbxExtensionBase
         }
         $id = $options['linkedid'];
         if (empty($callId)) {
-            $this->mainLogger->writeInfo($options, "ConnectorDb did not return a reply. CALL_ID is empty ($id)");
+            $callId = $tmpCallsData[$id]['CALL_ID'] ?? '';
+        }
+        if (empty($callId)) {
+            $this->mainLogger->writeInfo($options, "CALL_ID is empty, ConnectorDb and tmpCallsData have no data ($id)");
             return [$arg,$finishKey];
         }
 
@@ -1291,7 +1296,13 @@ class Bitrix24Integration extends PbxExtensionBase
         ///////////////////////////////////////////////////////////////
         $finishOneKey = self::API_CALL_FINISH.'_'.$callId;
         if($this->getCache($finishOneKey)){
-            $this->mainLogger->writeInfo($options, "The challenge has already been finish earlier ($callId).");
+            // Finish уже отправлен, но если есть запись — прикрепим её
+            if ($options['export_records'] && !empty($options['FILE']) && file_exists($options['FILE'])) {
+                $this->mainLogger->writeInfo($options, "Finish already sent, attaching record ($callId).");
+                $this->telephonyExternalCallAttachRecord($options['FILE'], $callId, $arg);
+            } else {
+                $this->mainLogger->writeInfo($options, "The challenge has already been finish earlier ($callId).");
+            }
             return [$arg,$finishKey];
         }
         $this->saveCache($finishOneKey, true, 30);
@@ -1470,7 +1481,7 @@ class Bitrix24Integration extends PbxExtensionBase
         if(empty($data)){
             return;
         }
-        $chunks = array_chunk($data, 10);
+        $chunks = array_chunk($data, 3);
         foreach ($chunks as $chunk) {
             $settings = ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_ENT_CONTACT, [$action, $chunk], $waitSave);
             usleep(100000);

@@ -86,3 +86,26 @@ PSR-4 маппинг: корень проекта = `Modules\ModuleBitrix24Integ
 ```
 GET /pbxcore/api/bitrix-integration/workers/state (без авторизации)
 ```
+
+## PHP Compatibility
+
+Целевая версия PHP 7.4+, код должен работать и на PHP 8.x. Ключевые различия:
+- `array_is_list()` — только PHP 8.1+, использовать `array_keys($a) !== range(0, count($a) - 1)`
+- `findFirst()` в Phalcon 3/4 возвращает `false`, не `null` — проверять через `!$record`
+- `array_search()` возвращает `false` → при использовании как индекс массива тихо приводится к `0` (PHP 7.4) или Deprecated (PHP 8.1). Всегда проверять `=== false`
+- `count(null)` — E_WARNING на всех версиях, но работает (возвращает 0). Инициализировать переменные перед count()
+- `tempnam()` может вернуть `false` — на PHP 8 `chown(false, ...)` даёт TypeError
+
+## Call Processing Flow
+
+Входящий звонок в очередь: AMI event → WorkerBitrix24IntegrationAMI → Beanstalk → WorkerBitrix24IntegrationHTTP → Bitrix24 REST API.
+- `linkedid` — связывает все плечи одного звонка
+- `UNIQUEID` — идентификатор отдельного плеча (leg)
+- `telephony.externalcall.register` — отправляется один раз на звонок (первый участник), параметр `SHOW=1` открывает карточку
+- `telephony.externalcall.show` — отдельный вызов для открытия карточки остальным участникам очереди
+- `open_card_mode`: `DIRECTLY` (сразу), `ANSWERED` (при ответе), `NONE` (никогда) — настройка per-user в `ModuleBitrix24Users`
+
+## Logs
+
+Логи воркеров: `ConnectorDb.log`, `HttpConnection.log`, `HttpConnection_SYNC.log`, `IntegrationAMI.log`.
+Формат: `[ISO8601][level] message(pid): JSON`. Для анализа звонка — искать по `linkedid` во всех логах.
