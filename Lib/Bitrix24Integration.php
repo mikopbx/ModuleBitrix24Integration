@@ -363,6 +363,8 @@ class Bitrix24Integration extends PbxExtensionBase
         $curlOptions[CURLOPT_POST]           = true;
         $curlOptions[CURLOPT_POSTFIELDS]     = ($needBuildQuery)?http_build_query($data):$data;
         $curlOptions[CURLOPT_RETURNTRANSFER] = true;
+        $curlOptions[CURLOPT_TIMEOUT]        = 30;
+        $curlOptions[CURLOPT_CONNECTTIMEOUT] = 10;
 
         $status          = 0;
         $headersResponse = '';

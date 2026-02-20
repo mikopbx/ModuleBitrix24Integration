@@ -42,6 +42,8 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     private array $tmpCallsData = [];
     private array $didUsers = [];
     private array $perCallQueues = [];
+    private bool  $hasPendingEvents = false;
+    private bool  $insideExecuteTasks = false;
 
     /**
      * Handles the received signal.
@@ -83,12 +85,25 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         }
 
         $this->searchEntities = !empty($this->didUsers);
+
+        // Автоматический reap дочерних процессов (без зомби)
+        pcntl_signal(SIGCHLD, SIG_IGN);
+
+        // Watchdog: SIGALRM прерывает зависший poll() в reserveWithTimeout()
+        pcntl_signal(SIGALRM, function () {
+            // Пустой обработчик — достаточно прервать poll()
+        }, false); // false = НЕ перезапускать прерванные syscall
+
         /** Основной цикл демона. */
         $this->initBeanstalk();
         while ($this->needRestart === false) {
             try {
-                $this->queueAgent->wait(1);
+                pcntl_alarm(5);
+                $timeout = $this->hasPendingEvents ? 0 : 1;
+                $this->queueAgent->wait($timeout);
+                pcntl_alarm(0);
             } catch (Exception $e) {
+                pcntl_alarm(0);
                 sleep(1);
                 $this->initBeanstalk();
             }
@@ -321,7 +336,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $this->b24->mainLogger->writeInfo($data, "The event handler was not found ($data[linkedid])");
         }
 
-        if (count($this->q_req) >= 49) {
+        if (!$this->insideExecuteTasks && count($this->q_req) >= 49) {
             $this->executeTasks();
         }
     }
@@ -526,12 +541,18 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
 
     private function syncProcContacts()
     {
-        if(!empty($this->pidSyncProcContacts) && file_exists("/proc/$this->pidSyncProcContacts")){
-            if(time() - $this->timeSyncProcContacts > 40){
-                posix_kill($this->pidSyncProcContacts, SIGKILL);
-                pcntl_waitpid($this->pidSyncProcContacts, $status);
+        if(!empty($this->pidSyncProcContacts)){
+            $res = pcntl_waitpid($this->pidSyncProcContacts, $status, WNOHANG);
+            if ($res === 0) {
+                // Ребёнок ещё работает
+                if(time() - $this->timeSyncProcContacts > 40){
+                    posix_kill($this->pidSyncProcContacts, SIGKILL);
+                    pcntl_waitpid($this->pidSyncProcContacts, $status);
+                }
+                return;
             }
-            return;
+            // Ребёнок завершён (или уже подчищен SIG_IGN) — можно форкать снова
+            $this->pidSyncProcContacts = null;
         }
 
         $this->timeSyncProcContacts = time();
@@ -595,6 +616,16 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
      */
     public function executeTasks(): void
     {
+        $this->insideExecuteTasks = true;
+        try {
+            $this->executeTasksInner();
+        } finally {
+            $this->insideExecuteTasks = false;
+        }
+    }
+
+    private function executeTasksInner(): void
+    {
         $this->b24->mainLogger->rotate();
 
         $delta = time() - $this->last_update_inner_num;
@@ -610,18 +641,8 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         // Получать новые события будем каждое 2ое обращение к этой функции ~ 1.2 секунды.
         $this->need_get_events = !$this->need_get_events;
 
-        // Обработка очередей: по одному событию с головы для каждой очереди
-        foreach ($this->perCallQueues as $queue) {
-            if ($queue->isEmpty()) {
-                continue;
-            }
-            $event = $queue->bottom();
-            if ($this->shouldDeferForPreAction($event)) {
-                continue;
-            }
-            $queue->dequeue();
-            $this->addDataToQueue($event);
-        }
+        // Обработка очередей: все доступные события для каждого вызова
+        $this->drainPerCallQueues();
 
         if ($this->need_get_events) {
             // Запрос на получение offline событий.
@@ -640,6 +661,36 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $this->q_req = [];
             $this->postReceivingResponseProcessing($result);
             $this->handleEvent($result);
+
+            // Re-drain: post-processing мог разблокировать отложенные события
+            // (postCrmAddLead/postCrmAddContact ставят wait=false)
+            $this->drainPerCallQueues();
+        }
+
+        $this->hasPendingEvents = false;
+        foreach ($this->perCallQueues as $queue) {
+            if (!$queue->isEmpty()) {
+                $this->hasPendingEvents = true;
+                break;
+            }
+        }
+    }
+
+    /**
+     * Извлечение всех не-отложенных событий из очередей вызовов и добавление в q_req.
+     * Обработка останавливается для очереди, если shouldDeferForPreAction вернёт true.
+     */
+    private function drainPerCallQueues(): void
+    {
+        foreach ($this->perCallQueues as $queue) {
+            while (!$queue->isEmpty()) {
+                $event = $queue->bottom();
+                if ($this->shouldDeferForPreAction($event)) {
+                    break;
+                }
+                $queue->dequeue();
+                $this->addDataToQueue($event);
+            }
         }
     }
 
