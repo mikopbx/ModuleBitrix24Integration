@@ -27,22 +27,20 @@
 namespace Modules\ModuleBitrix24Integration\bin;
 require_once 'Globals.php';
 
-use MikoPBX\Core\Asterisk\AsteriskManager;
+use MikoPBX\Common\Models\PbxSettings;
 use MikoPBX\Core\System\BeanstalkClient;
 use Exception;
 use MikoPBX\Core\System\MikoPBXConfig;
 use MikoPBX\Core\Workers\WorkerBase;
 use MikoPBX\Common\Models\Extensions;
 use MikoPBX\Core\Workers\WorkerCdr;
+use Modules\ModuleBitrix24Integration\Lib\AsteriskManager;
 use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
-use MikoPBX\Core\System\Util;
 use Modules\ModuleBitrix24Integration\Lib\Logger;
 
 class WorkerBitrix24IntegrationAMI extends WorkerBase
 {
-    /** @var AsteriskManager $am */
-    protected AsteriskManager $am;
     /** @var Bitrix24Integration $b24*/
     private Bitrix24Integration $b24;
     private array $inner_numbers;
@@ -59,6 +57,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     private BeanstalkClient $client;
 
     private array $outChannels = [];
+    private string $processState = 'init';
 
     private array $channelCounter = [];
     private string $responsibleMissedCalls = '';
@@ -74,8 +73,13 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     public function signalHandler(int $signal): void
     {
         parent::signalHandler($signal);
-        $this->logger->writeInfo('Need SHUTDOWN... '.$signal);
-        cli_set_process_title('SHUTDOWN_'.cli_get_process_title());
+        $this->logger->writeInfo("Need SHUTDOWN (state={$this->processState})... $signal");
+        cli_set_process_title("SHUTDOWN[{$this->processState}]_" . self::class);
+        try {
+            $this->am->setBreak();
+        } catch (\Throwable $e) {
+            // $am not initialized yet, will exit naturally
+        }
     }
 
     /**
@@ -89,7 +93,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         $this->logger->writeInfo('Start daemon...');
 
         $this->client = new BeanstalkClient(Bitrix24Integration::B24_INTEGRATION_CHANNEL);
-        $this->am     = Util::getAstManager();
+        $this->am     = $this->createAstManager();
         $this->b24    = new Bitrix24Integration('_ami');
 
         if (!$this->b24->initialized) {
@@ -111,13 +115,19 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         $this->extensionLength = $config->getGeneralSettings('PBXInternalExtensionLength');
 
         $this->am->addEventHandler("userevent", [$this, "callback"]);
+        $this->processState = 'idle';
         while ($this->needRestart === false) {
+            $this->processState = 'wait_ami';
             $this->am->waitUserEvent(true);
-            if ( !is_resource($this->am->socket) === false) {
+            $this->processState = 'idle';
+            if (!is_resource($this->am->socket)) {
+                $this->processState = 'reconnect_ami';
                 $this->logger->writeError('Need reconnect AMI...');
                 usleep(100000);
-                $this->am = Util::getAstManager();
+                $this->am = $this->createAstManager();
                 $this->setFilter();
+                $this->am->addEventHandler("userevent", [$this, "callback"]);
+                $this->processState = 'idle';
             }
             $this->logger->rotate();
         }
@@ -232,6 +242,21 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 }
             }
         }
+    }
+
+    /**
+     * Создаёт подключение к AMI с гарантированным socket timeout.
+     * Использует локальный AsteriskManager вместо core, чтобы waitUserEvent()
+     * не блокировался навечно при смерти Asterisk.
+     *
+     * @return AsteriskManager
+     */
+    private function createAstManager(): AsteriskManager
+    {
+        $port = PbxSettings::getValueByKey('AMIPort');
+        $am   = new AsteriskManager();
+        $am->connect("127.0.0.1:$port", null, null, 'on');
+        return $am;
     }
 
     /**

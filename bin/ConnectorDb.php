@@ -61,6 +61,27 @@ class ConnectorDb extends WorkerBase
     private const MODULE_ID = 'ModuleBitrix24Integration';
     private int $clearTime = 0;
 
+    /** Redis cache key for getGeneralSettings (task 3.2). */
+    private const CACHE_KEY_GENERAL_SETTINGS = 'general_settings';
+
+    /** Adaptive timeouts per function (task 3.3). CDR — 2s, reads — 3s, writes — 10-15s. */
+    private const FUNC_TIMEOUTS = [
+        'getGeneralSettings'          => 3,
+        'getUsers'                    => 3,
+        'getExternalLines'            => 3,
+        'getFirstExternalLines'       => 3,
+        'getContactsByPhone'          => 3,
+        'getContactsByPhoneAndUser'   => 3,
+        'getContactsByPhoneWithOrder' => 3,
+        'findCdrByUID'                => 2,
+        'updateCdrByUID'              => 2,
+        'getCdrDataByLinkedId'        => 2,
+        'getCdrByFilter'              => 2,
+        'updateCdrFromArrayByUID'     => 2,
+        'updateGeneralSettings'       => 10,
+        'updateEntContact'            => 15,
+    ];
+
     private Bitrix24Integration $b24;
     private array $b24Users = [];
 
@@ -74,7 +95,7 @@ class ConnectorDb extends WorkerBase
     public function signalHandler(int $signal): void
     {
         parent::signalHandler($signal);
-        cli_set_process_title('SHUTDOWN_'.cli_get_process_title());
+        cli_set_process_title("SHUTDOWN_" . self::class);
         $this->logger->writeInfo('SHUTDOWN...');
     }
 
@@ -162,13 +183,14 @@ class ConnectorDb extends WorkerBase
             return;
         }
         $res_data = [];
+        $packedResult = '[]';
         if($data['action'] === 'invoke'){
             $funcName = $data['function']??'';
             if(method_exists($this, $funcName)){
                 $this->logger->rotate();
                 $args = $this->getArgs($data);
 
-                $startTime = time();
+                $startTime = microtime(true);
                 $this->logger->writeInfo($args, "REQUEST $funcName ". getmypid());
                 if(count($args) === 0){
                     if(!in_array($funcName,[self::FUNC_DELETE_CONTACT_DATA, self::FUNC_UPDATE_ENT_CONTACT, self::FUNC_GET_CDR_BY_FILTER])){
@@ -186,23 +208,23 @@ class ConnectorDb extends WorkerBase
                         $res_data = $this->$funcName(...$args);
                     }
                 }
-                $resDataFilename = self::saveResultInTmpFile($res_data);
+                $packedResult = self::packResult($res_data);
 
-                $duration = time() - $startTime;
-                if($duration>0) {
-                    $this->logger->writeInfo($duration, "REQUEST $funcName end time");
+                $durationMs = round((microtime(true) - $startTime) * 1000, 1);
+                if ($durationMs > 100) {
+                    $this->logger->writeError($durationMs . 'ms', "SLOW REQUEST $funcName");
                 }
             }
         }
         if(isset($data['need-ret'])){
-            $tube->reply($resDataFilename);
+            $tube->reply($packedResult);
             $this->logger->writeInfo($res_data, 'RESPONSE');
         }
-        if( (time() - $this->clearTime) > 10){
+        if( (time() - $this->clearTime) > 60){
+            $this->clearTime = time();
             $findPath   = Util::which('find');
             $tmoDirName = self::getTempDir();
-            shell_exec("$findPath $tmoDirName -mmin +5 -type f -delete");
-            $this->clearTime = time();
+            exec("$findPath $tmoDirName -mmin +5 -type f -delete > /dev/null 2>&1 &");
             $this->logger->rotate();
         }
     }
@@ -231,6 +253,12 @@ class ConnectorDb extends WorkerBase
     }
 
     /**
+     * Порог для inline-передачи данных через Beanstalk (байт).
+     * Данные меньше порога передаются в JSON напрямую, больше — через tmp-файл.
+     */
+    private const INLINE_THRESHOLD = 4096;
+
+    /**
      * Сериализует данные и сохраняет их во временный файл.
      * @param $data
      * @return string
@@ -250,6 +278,71 @@ class ConnectorDb extends WorkerBase
         file_put_contents($filename, $res_data);
         chown($filename, 'www');
         return $filename;
+    }
+
+    /**
+     * Упаковка аргументов для передачи через Beanstalk.
+     * Малые данные передаются inline (массив), большие — через tmp-файл (строка-путь).
+     * @param array $data
+     * @return array|string  массив (inline) или строка (путь к файлу)
+     */
+    public static function packData(array $data)
+    {
+        try {
+            $json = json_encode($data, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            return '';
+        }
+        if (strlen($json) < self::INLINE_THRESHOLD) {
+            return $data;
+        }
+        return self::saveResultInTmpFile($data);
+    }
+
+    /**
+     * Упаковка результата для reply через Beanstalk.
+     * Малые данные — inline JSON строка, большие — путь к файлу (начинается с /).
+     * @param $data
+     * @return string
+     */
+    public static function packResult($data): string
+    {
+        try {
+            $json = json_encode($data, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            return '';
+        }
+        if (strlen($json) < self::INLINE_THRESHOLD) {
+            return $json;
+        }
+        return self::saveResultInTmpFile($data);
+    }
+
+    /**
+     * Распаковка результата, полученного из Beanstalk reply.
+     * Если строка начинается с / — читаем из файла, иначе — inline JSON.
+     * @param string $result
+     * @return array
+     */
+    public static function unpackResult(string $result): array
+    {
+        if ($result === '') {
+            return [];
+        }
+        try {
+            if ($result[0] === '/') {
+                if (!file_exists($result)) {
+                    return [];
+                }
+                $data = json_decode(file_get_contents($result), true, 512, JSON_THROW_ON_ERROR);
+                unlink($result);
+                return is_array($data) ? $data : [];
+            }
+            $data = json_decode($result, true, 512, JSON_THROW_ON_ERROR);
+            return is_array($data) ? $data : [];
+        } catch (\Throwable $e) {
+            return [];
+        }
     }
 
     /**
@@ -280,11 +373,22 @@ class ConnectorDb extends WorkerBase
      * @param int $timeout
      * @return array|bool|mixed
      */
-    public static function invoke(string $function, array $args = [], bool $retVal = true, int $timeout = 5){
+    public static function invoke(string $function, array $args = [], bool $retVal = true, int $timeout = 0){
+        // 3.2: Redis cache for getGeneralSettings — skip RPC if cached
+        if (self::FUNC_GET_GENERAL_SETTINGS === $function && empty($args) && $retVal) {
+            $cached = CacheManager::getCacheData(self::CACHE_KEY_GENERAL_SETTINGS);
+            if (!empty($cached)) {
+                return (object)$cached;
+            }
+        }
+        // 3.3: adaptive timeout per function
+        if ($timeout <= 0) {
+            $timeout = self::FUNC_TIMEOUTS[$function] ?? 5;
+        }
         $req = [
             'action'   => 'invoke',
             'function' => $function,
-            'args'     => self::saveResultInTmpFile($args)
+            'args'     => self::packData($args)
         ];
         $client = new BeanstalkClient(self::class);
         $object = [];
@@ -296,10 +400,7 @@ class ConnectorDb extends WorkerBase
                 $client->publish(json_encode($req, JSON_THROW_ON_ERROR));
                 return true;
             }
-            if(file_exists($result)){
-                $object = json_decode(file_get_contents($result), true, 512, JSON_THROW_ON_ERROR);
-                unlink($result);
-            }
+            $object = self::unpackResult($result);
         } catch (\Throwable $e) {
             $object = [];
         }
@@ -324,11 +425,22 @@ class ConnectorDb extends WorkerBase
      * @param int $timeout
      * @return array|bool|mixed
      */
-    public static function invokePriority(string $function, array $args = [], bool $retVal = true, int $timeout = 5){
+    public static function invokePriority(string $function, array $args = [], bool $retVal = true, int $timeout = 0){
+        // 3.2: Redis cache for getGeneralSettings — skip RPC if cached
+        if (self::FUNC_GET_GENERAL_SETTINGS === $function && empty($args) && $retVal) {
+            $cached = CacheManager::getCacheData(self::CACHE_KEY_GENERAL_SETTINGS);
+            if (!empty($cached)) {
+                return (object)$cached;
+            }
+        }
+        // 3.3: adaptive timeout per function
+        if ($timeout <= 0) {
+            $timeout = self::FUNC_TIMEOUTS[$function] ?? 5;
+        }
         $req = [
             'action'   => 'invoke',
             'function' => $function,
-            'args'     => self::saveResultInTmpFile($args)
+            'args'     => self::packData($args)
         ];
         $client = new BeanstalkClient(self::class);
         $object = [];
@@ -340,10 +452,7 @@ class ConnectorDb extends WorkerBase
                 $client->publish(json_encode($req, JSON_THROW_ON_ERROR));
                 return true;
             }
-            if(file_exists($result)){
-                $object = json_decode(file_get_contents($result), true, 512, JSON_THROW_ON_ERROR);
-                unlink($result);
-            }
+            $object = self::unpackResult($result);
         } catch (\Throwable $e) {
             $object = [];
         }
@@ -511,7 +620,11 @@ class ConnectorDb extends WorkerBase
         if($settings === null){
             $settings = new ModuleBitrix24Integration();
         }
-        return $settings->toArray();
+        $result = $settings->toArray();
+        if (empty($filter)) {
+            CacheManager::setCacheData(self::CACHE_KEY_GENERAL_SETTINGS, $result, 30);
+        }
+        return $result;
     }
 
     /**
@@ -533,6 +646,7 @@ class ConnectorDb extends WorkerBase
         $result = false;
         try {
             $result = $record->save();
+            CacheManager::setCacheData(self::CACHE_KEY_GENERAL_SETTINGS, [], 1);
         }catch (\Throwable $e){
             $this->logger->writeError($e->getMessage());
         }
@@ -705,6 +819,7 @@ class ConnectorDb extends WorkerBase
 
     /**
      * Добавление контакта в телефонную книгу.
+     * Использует batch INSERT в одной транзакции вместо отдельных findFirst+save.
      * @param $b24id
      * @param $contactType
      * @param $contacts
@@ -712,39 +827,50 @@ class ConnectorDb extends WorkerBase
      */
     public function addPhoneContact($b24id, $contactType, $contacts):void
     {
-        $phoneIds = array_unique(array_column($contacts, 'phoneId'));
-        $startTime = time();
-        $this->deletePhoneContact($contactType, $b24id, $phoneIds);
-        $duration = time() - $startTime;
-        if($duration>0) {
-            $this->logger->writeInfo(time() - $startTime, "REQUEST deletePhoneContact time");
-        }
+        try {
+            $record = new B24PhoneBook();
+            $db = $record->getWriteConnection();
+            $table = $record->getSource();
+            $columns = ['b24id', 'userId', 'dateCreate', 'dateModify', 'statusLeadId', 'name', 'phone', 'phoneId', 'contactType'];
 
-        $filter = [
-            'conditions' => 'contactType = :contactType: AND b24id = :id: AND phoneId = :phoneId:',
-            'bind' => [
-                'id' => $b24id,
-                'contactType' => $contactType,
-                'phoneId' => '',
-            ],
-        ];
-        foreach ($contacts as $contact){
-            $filter['bind']['phoneId'] = $contact['phoneId'];
-            $record = B24PhoneBook::findFirst($filter);
-            if(!$record){
-                $record = new B24PhoneBook();
-            }
-            foreach ($record as $key => $value) {
-                if (array_key_exists($key, $contact)) {
-                    $record->$key = $contact[$key];
+            $startTime = microtime(true);
+            $db->begin();
+
+            // Удаляем все записи контакта — заменим полным набором через INSERT
+            $db->execute(
+                "DELETE FROM {$table} WHERE contactType = ? AND b24id = ?",
+                [$contactType, $b24id]
+            );
+
+            // Batch INSERT всех телефонов контакта
+            if (!empty($contacts)) {
+                $placeholderRow = '(' . implode(',', array_fill(0, count($columns), '?')) . ')';
+                $rows = [];
+                $params = [];
+                foreach ($contacts as $contact) {
+                    $rows[] = $placeholderRow;
+                    foreach ($columns as $col) {
+                        $params[] = $contact[$col] ?? '';
+                    }
                 }
+                $sql = "INSERT INTO {$table} (" . implode(',', $columns) . ") VALUES " . implode(',', $rows);
+                $db->execute($sql, $params);
             }
-            $startTime = time();
-            $resultSave = $record->save()?1:0;
-            $duration = time() - $startTime;
-            if($duration>0){
-                $this->logger->writeInfo($duration, "REQUEST savePhoneContact time ($resultSave)");
+
+            $db->commit();
+
+            $duration = microtime(true) - $startTime;
+            if ($duration > 0.1) {
+                $this->logger->writeInfo(round($duration, 3), "addPhoneContact batch time ($b24id, " . count($contacts) . " phones)");
             }
+        } catch (Throwable $e) {
+            if ($db->isUnderTransaction()) {
+                $db->rollback();
+            }
+            $this->logger->writeInfo(
+                ['b24id' => $b24id, 'contactType' => $contactType, 'error' => $e->getMessage()],
+                'Fail addPhoneContact batch'
+            );
         }
     }
 
@@ -889,7 +1015,10 @@ class ConnectorDb extends WorkerBase
      */
     public function findCdrByUID($uid)
     {
-        return ModuleBitrix24CDR::findFirst("uniq_id='$uid'");
+        return ModuleBitrix24CDR::findFirst([
+            'conditions' => 'uniq_id = :uid:',
+            'bind' => ['uid' => $uid],
+        ]);
     }
 
     /**
@@ -902,7 +1031,7 @@ class ConnectorDb extends WorkerBase
     public function updateCdrByUID(string $uid, array $request, array $response):bool
     {
         $res = $this->findCdrByUID($request['UNIQUEID']);
-        if ($res === null && isset($response['CALL_ID'])) {
+        if (!$res && isset($response['CALL_ID'])) {
             $res           = new ModuleBitrix24CDR();
             $res->uniq_id  = $request['UNIQUEID'];
             $res->user_id  = $request['USER_ID'];
@@ -948,7 +1077,10 @@ class ConnectorDb extends WorkerBase
      */
     private function getCdrDataByLinkedId(array $options): array
     {
-        $rows = ModuleBitrix24CDR::find("linkedid='{$options['linkedid']}'")->toArray();
+        $rows = ModuleBitrix24CDR::find([
+            'conditions' => 'linkedid = :linkedid:',
+            'bind' => ['linkedid' => $options['linkedid']],
+        ])->toArray();
         $result = [];
         foreach ($rows as $row){
             if($row['uniq_id'] === $options['UNIQUEID']){

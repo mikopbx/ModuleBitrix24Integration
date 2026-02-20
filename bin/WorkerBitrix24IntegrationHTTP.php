@@ -44,6 +44,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     private array $perCallQueues = [];
     private bool  $hasPendingEvents = false;
     private bool  $insideExecuteTasks = false;
+    private string $processState = 'init';
 
     /**
      * Handles the received signal.
@@ -55,7 +56,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     public function signalHandler(int $signal): void
     {
         parent::signalHandler($signal);
-        cli_set_process_title('SHUTDOWN_'.cli_get_process_title());
+        cli_set_process_title("SHUTDOWN[{$this->processState}]_" . self::class);
     }
 
     /**
@@ -96,16 +97,21 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
 
         /** Основной цикл демона. */
         $this->initBeanstalk();
+        $this->processState = 'idle';
         while ($this->needRestart === false) {
             try {
+                $this->processState = 'beanstalk_wait';
                 pcntl_alarm(5);
                 $timeout = $this->hasPendingEvents ? 0 : 1;
                 $this->queueAgent->wait($timeout);
                 pcntl_alarm(0);
+                $this->processState = 'idle';
             } catch (Exception $e) {
                 pcntl_alarm(0);
+                $this->processState = 'reconnect';
                 sleep(1);
                 $this->initBeanstalk();
+                $this->processState = 'idle';
             }
         }
     }
@@ -626,16 +632,23 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
 
     private function executeTasksInner(): void
     {
+        if ($this->needRestart) {
+            return;
+        }
         $this->b24->mainLogger->rotate();
 
         $delta = time() - $this->last_update_inner_num;
         if ($delta > 10) {
-            // Обновляем список внутренних номеров. Обновляем кэш внутренних номеров.
+            $this->processState = 'updateSettings';
             $this->b24->b24GetPhones();
             $this->b24->updateSettings();
             $this->last_update_inner_num = time();
             $this->checkActiveChannels();
             $this->syncProcContacts();
+            $this->processState = 'idle';
+            if ($this->needRestart) {
+                return;
+            }
         }
 
         // Получать новые события будем каждое 2ое обращение к этой функции ~ 1.2 секунды.
@@ -650,12 +663,17 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $this->q_req = array_merge($this->q_req, $arg);
         }
         if (count($this->q_req) > 0) {
+            $this->processState = 'sendBatch';
             $chunks = $this->chunkAssociativeArray($this->q_req);
             $finalResult = [];
             foreach ($chunks as $chunk) {
+                if ($this->needRestart) {
+                    break;
+                }
                 $response = $this->b24->sendBatch($chunk);
                 $finalResult[] = $response['result']['result'] ?? [];
             }
+            $this->processState = 'postProcessing';
             $result = array_merge(...$finalResult);
             // Чистим очередь запросов.
             $this->q_req = [];
@@ -665,6 +683,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             // Re-drain: post-processing мог разблокировать отложенные события
             // (postCrmAddLead/postCrmAddContact ставят wait=false)
             $this->drainPerCallQueues();
+            $this->processState = 'idle';
         }
 
         $this->hasPendingEvents = false;

@@ -91,9 +91,9 @@ class Logger
         }
         $this->lastRotateCheckTs = $now;
         $rotation = new Rotation([
-            'files'    => 9,
+            'files'    => 4,
             'compress' => false,
-            'min-size' => 40 * 1024 * 1024,
+            'min-size' => 10 * 1024 * 1024,
             'truncate' => false,
             'catch'    => function (RotationFailed $exception) {
                 SystemMessages::sysLogMsg($this->module_name, $exception->getMessage());
@@ -101,6 +101,30 @@ class Logger
         ]);
         if ($rotation->rotate($this->logFile)) {
             $this->initLogger();
+            $this->cleanupOrphanedLogs();
+        }
+    }
+
+    /**
+     * Удаляет осиротевшие .gz и .0 файлы, которые Cesargb не отслеживает.
+     */
+    private function cleanupOrphanedLogs(): void
+    {
+        $pattern = $this->logFile . '.*';
+        $files = glob($pattern);
+        if (!is_array($files)) {
+            return;
+        }
+        foreach ($files as $file) {
+            $basename = basename($file);
+            // Удаляем .gz файлы (остатки от compress=true) и .0 файлы (от другой ротации)
+            if (preg_match('/\.\d+\.gz$/', $basename) || preg_match('/\.0$/', $basename)) {
+                unlink($file);
+            }
+            // Удаляем файлы с номером > 4 (старые бэкапы от files=9)
+            if (preg_match('/\.(\d+)$/', $basename, $m) && (int)$m[1] > 4) {
+                unlink($file);
+            }
         }
     }
 
