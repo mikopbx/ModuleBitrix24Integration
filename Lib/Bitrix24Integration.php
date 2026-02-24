@@ -1277,6 +1277,20 @@ class Bitrix24Integration extends PbxExtensionBase
             return [$arg,$finishKey];
         }
 
+        // Проверка дедупликации по оригинальному callId (до ARGS_REGISTER)
+        $finishOneKey = self::API_CALL_FINISH.'_'.$callId;
+        if($this->getCache($finishOneKey)){
+            // Finish уже отправлен, но если есть запись — прикрепим её
+            if ($options['export_records'] && !empty($options['FILE']) && file_exists($options['FILE'])) {
+                $this->mainLogger->writeInfo($options, "Finish already sent, attaching record ($callId).");
+                $this->telephonyExternalCallAttachRecord($options['FILE'], $callId, $arg);
+            } else {
+                $this->mainLogger->writeInfo($options, "The challenge has already been finish earlier ($callId).");
+            }
+            return [$arg,$finishKey];
+        }
+        $this->saveCache($finishOneKey, true, 30);
+
         ///////////////////////////////////////////////////////////////
         // Проверим, была ли уже отправлена запись разговора.
         $callData = &$tmpCallsData[$id];
@@ -1294,19 +1308,6 @@ class Bitrix24Integration extends PbxExtensionBase
         }
         //
         ///////////////////////////////////////////////////////////////
-        $finishOneKey = self::API_CALL_FINISH.'_'.$callId;
-        if($this->getCache($finishOneKey)){
-            // Finish уже отправлен, но если есть запись — прикрепим её
-            if ($options['export_records'] && !empty($options['FILE']) && file_exists($options['FILE'])) {
-                $this->mainLogger->writeInfo($options, "Finish already sent, attaching record ($callId).");
-                $this->telephonyExternalCallAttachRecord($options['FILE'], $callId, $arg);
-            } else {
-                $this->mainLogger->writeInfo($options, "The challenge has already been finish earlier ($callId).");
-            }
-            return [$arg,$finishKey];
-        }
-        $this->saveCache($finishOneKey, true, 30);
-
         $userId = (intval($callDataFromDB['answer']??0) === 1) ? $callDataFromDB['user_id']??'' : '';
         $params = [
             'CALL_ID'       => $callId,
