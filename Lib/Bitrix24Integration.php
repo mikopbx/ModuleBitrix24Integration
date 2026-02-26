@@ -636,8 +636,28 @@ class Bitrix24Integration extends PbxExtensionBase
         if (!file_exists($filename)) {
             return [];
         }
-        $post = ['file'=> curl_file_create($filename)];
-        return $this->query($targetUrl, $post, false);
+        $uploadFile = $filename;
+        $tmpFile = '';
+        $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        if (!in_array($ext, ['mp3', 'wav'], true)) {
+            $tmpFile = tempnam('/tmp', 'b24_') . '.mp3';
+            $cmd = "ffmpeg -i " . escapeshellarg($filename) . " -y -codec:a libmp3lame -b:a 64k " . escapeshellarg($tmpFile) . " 2>&1";
+            exec($cmd, $output, $retCode);
+            if ($retCode === 0 && file_exists($tmpFile) && filesize($tmpFile) > 0) {
+                $uploadFile = $tmpFile;
+            } else {
+                $this->mainLogger->writeError("ffmpeg convert failed ($retCode): " . implode("\n", $output));
+                if ($tmpFile !== '' && file_exists($tmpFile)) {
+                    unlink($tmpFile);
+                }
+            }
+        }
+        $post = ['file'=> curl_file_create($uploadFile)];
+        $result = $this->query($targetUrl, $post, false);
+        if ($tmpFile !== '' && file_exists($tmpFile)) {
+            unlink($tmpFile);
+        }
+        return $result;
     }
 
     /**
@@ -1277,6 +1297,20 @@ class Bitrix24Integration extends PbxExtensionBase
             return [$arg,$finishKey];
         }
 
+        // Проверка дедупликации по оригинальному callId (до ARGS_REGISTER)
+        $finishOneKey = self::API_CALL_FINISH.'_'.$callId;
+        if($this->getCache($finishOneKey)){
+            // Finish уже отправлен, но если есть запись — прикрепим её
+            if ($options['export_records'] && !empty($options['FILE']) && ($this->backgroundUpload || file_exists($options['FILE']))) {
+                $this->mainLogger->writeInfo($options, "Finish already sent, attaching record ($callId).");
+                $this->telephonyExternalCallAttachRecord($options['FILE'], $callId, $arg);
+            } else {
+                $this->mainLogger->writeInfo($options, "The challenge has already been finish earlier ($callId).");
+            }
+            return [$arg,$finishKey];
+        }
+        $this->saveCache($finishOneKey, true, 30);
+
         ///////////////////////////////////////////////////////////////
         // Проверим, была ли уже отправлена запись разговора.
         $callData = &$tmpCallsData[$id];
@@ -1294,19 +1328,6 @@ class Bitrix24Integration extends PbxExtensionBase
         }
         //
         ///////////////////////////////////////////////////////////////
-        $finishOneKey = self::API_CALL_FINISH.'_'.$callId;
-        if($this->getCache($finishOneKey)){
-            // Finish уже отправлен, но если есть запись — прикрепим её
-            if ($options['export_records'] && !empty($options['FILE']) && file_exists($options['FILE'])) {
-                $this->mainLogger->writeInfo($options, "Finish already sent, attaching record ($callId).");
-                $this->telephonyExternalCallAttachRecord($options['FILE'], $callId, $arg);
-            } else {
-                $this->mainLogger->writeInfo($options, "The challenge has already been finish earlier ($callId).");
-            }
-            return [$arg,$finishKey];
-        }
-        $this->saveCache($finishOneKey, true, 30);
-
         $userId = (intval($callDataFromDB['answer']??0) === 1) ? $callDataFromDB['user_id']??'' : '';
         $params = [
             'CALL_ID'       => $callId,
@@ -1591,17 +1612,40 @@ class Bitrix24Integration extends PbxExtensionBase
      */
     private function telephonyExternalCallAttachRecord($filename, $callId, &$arg): void
     {
-        if (!file_exists($filename)) {
+        if (empty($filename)) {
+            return;
+        }
+        // При фоновой загрузке файл может ещё не существовать (race condition с Asterisk),
+        // но он не нужен сейчас — UploaderB24 загрузит позже с задержкой 30с.
+        if (!$this->backgroundUpload && !file_exists($filename)) {
             return;
         }
         $FILENAME     = basename($filename);
+        $ext = strtolower(pathinfo($FILENAME, PATHINFO_EXTENSION));
+        if (!in_array($ext, ['mp3', 'wav'], true)) {
+            $FILENAME = pathinfo($FILENAME, PATHINFO_FILENAME) . '.mp3';
+        }
         $params = [
             'CALL_ID'      => $callId,
             'FILENAME'     => $FILENAME,
             'auth'         => $this->getAccessToken(),
         ];
         if(!$this->backgroundUpload){
-            $params['FILE_CONTENT'] = base64_encode(file_get_contents($filename));
+            $uploadFile = $filename;
+            if (!in_array($ext, ['mp3', 'wav'], true)) {
+                $tmpFile = tempnam('/tmp', 'b24_') . '.mp3';
+                $cmd = "ffmpeg -i " . escapeshellarg($filename) . " -y -codec:a libmp3lame -b:a 64k " . escapeshellarg($tmpFile) . " 2>&1";
+                exec($cmd, $output, $retCode);
+                if ($retCode === 0 && file_exists($tmpFile) && filesize($tmpFile) > 0) {
+                    $uploadFile = $tmpFile;
+                } else {
+                    $this->mainLogger->writeError("ffmpeg convert failed ($retCode): " . implode("\n", $output));
+                }
+            }
+            $params['FILE_CONTENT'] = base64_encode(file_get_contents($uploadFile));
+            if (isset($tmpFile) && $tmpFile !== '' && file_exists($tmpFile)) {
+                unlink($tmpFile);
+            }
         }
         $cmd = self::API_ATTACH_RECORD.'?'.http_build_query($params);
         $key = self::API_ATTACH_RECORD.'_'.uniqid('', true);
