@@ -334,7 +334,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
      */
     private function actionDial($data):void {
         $general_src_num = '';
-        if ($data['transfer'] === '1') {
+        if (($data['transfer'] ?? '0') === '1') {
             $linkedId = $data['linkedid']??'';
             // Попробуем выяснить кого переадресуют.
             $filter                        = [
@@ -383,7 +383,13 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             return;
         }
 
-        if($data['action'] === 'dial' && stripos($data['src_chan'], '/'.$data['src_num'].'-') !== false){
+        // originate_start/originate_end не содержат src_chan, src_num и др. — пропускаем
+        $actionExtra = $data['action_extra'] ?? '';
+        if (strpos($actionExtra, 'originate') !== false) {
+            return;
+        }
+
+        if($data['action'] === 'dial' && stripos($data['src_chan'] ?? '', '/'.($data['src_num'] ?? '').'-') !== false){
             // Это исходящий вызов, начальный канал.
             $this->outChannels[$data['src_chan']] = [
                 'start'     => $data['start'],
