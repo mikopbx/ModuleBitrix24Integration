@@ -43,7 +43,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
 {
     /** @var Bitrix24Integration $b24*/
     private Bitrix24Integration $b24;
-    private array $inner_numbers;
+    private array $inner_numbers = [];
     private int $counter = 0;
     private array $msg = [];
     private int $extensionLength;
@@ -101,14 +101,6 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             exit();
         }
         $this->setFilter();
-
-        /**
-         * Без b24GetPhones не стартует AMI воркер, если нет корректного соедниения с Bitrix,
-         * Может быть после какой то из проверок вызывать
-         * $state = new PbxExtensionState('ModuleBitrix24Integration');
-         *         $result = $state->disableModule();
-         */
-        $this->b24->b24GetPhones();
         $this->updateSettings();
 
         $config                = new MikoPBXConfig();
@@ -169,21 +161,6 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
      * Обновление списка номеров для отслеживания.
      */
     private function updateSettings():void{
-        $iterationCount = 0;
-        while (true){
-            $innerNumbers = $this->b24->getCache('inner_numbers');
-            if (is_array($innerNumbers) && count($innerNumbers)>0) {
-                $this->inner_numbers = (array)$innerNumbers;
-                break;
-            }
-            $this->logger->writeError('inner numbers is empty. Wait 2 seconds.');
-            sleep(2);
-            $iterationCount++;
-            if ($iterationCount>25){ // Сейчас WorkerSafeScriptsCore создаст копию этого процесса, т.к. он не отвечает на Ping
-                $this->logger->writeError('Internal numbers not installed.');
-                exit(1);
-            }
-        }
         $this->logger->writeInfo('Update settings...');
         $keys_for_del  = [];
         foreach ($this->msg as $key => $time) {
@@ -209,14 +186,26 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             $this->export_cdr             = (intval($settings->export_cdr) === 1);
             $this->crmCreateLead          = (intval($settings->crmCreateLead) !== 0);
             $this->leadType               = (empty($settings->leadType))?Bitrix24Integration::API_LEAD_TYPE_ALL:$settings->leadType;
+        }
 
+        // Обновляем данные B24 (внутри вызывается b24GetPhones → обновляет кеш inner_numbers)
+        $this->b24->updateSettings($settings);
+
+        // Читаем inner_numbers из кеша (заполнен b24GetPhones выше)
+        $innerNumbers = $this->b24->getCache('inner_numbers');
+        if (is_array($innerNumbers) && count($innerNumbers) > 0) {
+            $this->inner_numbers = (array)$innerNumbers;
+        } else {
+            $this->logger->writeError('inner numbers is empty. Will retry on next update cycle.');
+        }
+
+        if ($settings !== null && !empty($this->inner_numbers)) {
             $responsible       = $this->b24->inner_numbers[$settings->responsibleMissedCalls]??[];
             $this->responsibleMissedCalls = empty($responsible)?'':$responsible['ID'];
         }
-        $this->updateExternalLines();
-        $this->b24->updateSettings();
-        $this->logger->writeInfo($this->b24->usersSettingsB24, 'usersSettingsB24');
 
+        $this->updateExternalLines();
+        $this->logger->writeInfo($this->b24->usersSettingsB24, 'usersSettingsB24');
     }
 
     /**
@@ -281,9 +270,10 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
 
         if ($this->replyOnPingRequest($parameters)){
             $this->counter++;
-            if ($this->counter > 5) {
-                // Обновляем список номеров. Получаем актуальные настройки.
-                // Пинг приходит раз в минуту. Интервал обновления списка номеров 5 минут.
+            // Пинг приходит раз в минуту. Обычный интервал обновления — 5 минут.
+            // Если inner_numbers пуст (токен был невалиден) — обновляем каждый пинг для быстрого восстановления.
+            $updateInterval = empty($this->inner_numbers) ? 1 : 5;
+            if ($this->counter > $updateInterval) {
                 $this->updateSettings();
                 $this->counter = 0;
             }

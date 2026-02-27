@@ -50,11 +50,11 @@ class Bitrix24Integration extends PbxExtensionBase
     public const B24_SEARCH_CHANNEL      = 'b24_search_channel';
     public const B24_INVOKE_REST_CHANNEL = 'b24.invoke.channel';
 
-    public array $b24Users;
-    public array $inner_numbers;
-    public array $mobile_numbers;
+    public array $b24Users = [];
+    public array $inner_numbers = [];
+    public array $mobile_numbers = [];
     private $SESSION;
-    public array $usersSettingsB24;
+    public array $usersSettingsB24 = [];
     private array $mem_cache;
     private string $refresh_token;
     private string $portal;
@@ -318,7 +318,7 @@ class Bitrix24Integration extends PbxExtensionBase
     private function getTokenFromSettings():bool
     {
         $result = false;
-        sleep(2);
+        usleep(500000);
         $session = CacheManager::getCacheData('access_token');
         if(!empty($session)){
             $this->SESSION = $session;
