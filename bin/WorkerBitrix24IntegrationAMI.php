@@ -285,7 +285,12 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         if(!isset($parameters['AgiData'])){
             return;
         }
-        $stringData = base64_decode($parameters['AgiData']);
+        $agiData = $parameters['AgiData'];
+        if (strpos($agiData, 'GZ:') === 0) {
+            $stringData = gzdecode(base64_decode(substr($agiData, 3)));
+        } else {
+            $stringData = base64_decode($agiData);
+        }
         $data = json_decode($stringData, true);
         $this->logger->writeInfo($stringData, $data['action']);
         switch ($data['action']) {
