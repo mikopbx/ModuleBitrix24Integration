@@ -405,13 +405,14 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             $this->logger->writeInfo("the internal number ($data[src_num] -> $data[dst_num], $dstUserShotNum) is not involved in the integration. $linkedId");
             return;
         }
-        if(in_array($data['did'], $this->disabledDid, true)){
+        $did = $data['did'] ?? '';
+        if(in_array($did, $this->disabledDid, true)){
             $this->b24->saveCache('finish-cdr-'.$data['UNIQUEID'], true, 3600);
             $this->b24->saveCache('finish-cdr-'.$data['linkedid'], true, 3600);
             $this->logger->writeInfo("Integration is disabled for this DID $linkedId");
             return;
         }
-        $LINE_NUMBER = $this->external_lines[$data['did']]??'';
+        $LINE_NUMBER = $this->external_lines[$did]??'';
         if (isset($this->inner_numbers[$data['src_num']]) && strlen($general_src_num) <= $this->extensionLength) {
             $this->logger->writeInfo("This is an outgoing call from an internal number. $linkedId");
             if (strlen($data['dst_num']) > $this->extensionLength && ! in_array($data['dst_num'], $this->extensions, true)) {
@@ -428,7 +429,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'linkedid'         => $data['linkedid'],
                     'LINE_NUMBER'      => $LINE_NUMBER,
                     'action'           => 'telephonyExternalCallRegister',
-                    'did'              => $data['did']
+                    'did'              => $did
                 ];
                 $this->Action_SendToBeanstalk($req_data);
                 $this->b24->saveCache('reg-cdr-'.$req_data['linkedid'], true, 600);
@@ -458,7 +459,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'CRM_CREATE'       => $createLead,
                     'LINE_NUMBER'      => $LINE_NUMBER,
                     'action'           => 'telephonyExternalCallRegister',
-                    'did'              => $data['did']
+                    'did'              => $did
                 ];
                 $this->Action_SendToBeanstalk($req_data);
                 $this->b24->saveCache('reg-cdr-'.$req_data['linkedid'], true, 600);
@@ -477,7 +478,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'TYPE'             => '2',
                     'LINE_NUMBER'      => $LINE_NUMBER,
                     'action'           => 'telephonyExternalCallRegister',
-                    'did'              => $data['did']
+                    'did'              => $did
                 ];
                 $this->Action_SendToBeanstalk($req_data);
                 $this->b24->saveCache('reg-cdr-'.$req_data['linkedid'], true, 600);
@@ -571,7 +572,8 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     {
         $needReturn = false;
         $linkedId = $data['linkedid']??'';
-        if(in_array($data['did'],$this->disabledDid, true)){
+        $did = $data['did'] ?? '';
+        if(in_array($did,$this->disabledDid, true)){
             $this->logger->writeInfo("Integration is disabled for this DID ".$linkedId);
             $needReturn = true;
         }
@@ -627,7 +629,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         if(!empty($responsible)
            && !$this->b24->getCache($finishKeyID)){
 
-            $LINE_NUMBER = $this->external_lines[$data['did']]??'';
+            $LINE_NUMBER = $this->external_lines[$did]??'';
             $regCacheKey = 'reg-cdr-'.$data['linkedid'];
             if(!$isOutgoing && strlen($data['src_num']) > $this->extensionLength
                 && !( $this->b24->getCache($regCacheKey) !== null || isset($this->msg[$regCacheKey])))
@@ -646,7 +648,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'TYPE'             => '2',
                     'LINE_NUMBER'      => $LINE_NUMBER,
                     'action'           => 'telephonyExternalCallRegister',
-                    'did'              => $data['did']
+                    'did'              => $did
                 ];
                 $this->Action_SendToBeanstalk($req_data);
                 $this->b24->saveCache($regCacheKey, true, 600);
