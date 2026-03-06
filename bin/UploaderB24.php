@@ -120,6 +120,19 @@ class UploaderB24 extends WorkerBase
             try {
                 $this->logger->writeInfo("File ready after {$elapsed}s, uploading '$filename'.");
                 $result = $this->b24->uploadRecord($task['uploadUrl'] ?? '', $filename);
+                $errorName = $result['error'] ?? '';
+
+                if (in_array($errorName, ['expired_token', 'wrong_client', 'NO_AUTH_FOUND', 'invalid_token'], true)) {
+                    $this->logger->writeError("Auth error '$errorName' during upload, will retry.");
+                    $this->b24->updateToken();
+                    if ($elapsed < self::FILE_POLL_TIMEOUT) {
+                        $remaining[] = $task;
+                    } else {
+                        $this->logger->writeError("Auth error persists after {$elapsed}s, giving up on '$filename'.");
+                    }
+                    continue;
+                }
+
                 try {
                     $rawResult = json_encode($result, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
                     $this->logger->writeInfo('Result: ' . $rawResult);

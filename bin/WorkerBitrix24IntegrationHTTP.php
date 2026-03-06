@@ -640,6 +640,14 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $delta = time() - $this->last_update_inner_num;
         if ($delta > 10) {
             $this->processState = 'updateSettings';
+            $this->b24->checkNeedUpdateToken();
+            if ($this->b24->getAuthFailureCount() >= Bitrix24Integration::AUTH_FAILURE_THRESHOLD) {
+                $this->b24->mainLogger->writeError(
+                    'Auth failure threshold reached (' . $this->b24->getAuthFailureCount() . '), restarting worker'
+                );
+                $this->needRestart = true;
+                return;
+            }
             $this->b24->b24GetPhones();
             $this->b24->updateSettings();
             $this->last_update_inner_num = time();
