@@ -68,6 +68,8 @@ class Bitrix24Integration extends PbxExtensionBase
     public MainLogger $mainLogger;
     private bool $mainProcess = false;
     private int $updateTokenTime = 300;
+    private int $authFailureCount = 0;
+    public const AUTH_FAILURE_THRESHOLD = 5;
 
     public $lastContactId;
     public $lastCompanyId;
@@ -388,6 +390,7 @@ class Bitrix24Integration extends PbxExtensionBase
              } elseif (in_array($error_name,['wrong_client','NO_AUTH_FOUND'], true)) {
                  $this->mainLogger->writeError($response, 'Fail REST response');
                  $this->mainLogger->writeError($this->SESSION, "$error_name: session: ");
+                 $this->authFailureCount++;
              } elseif ('QUERY_LIMIT_EXCEEDED' === $error_name) {
                  $this->mainLogger->writeInfo('Too many requests. Sleeping 1s ... ');
                  sleep(1);
@@ -510,6 +513,11 @@ class Bitrix24Integration extends PbxExtensionBase
         return $this->SESSION['access_token'] ?? '';
     }
 
+    public function getAuthFailureCount(): int
+    {
+        return $this->authFailureCount;
+    }
+
     /** Возвращает данные из кэш.
      *
      * @param $cacheKey
@@ -551,6 +559,7 @@ class Bitrix24Integration extends PbxExtensionBase
     {
         $query_data["ts"] = time();
         $this->SESSION    = $query_data;
+        $this->authFailureCount = 0;
 
         /** @var ModuleBitrix24Integration $data */
         $data = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);

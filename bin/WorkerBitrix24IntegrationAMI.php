@@ -285,8 +285,17 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         if(!isset($parameters['AgiData'])){
             return;
         }
-        $stringData = base64_decode($parameters['AgiData']);
+        $agiData = $parameters['AgiData'];
+        if (strpos($agiData, 'GZ:') === 0) {
+            $stringData = gzdecode(base64_decode(substr($agiData, 3)));
+        } else {
+            $stringData = base64_decode($agiData);
+        }
         $data = json_decode($stringData, true);
+        if (!is_array($data) || !isset($data['action'])) {
+            $this->logger->writeInfo($stringData, 'json_decode_error');
+            return;
+        }
         $this->logger->writeInfo($stringData, $data['action']);
         switch ($data['action']) {
             case 'hangup_chan':
@@ -296,10 +305,10 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 $this->actionDialCreateChan($data);
                 break;
             case 'dial_answer':
-                $this->actionDialAnswer($data['id'], $data['linkedid']);
+                $this->actionDialAnswer($data['id'] ?? '', $data['linkedid'] ?? '');
                 break;
             case 'transfer_dial_answer':
-                $this->actionDialAnswer($data['transfer_UNIQUEID'], $data['linkedid']);
+                $this->actionDialAnswer($data['transfer_UNIQUEID'] ?? '', $data['linkedid'] ?? '');
                 break;
             case 'dial':
             case 'transfer_dial':
@@ -400,13 +409,14 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             $this->logger->writeInfo("the internal number ($data[src_num] -> $data[dst_num], $dstUserShotNum) is not involved in the integration. $linkedId");
             return;
         }
-        if(in_array($data['did'], $this->disabledDid, true)){
+        $did = $data['did'] ?? '';
+        if(in_array($did, $this->disabledDid, true)){
             $this->b24->saveCache('finish-cdr-'.$data['UNIQUEID'], true, 3600);
             $this->b24->saveCache('finish-cdr-'.$data['linkedid'], true, 3600);
             $this->logger->writeInfo("Integration is disabled for this DID $linkedId");
             return;
         }
-        $LINE_NUMBER = $this->external_lines[$data['did']]??'';
+        $LINE_NUMBER = $this->external_lines[$did]??'';
         if (isset($this->inner_numbers[$data['src_num']]) && strlen($general_src_num) <= $this->extensionLength) {
             $this->logger->writeInfo("This is an outgoing call from an internal number. $linkedId");
             if (strlen($data['dst_num']) > $this->extensionLength && ! in_array($data['dst_num'], $this->extensions, true)) {
@@ -423,7 +433,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'linkedid'         => $data['linkedid'],
                     'LINE_NUMBER'      => $LINE_NUMBER,
                     'action'           => 'telephonyExternalCallRegister',
-                    'did'              => $data['did']
+                    'did'              => $did
                 ];
                 $this->Action_SendToBeanstalk($req_data);
                 $this->b24->saveCache('reg-cdr-'.$req_data['linkedid'], true, 600);
@@ -453,7 +463,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'CRM_CREATE'       => $createLead,
                     'LINE_NUMBER'      => $LINE_NUMBER,
                     'action'           => 'telephonyExternalCallRegister',
-                    'did'              => $data['did']
+                    'did'              => $did
                 ];
                 $this->Action_SendToBeanstalk($req_data);
                 $this->b24->saveCache('reg-cdr-'.$req_data['linkedid'], true, 600);
@@ -472,7 +482,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                     'TYPE'             => '2',
                     'LINE_NUMBER'      => $LINE_NUMBER,
                     'action'           => 'telephonyExternalCallRegister',
-                    'did'              => $data['did']
+                    'did'              => $did
                 ];
                 $this->Action_SendToBeanstalk($req_data);
                 $this->b24->saveCache('reg-cdr-'.$req_data['linkedid'], true, 600);
@@ -507,7 +517,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     public function actionHangupChan($data):void
     {
         if(empty($data['UNIQUEID'])){
-            $this->logger->writeInfo($data, "Ignore event, empty UNIQUEID".$data['linkedid']);
+            $this->logger->writeInfo($data, "Ignore event, empty UNIQUEID".($data['linkedid'] ?? ''));
             return;
         }
 
@@ -531,16 +541,16 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         if ($not_local) {
             $dataForSend = [
                 'UNIQUEID' => $data['UNIQUEID'],
-                'linkedid' => $data['linkedid'],
+                'linkedid' => $data['linkedid'] ?? '',
                 'channel'  => $data['agi_channel'],
                 'action'   => 'action_hangup_chan',
             ];
             $this->Action_SendToBeanstalk($dataForSend);
         }
 
-        $srsUserId = $this->getInnerNum($data['src_num']);
-        if(!empty($srsUserId) && !empty($outChanData) && $data['dialstatus'] !== 'ANSWERED'){
-            $this->logger->writeInfo("Send finish event from hangup...".$data['linkedid']);
+        $srsUserId = $this->getInnerNum($data['src_num'] ?? '');
+        if(!empty($srsUserId) && !empty($outChanData) && ($data['dialstatus'] ?? '') !== 'ANSWERED'){
+            $this->logger->writeInfo("Send finish event from hangup...".($data['linkedid'] ?? ''));
             $params = [
                 'UNIQUEID'       => $outChanData['UNIQUEID'],
                 'USER_ID'        => $srsUserId,
@@ -549,7 +559,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 'GLOBAL_STATUS'  => 'NOANSWER',
                 'disposition'    => 'NOANSWER',
                 "export_records" => $this->export_records,
-                'linkedid'       => $data['linkedid'],
+                'linkedid'       => $data['linkedid'] ?? '',
                 'action'         => 'telephonyExternalCallFinish',
             ];
             $this->Action_SendToBeanstalk($params);
@@ -566,15 +576,20 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     {
         $needReturn = false;
         $linkedId = $data['linkedid']??'';
-        if(in_array($data['did'],$this->disabledDid, true)){
+        $did = $data['did'] ?? '';
+        if(in_array($did,$this->disabledDid, true)){
             $this->logger->writeInfo("Integration is disabled for this DID ".$linkedId);
             $needReturn = true;
         }
 
-        $srsUserId = $this->getInnerNum($data['src_num']);
-        $dstUserId = $this->getInnerNum($data['dst_num']);
+        $srcNum   = $data['src_num'] ?? '';
+        $dstNum   = $data['dst_num'] ?? '';
+        $uniqueId = $data['UNIQUEID'] ?? '';
 
-        if(isset($this->channelCounter[$data['UNIQUEID']])
+        $srsUserId = $this->getInnerNum($srcNum);
+        $dstUserId = $this->getInnerNum($dstNum);
+
+        if(isset($this->channelCounter[$uniqueId])
             // Не все каналы с этим ID были завершены.
             // Вероятно это множественная регистрация.
             // Либо это CDR по внутреннему вызову.
@@ -598,11 +613,11 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         }
 
         $responsible = '';
-        $isMissed = $data['GLOBAL_STATUS'] !== 'ANSWERED';
+        $isMissed = ($data['GLOBAL_STATUS'] ?? '') !== 'ANSWERED';
 
-        $finishKeyID = 'finish-cdr-'.$data['UNIQUEID'];
+        $finishKeyID = 'finish-cdr-'.$uniqueId;
         if(!empty($USER_ID) && !$isMissed) {
-            if ($data['disposition'] === 'ANSWERED') {
+            if (($data['disposition'] ?? '') === 'ANSWERED') {
                 // Вызов был отвечен в рамках этой CDR.
                 $responsible = $USER_ID;
             }
@@ -610,7 +625,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             // Назначаем пропущенный на ответственного.
             $responsible = $this->responsibleMissedCalls;
             // Если пропущен, то финишируем только один CDR.
-            $finishKeyID = 'finish-cdr-'.$data['linkedid'];
+            $finishKeyID = 'finish-cdr-'.$linkedId;
         }elseif ($isMissed && !empty($USER_ID) ){
             // Рандомно назначаем ответственного для пропущенного.
             $responsible = $USER_ID;
@@ -622,26 +637,26 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         if(!empty($responsible)
            && !$this->b24->getCache($finishKeyID)){
 
-            $LINE_NUMBER = $this->external_lines[$data['did']]??'';
-            $regCacheKey = 'reg-cdr-'.$data['linkedid'];
-            if(!$isOutgoing && strlen($data['src_num']) > $this->extensionLength
+            $LINE_NUMBER = $this->external_lines[$did]??'';
+            $regCacheKey = 'reg-cdr-'.$linkedId;
+            if(!$isOutgoing && strlen($srcNum) > $this->extensionLength
                 && !( $this->b24->getCache($regCacheKey) !== null || isset($this->msg[$regCacheKey])))
             {
                 $this->logger->writeInfo($linkedId,"Send Register event... For incoming users only. If it is a missed one, then you need to register it first.".posix_getpid());
                 $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_OUT && $this->crmCreateLead)?'1':'0';
                 $req_data = [
-                    'UNIQUEID'         => $data['UNIQUEID'],
-                    'linkedid'         => $data['linkedid'],
-                    'CALL_START_DATE'  => date(\DateTimeInterface::ATOM, strtotime($data['start'])),
+                    'UNIQUEID'         => $uniqueId,
+                    'linkedid'         => $linkedId,
+                    'CALL_START_DATE'  => date(\DateTimeInterface::ATOM, strtotime($data['start'] ?? '')),
                     'USER_ID'          => $responsible,
-                    'USER_PHONE_INNER' => $data['dst_num'],
-                    'PHONE_NUMBER'     => $data['src_num'],
+                    'USER_PHONE_INNER' => $dstNum,
+                    'PHONE_NUMBER'     => $srcNum,
                     'DST_USER_CHANNEL' => $data['dst_chan']??'',
                     'CRM_CREATE'       => $createLead,
                     'TYPE'             => '2',
                     'LINE_NUMBER'      => $LINE_NUMBER,
                     'action'           => 'telephonyExternalCallRegister',
-                    'did'              => $data['did']
+                    'did'              => $did
                 ];
                 $this->Action_SendToBeanstalk($req_data);
                 $this->b24->saveCache($regCacheKey, true, 600);
@@ -657,14 +672,14 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
 
             $this->logger->writeInfo("Send finish event...".$linkedId);
             $params = [
-                'UNIQUEID'       => $data['UNIQUEID'],
+                'UNIQUEID'       => $uniqueId,
                 'USER_ID'        => $responsible,
-                'DURATION'       => $data['billsec'],
-                'FILE'           => $data['recordingfile'],
-                'GLOBAL_STATUS'  => $data['GLOBAL_STATUS'],
-                'disposition'    => $data['disposition'],
+                'DURATION'       => $data['billsec'] ?? '0',
+                'FILE'           => $data['recordingfile'] ?? '',
+                'GLOBAL_STATUS'  => $data['GLOBAL_STATUS'] ?? '',
+                'disposition'    => $data['disposition'] ?? '',
                 "export_records" => $this->export_records,
-                'linkedid'       => $data['linkedid'],
+                'linkedid'       => $linkedId,
                 'LINE_NUMBER'    => $LINE_NUMBER,
                 'action'         => 'telephonyExternalCallFinish',
             ];
@@ -681,6 +696,9 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
      * @return void
      */
     public function actionDialCreateChan($data):void{
+        if (empty($data['UNIQUEID'])) {
+            return;
+        }
         // Считаем каналы с одинаковым UID
         $countChannel = $this->channelCounter[$data['UNIQUEID']]??0;
         $countChannel++;
