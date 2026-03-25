@@ -46,6 +46,12 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     private bool  $insideExecuteTasks = false;
     private string $processState = 'init';
 
+    private int $lastSyncTime = 0;
+    private int $syncInterval = 10;
+    private const SYNC_INTERVAL_MIN  = 10;
+    private const SYNC_INTERVAL_MAX  = 300;
+    private const SYNC_INTERVAL_STEP = 2;
+
     /**
      * Handles the received signal.
      *
@@ -514,6 +520,10 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         if(!empty($args)){
             $this->q_req = array_merge($this->q_req, array_merge(...$args));
         }
+        if(!empty($events)){
+            // CRM-данные изменились — сбросить интервал синхронизации.
+            $this->syncInterval = self::SYNC_INTERVAL_MIN;
+        }
     }
 
 
@@ -637,7 +647,8 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         }
         $this->b24->mainLogger->rotate();
 
-        $delta = time() - $this->last_update_inner_num;
+        $now = time();
+        $delta = $now - $this->last_update_inner_num;
         if ($delta > 10) {
             $this->processState = 'updateSettings';
             $this->b24->checkNeedUpdateToken();
@@ -648,11 +659,38 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 $this->needRestart = true;
                 return;
             }
+            $prevLastContactId = $this->b24->lastContactId;
+            $prevLastCompanyId = $this->b24->lastCompanyId;
+            $prevLastLeadId    = $this->b24->lastLeadId;
+
             $this->b24->b24GetPhones();
             $this->b24->updateSettings();
-            $this->last_update_inner_num = time();
+            $this->last_update_inner_num = $now;
             $this->checkActiveChannels();
-            $this->syncProcContacts();
+
+            // Адаптивный интервал синхронизации контактов.
+            // Начальная синхронизация (lastId == "0") — каждые 10с.
+            // Steady state — backoff до 300с если нет новых данных.
+            $isInitialSync = ($this->b24->lastContactId === '0'
+                || $this->b24->lastCompanyId === '0'
+                || $this->b24->lastLeadId === '0');
+
+            if ($isInitialSync || ($now - $this->lastSyncTime) >= $this->syncInterval) {
+                $this->syncProcContacts();
+                $this->lastSyncTime = $now;
+
+                // Проверяем, были ли загружены новые данные (lastId изменился).
+                $hasNewData = ($this->b24->lastContactId !== $prevLastContactId
+                    || $this->b24->lastCompanyId !== $prevLastCompanyId
+                    || $this->b24->lastLeadId    !== $prevLastLeadId);
+
+                if ($isInitialSync || $hasNewData) {
+                    $this->syncInterval = self::SYNC_INTERVAL_MIN;
+                } else {
+                    $this->syncInterval = min($this->syncInterval * self::SYNC_INTERVAL_STEP, self::SYNC_INTERVAL_MAX);
+                }
+            }
+
             $this->processState = 'idle';
             if ($this->needRestart) {
                 return;
