@@ -34,6 +34,9 @@ class UploaderB24 extends WorkerBase
     private Logger $logger;
     private const FILE_POLL_INTERVAL = 2;
     private const FILE_POLL_TIMEOUT  = 180;
+    private const MAX_UPLOAD_ATTEMPTS = 8;
+    private const RETRY_BASE_DELAY    = 5;
+    private const RETRY_MAX_DELAY     = 600;
 
     /**
      * Pending upload tasks waiting for file to appear on disk.
@@ -111,7 +114,7 @@ class UploaderB24 extends WorkerBase
             }
             if (!file_exists($filename)) {
                 if ($elapsed >= self::FILE_POLL_TIMEOUT) {
-                    $this->logger->writeError("File '$filename' not found after {$elapsed}s, giving up.");
+                    $this->requeueWithDelay($task, "file not found after {$elapsed}s");
                 } else {
                     $remaining[] = $task;
                 }
@@ -125,30 +128,45 @@ class UploaderB24 extends WorkerBase
                 if (in_array($errorName, ['expired_token', 'wrong_client', 'NO_AUTH_FOUND', 'invalid_token'], true)) {
                     $this->logger->writeError("Auth error '$errorName' during upload, will retry.");
                     $this->b24->updateToken();
-                    if ($elapsed < self::FILE_POLL_TIMEOUT) {
-                        $remaining[] = $task;
-                    } else {
-                        $this->logger->writeError("Auth error persists after {$elapsed}s, giving up on '$filename'.");
-                    }
+                    $this->requeueWithDelay($task, "auth error: $errorName");
                     continue;
                 }
 
-                try {
-                    $rawResult = json_encode($result, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
-                    $this->logger->writeInfo('Result: ' . $rawResult);
-                } catch (Exception $e) {
-                    $this->logger->writeError('Exception upload file: ' . $e->getMessage());
+                if (isset($result['result']['FILE_ID'])) {
+                    $this->logger->writeInfo('Upload OK. FILE_ID: ' . $result['result']['FILE_ID']);
+                } else {
+                    $rawResult = json_encode($result, JSON_UNESCAPED_SLASHES);
+                    $this->logger->writeError("Upload failed, no FILE_ID. Response: $rawResult");
+                    $this->requeueWithDelay($task, "no FILE_ID in response");
                     continue;
-                }
-                if (!isset($result['result']["FILE_ID"])) {
-                    $this->logger->writeError('Fail upload file. Req: ' . json_encode($result));
                 }
                 usleep(300000);
             } catch (Exception $e) {
                 $this->logger->writeError($e->getLine().';'.$e->getCode().';'.$e->getMessage());
+                $this->requeueWithDelay($task, 'exception: ' . $e->getMessage());
             }
         }
         $this->pendingTasks = $remaining;
+    }
+
+    private function requeueWithDelay(array $task, string $reason): void
+    {
+        $attempts = ($task['_attempts'] ?? 0) + 1;
+        $filename = $task['FILENAME'] ?? '?';
+        if ($attempts >= self::MAX_UPLOAD_ATTEMPTS) {
+            $this->logger->writeError("Giving up on '$filename' after $attempts attempts. Last reason: $reason");
+            return;
+        }
+        $delay = (int)min(self::RETRY_BASE_DELAY * pow(2, $attempts - 1), self::RETRY_MAX_DELAY);
+        $task['_attempts'] = $attempts;
+        unset($task['_receivedAt']);
+        $this->queueAgent->publish(
+            json_encode($task, JSON_UNESCAPED_SLASHES),
+            self::B24_UPLOADER_CHANNEL,
+            1024,
+            $delay
+        );
+        $this->logger->writeInfo("Requeued '$filename', attempt $attempts, delay {$delay}s. Reason: $reason");
     }
 
     /**
