@@ -652,6 +652,9 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         if ($delta > 10) {
             $this->processState = 'updateSettings';
             $this->b24->checkNeedUpdateToken();
+            if ($this->needRestart) {
+                return;
+            }
             if ($this->b24->getAuthFailureCount() >= Bitrix24Integration::AUTH_FAILURE_THRESHOLD) {
                 $this->b24->mainLogger->writeError(
                     'Auth failure threshold reached (' . $this->b24->getAuthFailureCount() . '), restarting worker'
@@ -664,6 +667,9 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $prevLastLeadId    = $this->b24->lastLeadId;
 
             $this->b24->b24GetPhones();
+            if ($this->needRestart) {
+                return;
+            }
             $this->b24->updateSettings();
             $this->last_update_inner_num = $now;
             $this->checkActiveChannels();
@@ -695,6 +701,10 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             if ($this->needRestart) {
                 return;
             }
+        }
+
+        if ($this->needRestart) {
+            return;
         }
 
         // Получать новые события будем каждое 2ое обращение к этой функции ~ 1.2 секунды.
