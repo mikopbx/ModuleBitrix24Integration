@@ -18,6 +18,9 @@ const ModuleBitrix24Integration = {
 	$globalSearch: $('#globalsearch'),
 	$recordsTable: $('#external-line-table'),
 	$addNewButton: $('#add-new-external-line-button'),
+	$syncLinksButton: $('#sync-links-button'),
+	$syncLinksStatus: $('#sync-links-status'),
+	linksSyncPollHandle: null,
 	$elRegion: $('#b24_region'),
 	$elAppData: $('#b24-app-data'),
 
@@ -306,9 +309,59 @@ const ModuleBitrix24Integration = {
 			Form.checkValues();
 		});
 
+		ModuleBitrix24Integration.$syncLinksButton.on('click', () => {
+			ModuleBitrix24Integration.startLinksSync();
+		});
+
 		$('#open-cards-list option').each((index, obj) => {
 			$(obj).html(globalTranslate["mod_b24_i_OPEN_CARD_"+$(obj).val()]);
 		});
+	},
+
+	startLinksSync() {
+		ModuleBitrix24Integration.$syncLinksButton.addClass('loading disabled');
+		$.ajax({
+			url: window.location.origin + '/pbxcore/api/bitrix-integration/links-sync/start',
+			method: 'POST',
+			dataType: 'json',
+			success(response) {
+				if (response.result === true) {
+					ModuleBitrix24Integration.$syncLinksStatus.text(globalTranslate.mod_b24_i_SyncLinksStarted);
+				} else {
+					ModuleBitrix24Integration.$syncLinksButton.removeClass('loading disabled');
+					ModuleBitrix24Integration.$syncLinksStatus.text(globalTranslate.mod_b24_i_SyncLinksError);
+				}
+			},
+			error() {
+				ModuleBitrix24Integration.$syncLinksButton.removeClass('loading disabled');
+				ModuleBitrix24Integration.$syncLinksStatus.text(globalTranslate.mod_b24_i_SyncLinksError);
+			}
+		});
+	},
+
+	updateLinksSyncUI(data) {
+		if (!data) {
+			return;
+		}
+		const status = data.status || '';
+		if (status === 'running' || status === 'pending') {
+			ModuleBitrix24Integration.$syncLinksButton.addClass('loading disabled');
+			let text = data.message || '';
+			if (data.total > 0) {
+				const pct = Math.round(data.progress / data.total * 100);
+				text += ` (${pct}%)`;
+			}
+			ModuleBitrix24Integration.$syncLinksStatus.text(text);
+		} else if (status === 'done') {
+			ModuleBitrix24Integration.$syncLinksButton.removeClass('loading disabled');
+			ModuleBitrix24Integration.$syncLinksStatus.text(data.message || globalTranslate.mod_b24_i_SyncLinksDone);
+		} else if (status === 'error') {
+			ModuleBitrix24Integration.$syncLinksButton.removeClass('loading disabled');
+			ModuleBitrix24Integration.$syncLinksStatus.text(data.message || globalTranslate.mod_b24_i_SyncLinksError);
+		} else {
+			ModuleBitrix24Integration.$syncLinksButton.removeClass('loading disabled');
+			ModuleBitrix24Integration.$syncLinksStatus.text('');
+		}
 	},
 
 	/**

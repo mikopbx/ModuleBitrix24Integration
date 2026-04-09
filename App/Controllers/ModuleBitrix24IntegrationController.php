@@ -244,13 +244,41 @@ class ModuleBitrix24IntegrationController extends BaseController
                 $result = $ir->invoke('scope', []);
             }
             $this->view->result = !empty($result);
-            $this->view->data = [];
+            $this->view->data = [
+                'workers' => $this->getWorkersState(),
+                'linksSyncState' => CacheManager::getCacheData('links_sync_state'),
+            ];
             $this->view->messages = $result;
             CacheManager::setCacheData('module_scope', $result, 30);
         } else {
             $this->view->result = false;
             $this->view->messages[] = Util::translate('mod_b24_i_NoSettings');
         }
+    }
+
+    /**
+     * Получает состояние воркеров через REST API.
+     * @return array
+     */
+    private function getWorkersState(): array
+    {
+        $url = 'http://127.0.0.1/pbxcore/api/bitrix-integration/workers/state';
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 3,
+            CURLOPT_CONNECTTIMEOUT => 2,
+        ]);
+        $response = curl_exec($ch);
+        curl_close($ch);
+        if ($response === false) {
+            return [];
+        }
+        $data = json_decode($response, true);
+        if (!is_array($data) || ($data['result'] ?? false) !== true) {
+            return [];
+        }
+        return $data['data'] ?? [];
     }
 
     /**
@@ -291,6 +319,10 @@ class ModuleBitrix24IntegrationController extends BaseController
         foreach ($record as $key => $value) {
             switch ($key) {
                 case 'id':
+                case 'lastContactId':
+                case 'lastCompanyId':
+                case 'lastLeadId':
+                case 'lastDealId':
                     break;
                 case 'callbackQueue':
                     $record->$key = trim($data[$key]);

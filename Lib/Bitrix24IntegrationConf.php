@@ -21,6 +21,7 @@ use Modules\ModuleBitrix24Integration\bin\UploaderB24;
 use Modules\ModuleBitrix24Integration\bin\WorkerBitrix24IntegrationAMI;
 use Modules\ModuleBitrix24Integration\bin\WorkerBitrix24IntegrationHTTP;
 use Modules\ModuleBitrix24Integration\Lib\RestAPI\GetController;
+use Modules\ModuleBitrix24Integration\Lib\RestAPI\PostController;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24ExternalLines;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Users;
@@ -41,6 +42,8 @@ class Bitrix24IntegrationConf extends ConfigClass
     {
         return [
             [GetController::class, 'getWorkerState', '/pbxcore/api/bitrix-integration/workers/state',  'get', '/', true],
+            [GetController::class, 'getLinksSyncState', '/pbxcore/api/bitrix-integration/links-sync/state',  'get', '/', true],
+            [PostController::class, 'startLinksSync', '/pbxcore/api/bitrix-integration/links-sync/start',  'post', '/', false],
         ];
     }
 
@@ -131,7 +134,18 @@ class Bitrix24IntegrationConf extends ConfigClass
         if($action === "STATE"){
             $res->data = $this->workerState();
             $res->success = true;
-        }else{
+        } elseif ($action === "LINKS_SYNC_STATE") {
+            $res->data = CacheManager::getCacheData('links_sync_state');
+            $res->success = true;
+        } elseif ($action === "START_LINKS_SYNC") {
+            CacheManager::setCacheData('links_sync_state', [
+                'status' => 'pending',
+                'progress' => 0,
+                'total' => 0,
+                'message' => 'Запуск синхронизации связей...',
+            ], 86400);
+            $res->success = true;
+        } else {
             $res->messages[] = "API action '$action' not found in moduleRestAPICallback ModuleBitrix24Integration";
         }
         return $res;

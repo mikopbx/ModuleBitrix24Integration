@@ -69,6 +69,11 @@ return [
     'mod_b24_i_lead_type_incoming'        => 'Только входящие',
     'mod_b24_i_lead_type_outgoing'        => 'Только исходящие',
 
+    'mod_b24_i_SyncLinks'                 => 'Синхронизировать связи контактов и компаний',
+    'mod_b24_i_SyncLinksStarted'          => 'Синхронизация запущена...',
+    'mod_b24_i_SyncLinksDone'             => 'Синхронизация завершена',
+    'mod_b24_i_SyncLinksError'            => 'Ошибка запуска синхронизации',
+
     'mod_b24_i_OPEN_CARD'                 => 'Карточка звонка',
     'mod_b24_i_OPEN_CARD_NONE'            => 'Не открывать',
     'mod_b24_i_OPEN_CARD_DIRECTLY'        => 'Открывать при звонке',

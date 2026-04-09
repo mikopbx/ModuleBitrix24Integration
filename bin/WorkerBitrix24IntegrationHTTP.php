@@ -52,6 +52,9 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     private const SYNC_INTERVAL_MAX  = 300;
     private const SYNC_INTERVAL_STEP = 2;
 
+    private ?int $pidLinksSyncProc = null;
+    private int  $timeLinksSyncProc = 0;
+
     /**
      * Handles the received signal.
      *
@@ -520,10 +523,8 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         if(!empty($args)){
             $this->q_req = array_merge($this->q_req, array_merge(...$args));
         }
-        if(!empty($events)){
-            // CRM-данные изменились — сбросить интервал синхронизации.
-            $this->syncInterval = self::SYNC_INTERVAL_MIN;
-        }
+        // События уже обрабатываются поштучно выше (crmListEnt + getContactCompany/getCompanyContacts).
+        // Не сбрасываем syncInterval — адаптивный backoff должен работать.
     }
 
 
@@ -598,33 +599,185 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $response = $this->b24->sendBatch($syncProcReq);
         $result = $response['result']['result'] ?? [];
 
-        $syncProcReqContact = [];
-        $syncProcReqCompany = [];
+        $contactCompanyLinks = [];
         foreach ($result as $key => $partResponse) {
             [$actionName, $id] = explode('_', $key);
             if (in_array($actionName, [ Bitrix24Integration::API_CRM_LIST_CONTACT,Bitrix24Integration::API_CRM_LIST_COMPANY, Bitrix24Integration::API_CRM_LIST_LEAD], true )) {
                 $this->b24->crmListEntResults($actionName, $id, $partResponse, false);
-                foreach ($partResponse as $data){
-                    if(Bitrix24Integration::API_CRM_LIST_COMPANY === $actionName){
-                        $arg = $this->b24->getCompanyContacts($data['ID']);
-                        $syncProcReqCompany = array_merge($syncProcReqCompany, $arg);
-                    }elseif (Bitrix24Integration::API_CRM_LIST_CONTACT === $actionName){
-                        $arg = $this->b24->getContactCompany($data['ID']);
-                        $syncProcReqContact = array_merge($syncProcReqContact, $arg);
+                // Извлекаем связи контакт-компания из уже полученных данных вместо
+                // отдельных API-вызовов crm.company.contact.items.get / crm.contact.company.items.get.
+                if (Bitrix24Integration::API_CRM_LIST_CONTACT === $actionName) {
+                    foreach ($partResponse as $data) {
+                        $companyId = $data['COMPANY_ID'] ?? '';
+                        if (!empty($companyId) && !empty($data['ID'])) {
+                            $contactCompanyLinks[] = [
+                                'contactId' => $data['ID'],
+                                'companyId' => $companyId,
+                            ];
+                        }
                     }
                 }
             }
         }
-        $response = $this->b24->sendBatch($syncProcReqCompany);
-        if(!empty($response)){
-            ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_LINKS, [$response['result']['result']??[]], false);
-        }
-        $response = $this->b24->sendBatch($syncProcReqContact);
-        if(!empty($response)) {
-            ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_LINKS, [$response['result']['result']??[]], false);
+        if (!empty($contactCompanyLinks)) {
+            ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_LINKS_BATCH, [$contactCompanyLinks], false);
         }
         // Это дочерний процесс, завершаем его.
         exit(0);
+    }
+
+    /**
+     * Проверяет наличие запроса на ручную синхронизацию связей и запускает процесс.
+     */
+    private function checkLinksSync(): void
+    {
+        // Проверяем завершение предыдущего процесса.
+        if (!empty($this->pidLinksSyncProc)) {
+            $res = pcntl_waitpid($this->pidLinksSyncProc, $status, WNOHANG);
+            if ($res === 0) {
+                // Ещё работает. Таймаут 12 часов — на крупных порталах
+                // синхронизация всех связей может занять несколько часов.
+                if (time() - $this->timeLinksSyncProc > 43200) {
+                    posix_kill($this->pidLinksSyncProc, SIGKILL);
+                    pcntl_waitpid($this->pidLinksSyncProc, $status);
+                    CacheManager::setCacheData('links_sync_state', [
+                        'status' => 'error',
+                        'message' => 'Синхронизация прервана по таймауту (12ч)',
+                    ], 300);
+                } else {
+                    return;
+                }
+            }
+            $this->pidLinksSyncProc = null;
+        }
+
+        $state = CacheManager::getCacheData('links_sync_state');
+        if (($state['status'] ?? '') !== 'pending') {
+            return;
+        }
+
+        CacheManager::setCacheData('links_sync_state', [
+            'status' => 'running',
+            'progress' => 0,
+            'total' => 0,
+            'message' => 'Подсчёт сущностей...',
+        ], 86400);
+
+        $this->timeLinksSyncProc = time();
+        $this->pidLinksSyncProc = pcntl_fork();
+        if ($this->pidLinksSyncProc == -1) {
+            $this->b24->mainLogger->writeError('Fail fork links sync');
+            CacheManager::setCacheData('links_sync_state', [
+                'status' => 'error',
+                'message' => 'Не удалось запустить процесс синхронизации',
+            ], 300);
+            return;
+        } elseif ($this->pidLinksSyncProc) {
+            $this->b24->mainLogger->writeInfo('Start links sync... ' . $this->pidLinksSyncProc);
+            return;
+        }
+
+        // Дочерний процесс — долгоживущий, без ограничения по времени.
+        $this->b24->setIsNotMainProcess();
+        $this->needRestart = true;
+        set_time_limit(0);
+        cli_set_process_title("B24_HTTP_SYNC_LINKS");
+        try {
+            $this->syncAllLinks();
+        } catch (\Throwable $e) {
+            $this->b24->mainLogger->writeError('Links sync crashed: ' . $e->getMessage());
+            CacheManager::setCacheData('links_sync_state', [
+                'status' => 'error',
+                'message' => 'Ошибка: ' . $e->getMessage(),
+            ], 3600);
+        }
+        exit(0);
+    }
+
+    /**
+     * Полная синхронизация связей контактов и компаний через API Bitrix24.
+     * Запускается вручную из UI. Работает в fork-процессе.
+     */
+    private function syncAllLinks(): void
+    {
+        // 1. Получаем все ID контактов и компаний из локальной телефонной книги.
+        $contactIds = ConnectorDb::invoke(ConnectorDb::FUNC_GET_ENTITY_IDS, ['CONTACT']);
+        $companyIds = ConnectorDb::invoke(ConnectorDb::FUNC_GET_ENTITY_IDS, ['COMPANY']);
+
+        if (!is_array($contactIds)) {
+            $contactIds = [];
+        }
+        if (!is_array($companyIds)) {
+            $companyIds = [];
+        }
+
+        $totalContacts = count($contactIds);
+        $totalCompanies = count($companyIds);
+        $total = $totalContacts + $totalCompanies;
+
+        CacheManager::setCacheData('links_sync_state', [
+            'status' => 'running',
+            'progress' => 0,
+            'total' => $total,
+            'message' => "Контактов: $totalContacts, компаний: $totalCompanies",
+        ], 86400);
+
+        $processed = 0;
+
+        // 2. Синхронизация связей компаний (crm.company.contact.items.get).
+        $batchSize = 50;
+        $errors = 0;
+        $chunks = array_chunk($companyIds, $batchSize);
+        foreach ($chunks as $chunk) {
+            $batchReq = [];
+            foreach ($chunk as $id) {
+                $batchReq = array_merge($batchReq, $this->b24->getCompanyContacts($id));
+            }
+            $response = $this->b24->sendBatch($batchReq);
+            if (!empty($response['result']['result'])) {
+                ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_LINKS, [$response['result']['result']], false);
+            } elseif (empty($response)) {
+                $errors++;
+                $this->b24->mainLogger->writeError("Links sync: empty response for companies batch at $processed");
+            }
+            $processed += count($chunk);
+            CacheManager::setCacheData('links_sync_state', [
+                'status' => 'running',
+                'progress' => $processed,
+                'total' => $total,
+                'message' => "Компании: $processed / $totalCompanies" . ($errors > 0 ? " (ошибок: $errors)" : ''),
+            ], 86400);
+        }
+
+        // 3. Синхронизация связей контактов (crm.contact.company.items.get).
+        $chunks = array_chunk($contactIds, $batchSize);
+        foreach ($chunks as $chunk) {
+            $batchReq = [];
+            foreach ($chunk as $id) {
+                $batchReq = array_merge($batchReq, $this->b24->getContactCompany($id));
+            }
+            $response = $this->b24->sendBatch($batchReq);
+            if (!empty($response['result']['result'])) {
+                ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_LINKS, [$response['result']['result']], false);
+            } elseif (empty($response)) {
+                $errors++;
+                $this->b24->mainLogger->writeError("Links sync: empty response for contacts batch at $processed");
+            }
+            $processed += count($chunk);
+            CacheManager::setCacheData('links_sync_state', [
+                'status' => 'running',
+                'progress' => $processed,
+                'total' => $total,
+                'message' => "Контакты: " . ($processed - $totalCompanies) . " / $totalContacts" . ($errors > 0 ? " (ошибок: $errors)" : ''),
+            ], 86400);
+        }
+
+        CacheManager::setCacheData('links_sync_state', [
+            'status' => 'done',
+            'progress' => $total,
+            'total' => $total,
+            'message' => "Готово. Обработано компаний: $totalCompanies, контактов: $totalContacts",
+        ], 3600);
     }
 
     /**
@@ -696,6 +849,8 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                     $this->syncInterval = min($this->syncInterval * self::SYNC_INTERVAL_STEP, self::SYNC_INTERVAL_MAX);
                 }
             }
+
+            $this->checkLinksSync();
 
             $this->processState = 'idle';
             if ($this->needRestart) {

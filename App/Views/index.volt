@@ -34,6 +34,13 @@
                 <label>{{ t._('mod_b24_i_backgroundUpload') }}</label>
             </div>
         </div>
+        <div class="ui divider"></div>
+        <div class="field">
+            <button class="ui basic button disability" id="sync-links-button" type="button">
+                <i class="sync icon"></i>{{ t._('mod_b24_i_SyncLinks') }}
+            </button>
+            <span id="sync-links-status" class="ui small text" style="margin-left: 10px;"></span>
+        </div>
     </div>
     <div class="ui bottom attached tab segment active" data-tab="general">
         <div class="ten wide field">
