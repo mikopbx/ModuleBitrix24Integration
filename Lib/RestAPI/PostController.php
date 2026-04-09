@@ -20,23 +20,11 @@
 namespace Modules\ModuleBitrix24Integration\Lib\RestAPI;
 use MikoPBX\PBXCoreREST\Controllers\Modules\ModulesControllerBase;
 
-class GetController extends ModulesControllerBase
+class PostController extends ModulesControllerBase
 {
-    /**
-     * http://127.0.0.1/pbxcore/api/bitrix-integration/workers/state
-     */
-    public function getWorkerState(): void
+    public function startLinksSync(): void
     {
-        $this->callActionForModule('ModuleBitrix24Integration', 'STATE');
-        $this->response->sendRaw();
-    }
-
-    /**
-     * http://127.0.0.1/pbxcore/api/bitrix-integration/links-sync/state
-     */
-    public function getLinksSyncState(): void
-    {
-        $this->callActionForModule('ModuleBitrix24Integration', 'LINKS_SYNC_STATE');
+        $this->callActionForModule('ModuleBitrix24Integration', 'START_LINKS_SYNC');
         $this->response->sendRaw();
     }
 }

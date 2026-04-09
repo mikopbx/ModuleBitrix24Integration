@@ -60,6 +60,11 @@ return [
     'mod_b24_i_lead_type_all' => 'All calls',
     'mod_b24_i_Other' => 'Other',
     'mod_b24_i_responsibleMissedCalls' => 'Responsible for missed calls',
+    'mod_b24_i_SyncLinks' => 'Sync contact-company relationships',
+    'mod_b24_i_SyncLinksStarted' => 'Sync started...',
+    'mod_b24_i_SyncLinksDone' => 'Sync completed',
+    'mod_b24_i_SyncLinksError' => 'Failed to start sync',
+
     'mod_b24_i_OPEN_CARD' => 'call card',
     'mod_b24_i_OPEN_CARD_NONE' => 'Do not open',
     'mod_b24_i_OPEN_CARD_DIRECTLY' => 'Open on call',

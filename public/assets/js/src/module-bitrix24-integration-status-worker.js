@@ -62,16 +62,18 @@ const ModuleBitrix24IntegrationStatusWorker = {
 					ModuleBitrix24IntegrationStatusWorker.timeOut,
 				);
 			},
-			onSuccess() {
+			onSuccess(response) {
 				ModuleBitrix24IntegrationStatusWorker.changeStatus('Connected');
 				ModuleBitrix24IntegrationStatusWorker.errorCounts = 0;
 				ModuleBitrix24IntegrationStatusWorker.$formObj.removeClass('error');
+				ModuleBitrix24IntegrationStatusWorker.updateWorkersState(response.data);
 			},
-			onFailure() {
+			onFailure(response) {
 				ModuleBitrix24IntegrationStatusWorker.errorCounts++;
 				if (ModuleBitrix24IntegrationStatusWorker.errorCounts > 3){
 					ModuleBitrix24IntegrationStatusWorker.changeStatus('ConnectionError');
 				}
+				ModuleBitrix24IntegrationStatusWorker.updateWorkersState(response ? response.data : null);
 			},
 			onResponse(response) {
 				$('.message.ajax').remove();
@@ -91,9 +93,9 @@ const ModuleBitrix24IntegrationStatusWorker = {
 							ModuleBitrix24IntegrationStatusWorker.$moduleStatus
 								.after(`<div class="ui error icon message ajax">
 									<i class="exclamation circle icon"></i>
-									<div class="content">													
+									<div class="content">
 										<pre style='white-space: pre-wrap'>${visualErrorString}</pre>
-									</div>										  
+									</div>
 								</div>`);
 							ModuleBitrix24IntegrationStatusWorker.$formObj.addClass('error');
 
@@ -102,36 +104,27 @@ const ModuleBitrix24IntegrationStatusWorker = {
 				}
 			},
 		});
+	},
 
-		$.ajax({
-			url: window.location.origin + '/pbxcore/api/bitrix-integration/workers/state',
-			method: 'GET',
-			dataType: 'json',
-			success: function(response) {
-				const $container = $('#status-workers');
-				$container.empty();
-				const $label = $('<div class="ui small basic label" style="font-weight: bold; padding: 0.6em 1em;">'+globalTranslate.mod_b24_i_ServiceStateTitle+'</div>');
+	updateWorkersState(data) {
+		const $container = $('#status-workers');
+		$container.empty();
+		const $title = $('<div class="ui small basic label" style="font-weight: bold; padding: 0.6em 1em;">'+globalTranslate.mod_b24_i_ServiceStateTitle+'</div>');
+		$container.append($title);
+		const workers = data && data.workers ? data.workers : null;
+		if (Array.isArray(workers)) {
+			workers.forEach(service => {
+				const colorClass = service.state === 'OK' ? 'green' : 'red';
+				const $label = $(`<div class="ui ${colorClass} label">${service.label}</div>`);
 				$container.append($label);
-				if (response.result === true && Array.isArray(response.data)) {
-					// Для каждого сервиса создаём label
-					response.data.forEach(service => {
-						const colorClass = service.state === 'OK' ? 'green' : 'red';
-						const $label = $(`<div class="ui ${colorClass} label">${service.label}</div>`);
-						$container.append($label);
-					});
-				} else {
-					// Если result: false или data не массив
-					const $label = $('<div class="ui red label">'+globalTranslate.mod_b24_i_GetServiceStateError+'</div>');
-					$container.append($label);
-				}
-			},
-			error: function() {
-				const $container = $('#status-workers');
-				$container.empty();
-				const $label = $('<div class="ui red label">'+globalTranslate.mod_b24_i_GetServiceStateError+'</div>');
-				$container.append($label);
-			}
-		});
+			});
+		} else {
+			const $label = $('<div class="ui red label">'+globalTranslate.mod_b24_i_GetServiceStateError+'</div>');
+			$container.append($label);
+		}
+		if (data && data.linksSyncState && typeof ModuleBitrix24Integration !== 'undefined') {
+			ModuleBitrix24Integration.updateLinksSyncUI(data.linksSyncState);
+		}
 	},
 	/**
 	 * Updates module status on the right corner label

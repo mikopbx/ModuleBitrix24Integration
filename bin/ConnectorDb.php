@@ -39,6 +39,8 @@ class ConnectorDb extends WorkerBase
 {
     public const FUNC_GET_GENERAL_SETTINGS          = "getGeneralSettings";
     public const FUNC_UPDATE_LINKS                  = "updateLinks";
+    public const FUNC_UPDATE_LINKS_BATCH            = "updateLinksBatch";
+    public const FUNC_GET_ENTITY_IDS               = "getEntityIds";
     public const FUNC_UPDATE_GENERAL_SETTINGS       = "updateGeneralSettings";
     public const FUNC_DELETE_CONTACT_DATA           = "deletePhoneContact";
     public const FUNC_UPDATE_ENT_CONTACT            = "updateEntContact";
@@ -1005,6 +1007,50 @@ class ConnectorDb extends WorkerBase
         }
 
         return $result;
+    }
+
+    /**
+     * Возвращает уникальные b24id для заданного типа контакта (CONTACT/COMPANY).
+     * @param string $contactType
+     * @return array
+     */
+    public function getEntityIds(string $contactType): array
+    {
+        $record = new B24PhoneBook();
+        $db = $record->getReadConnection();
+        $table = $record->getSource();
+        $rows = $db->fetchAll(
+            "SELECT DISTINCT b24id FROM {$table} WHERE contactType = ?",
+            \Phalcon\Db\Enum::FETCH_ASSOC,
+            [$contactType]
+        );
+        return array_column($rows, 'b24id');
+    }
+
+    /**
+     * Batch-вставка связей контакт-компания из данных списка контактов.
+     * Используется при начальной синхронизации вместо отдельных API-вызовов.
+     * @param array $links массив ['contactId' => ..., 'companyId' => ...]
+     * @return array
+     */
+    public function updateLinksBatch(array $links = []): array
+    {
+        $record = new ContactLinks();
+        $db = $record->getWriteConnection();
+        $table = $record->getSource();
+
+        foreach ($links as $linkData) {
+            $contactId = $linkData['contactId'] ?? '';
+            $companyId = $linkData['companyId'] ?? '';
+            if (empty($contactId) || empty($companyId)) {
+                continue;
+            }
+            $db->execute(
+                "INSERT INTO {$table} (contactId, companyId) SELECT ?, ? WHERE NOT EXISTS (SELECT 1 FROM {$table} WHERE contactId = ? AND companyId = ?)",
+                [$contactId, $companyId, $contactId, $companyId]
+            );
+        }
+        return [];
     }
 
     // B24 CDR
