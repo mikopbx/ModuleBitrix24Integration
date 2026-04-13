@@ -659,6 +659,10 @@ class Bitrix24Integration extends PbxExtensionBase
                 if ($tmpFile !== '' && file_exists($tmpFile)) {
                     unlink($tmpFile);
                 }
+                return [
+                    'error' => 'ffmpeg_failed',
+                    'error_description' => 'ffmpeg conversion failed, upload aborted',
+                ];
             }
         }
         $post = ['file'=> curl_file_create($uploadFile)];
