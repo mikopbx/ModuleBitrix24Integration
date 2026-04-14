@@ -196,21 +196,34 @@ class ConnectorDb extends WorkerBase
 
                 $startTime = microtime(true);
                 $this->logger->writeInfo($args, "REQUEST $funcName ". getmypid());
-                if(count($args) === 0){
-                    if(!in_array($funcName,[self::FUNC_DELETE_CONTACT_DATA, self::FUNC_UPDATE_ENT_CONTACT, self::FUNC_GET_CDR_BY_FILTER])){
-                        try {
+                try {
+                    if(count($args) === 0){
+                        if(!in_array($funcName,[self::FUNC_DELETE_CONTACT_DATA, self::FUNC_UPDATE_ENT_CONTACT, self::FUNC_GET_CDR_BY_FILTER], true)){
                             $res_data = $this->$funcName();
-                        }catch (Throwable $e){
-                            $this->logger->writeError($data, 'Function exec error');
-                            $res_data = [];
+                        }
+                    }else{
+                        $hasStringKey = false;
+                        foreach ($args as $k => $_){
+                            if (!is_int($k)){
+                                $hasStringKey = true;
+                                break;
+                            }
+                        }
+                        if ($hasStringKey){
+                            $this->logger->writeError(['function' => $funcName, 'keys' => array_keys($args)], 'String keys in args, skip request');
+                        }else{
+                            $res_data = $this->$funcName(...array_values($args));
                         }
                     }
-                }else{
-                    if(array_keys($args) !== range(0, count($args) - 1)){
-                        $this->logger->writeError(['function' => $funcName, 'keys' => array_keys($args)], 'String keys in args, skip request');
-                    }else{
-                        $res_data = $this->$funcName(...$args);
-                    }
+                }catch (Throwable $e){
+                    $this->logger->writeError([
+                        'function' => $funcName,
+                        'args'     => $args,
+                        'error'    => $e->getMessage(),
+                        'file'     => $e->getFile(),
+                        'line'     => $e->getLine(),
+                    ], 'Function exec error');
+                    $res_data = [];
                 }
                 $packedResult = self::packResult($res_data);
 
