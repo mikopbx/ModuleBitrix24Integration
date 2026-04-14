@@ -73,7 +73,9 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     public function signalHandler(int $signal): void
     {
         parent::signalHandler($signal);
-        $this->logger->writeInfo("Need SHUTDOWN (state={$this->processState})... $signal");
+        if (isset($this->logger)) {
+            $this->logger->writeInfo("Need SHUTDOWN (state={$this->processState})... $signal");
+        }
         cli_set_process_title("SHUTDOWN[{$this->processState}]_" . self::class);
         try {
             $this->am->setBreak();
@@ -174,6 +176,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
 
         /** @var Extensions $res_ext */
         /** @var Extensions $exten */
+        $this->extensions = [];
         $res_ext = Extensions::find('type<>"EXTERNAL"');
         foreach ($res_ext as $exten) {
             $this->extensions[] = $exten->number;
@@ -214,6 +217,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     private function updateExternalLines(): void
     {
         $this->external_lines = [];
+        $this->disabledDid = [];
         $lines = ConnectorDb::invoke(ConnectorDb::FUNC_GET_EXTERNAL_LINES, []);
         foreach ($lines as $line){
             $this->external_lines[$line['number']] = $line['number'];

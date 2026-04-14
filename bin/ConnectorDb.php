@@ -98,7 +98,9 @@ class ConnectorDb extends WorkerBase
     {
         parent::signalHandler($signal);
         cli_set_process_title("SHUTDOWN_" . self::class);
-        $this->logger->writeInfo('SHUTDOWN...');
+        if (isset($this->logger)) {
+            $this->logger->writeInfo('SHUTDOWN...');
+        }
     }
 
     /**
@@ -618,7 +620,12 @@ class ConnectorDb extends WorkerBase
      */
     public function getGeneralSettings(array $filter = []):array
     {
-        $settings = ModuleBitrix24Integration::findFirst($filter);
+        try {
+            $settings = ModuleBitrix24Integration::findFirst($filter);
+        } catch (\Throwable $e) {
+            $this->logger->writeError(['filter' => $filter, 'error' => $e->getMessage()], 'getGeneralSettings invalid filter');
+            $settings = null;
+        }
         if($settings === null){
             $settings = new ModuleBitrix24Integration();
         }
