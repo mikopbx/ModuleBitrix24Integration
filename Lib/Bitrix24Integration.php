@@ -582,6 +582,11 @@ class Bitrix24Integration extends PbxExtensionBase
 
         usleep(500000);
         $binds  = $eventResults['result']['result']['event.get'] ?? [];
+        static $subscriptionsLogged = false;
+        if (!$subscriptionsLogged) {
+            $this->mainLogger->writeInfo(json_encode($binds, JSON_UNESCAPED_UNICODE), 'event.get subscriptions');
+            $subscriptionsLogged = true;
+        }
         $events = [];
         foreach ($binds as $bind) {
             $events[] = $bind['event'];
@@ -659,6 +664,10 @@ class Bitrix24Integration extends PbxExtensionBase
                 if ($tmpFile !== '' && file_exists($tmpFile)) {
                     unlink($tmpFile);
                 }
+                return [
+                    'error' => 'ffmpeg_failed',
+                    'error_description' => 'ffmpeg conversion failed, upload aborted',
+                ];
             }
         }
         $post = ['file'=> curl_file_create($uploadFile)];

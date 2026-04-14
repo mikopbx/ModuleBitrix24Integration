@@ -34,7 +34,6 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     private $pidSyncProcContacts;
     private $timeSyncProcContacts;
     private array $q_req = [];
-    private bool $need_get_events = false;
     private int $last_update_inner_num = 0;
     private BeanstalkClient $queueAgent;
 
@@ -483,6 +482,14 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     }
 
     /**
+     * Тонкая обёртка: оборачивает events в формат, ожидаемый handleEvent().
+     */
+    private function processOfflineEvents(array $events): void
+    {
+        $this->handleEvent(['event.offline.get' => ['events' => $events]]);
+    }
+
+    /**
      * Обработка событий b24.
      * @param $result
      * @return void
@@ -808,6 +815,17 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             if ($this->needRestart) {
                 return;
             }
+            // Прямой опрос offline-событий — гарантированно каждые ~10с.
+            $evResponse = $this->b24->sendBatch($this->b24->eventOfflineGet());
+            $offlineEvents = $evResponse['result']['result']['event.offline.get']['events'] ?? [];
+            if (!empty($offlineEvents)) {
+                $evCount = count($offlineEvents);
+                $this->b24->mainLogger->writeInfo(
+                    "event.offline.get: {$evCount} events: "
+                    . json_encode(array_column($offlineEvents, 'EVENT_NAME'))
+                );
+                $this->processOfflineEvents($offlineEvents);
+            }
             if ($this->b24->getAuthFailureCount() >= Bitrix24Integration::AUTH_FAILURE_THRESHOLD) {
                 $this->b24->mainLogger->writeError(
                     'Auth failure threshold reached (' . $this->b24->getAuthFailureCount() . '), restarting worker'
@@ -862,17 +880,9 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             return;
         }
 
-        // Получать новые события будем каждое 2ое обращение к этой функции ~ 1.2 секунды.
-        $this->need_get_events = !$this->need_get_events;
-
         // Обработка очередей: все доступные события для каждого вызова
         $this->drainPerCallQueues();
 
-        if ($this->need_get_events) {
-            // Запрос на получение offline событий.
-            $arg = $this->b24->eventOfflineGet();
-            $this->q_req = array_merge($this->q_req, $arg);
-        }
         if (count($this->q_req) > 0) {
             $this->processState = 'sendBatch';
             $chunks = $this->chunkAssociativeArray($this->q_req);
