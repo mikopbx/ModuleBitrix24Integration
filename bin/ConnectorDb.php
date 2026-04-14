@@ -714,7 +714,7 @@ class ConnectorDb extends WorkerBase
 
         if(!empty($typesFiltered)){
             $filter['conditions'] .= ' AND contactType IN ({types:array})';
-            $filter['bind']['types'] = $types;
+            $filter['bind']['types'] = array_values($typesFiltered);
         }
         $data = B24PhoneBook::find($filter)->toArray();
 
@@ -724,7 +724,7 @@ class ConnectorDb extends WorkerBase
             $filtered = array_filter($data, function ($item) {
                 return $item['contactType'] === 'CONTACT';
             });
-            $ids = array_map(function ($item) {return $item['b24id'];}, $filtered);
+            $ids = array_values(array_map(function ($item) {return $item['b24id'];}, $filtered));
             if(!empty($ids)){
                 $filter = [
                     'columns' => 'contactId',
