@@ -404,7 +404,7 @@ class Bitrix24Integration extends PbxExtensionBase
                 $this->mainLogger->writeError($response, 'Fail REST response');
             }
         }
-        if(isset( $data['cmd'])){
+        if(isset($data['cmd']) && is_array($data['cmd'])){
             $queues = $data['cmd'];
             unset($queues['event.get'], $queues['event.offline.get']);
             foreach ($queues as $index => $queue){
@@ -419,8 +419,11 @@ class Bitrix24Integration extends PbxExtensionBase
 
             if(!empty($queues)){
                 foreach ($queues as $index => $queue){
+                    if (!is_string($queue)) {
+                        continue;
+                    }
                     $query = [];
-                    parse_str(parse_url(rawurldecode($queue), PHP_URL_QUERY)??'', $query);
+                    parse_str(parse_url(rawurldecode($queue), PHP_URL_QUERY) ?? '', $query);
                     unset($query['auth']);
                     $queues[$index] = $query;
                 }
@@ -869,7 +872,7 @@ class Bitrix24Integration extends PbxExtensionBase
                 $user['ID']              = $value['ID'];
                 $user['PERSONAL_MOBILE'] = preg_replace('/(\D)/', '', $value['PERSONAL_MOBILE']??'');
                 $user['WORK_PHONE']      = preg_replace('/(\D)/', '', $value['WORK_PHONE']??'');
-                $user['EMAIL']           = $value['EMAIL'];
+                $user['EMAIL']           = $value['EMAIL'] ?? '';
                 $user['UF_PHONE_INNER']  = preg_replace('/(\D)/', '', $value['UF_PHONE_INNER']??'');
 
                 if (!empty($user['PERSONAL_MOBILE'])) {

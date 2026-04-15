@@ -87,8 +87,9 @@ class UploaderB24 extends WorkerBase
     {
         parent::signalHandler($signal);
         cli_set_process_title('SHUTDOWN_'.cli_get_process_title());
-        $this->logger->writeInfo("NEED SHUTDOWN ($signal)...");
-
+        if (isset($this->logger)) {
+            $this->logger->writeInfo("NEED SHUTDOWN ($signal)...");
+        }
     }
 
     /**

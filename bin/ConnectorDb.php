@@ -98,7 +98,9 @@ class ConnectorDb extends WorkerBase
     {
         parent::signalHandler($signal);
         cli_set_process_title("SHUTDOWN_" . self::class);
-        $this->logger->writeInfo('SHUTDOWN...');
+        if (isset($this->logger)) {
+            $this->logger->writeInfo('SHUTDOWN...');
+        }
     }
 
     /**
@@ -194,21 +196,34 @@ class ConnectorDb extends WorkerBase
 
                 $startTime = microtime(true);
                 $this->logger->writeInfo($args, "REQUEST $funcName ". getmypid());
-                if(count($args) === 0){
-                    if(!in_array($funcName,[self::FUNC_DELETE_CONTACT_DATA, self::FUNC_UPDATE_ENT_CONTACT, self::FUNC_GET_CDR_BY_FILTER])){
-                        try {
+                try {
+                    if(count($args) === 0){
+                        if(!in_array($funcName,[self::FUNC_DELETE_CONTACT_DATA, self::FUNC_UPDATE_ENT_CONTACT, self::FUNC_GET_CDR_BY_FILTER], true)){
                             $res_data = $this->$funcName();
-                        }catch (Throwable $e){
-                            $this->logger->writeError($data, 'Function exec error');
-                            $res_data = [];
+                        }
+                    }else{
+                        $hasStringKey = false;
+                        foreach ($args as $k => $_){
+                            if (!is_int($k)){
+                                $hasStringKey = true;
+                                break;
+                            }
+                        }
+                        if ($hasStringKey){
+                            $this->logger->writeError(['function' => $funcName, 'keys' => array_keys($args)], 'String keys in args, skip request');
+                        }else{
+                            $res_data = $this->$funcName(...array_values($args));
                         }
                     }
-                }else{
-                    if(array_keys($args) !== range(0, count($args) - 1)){
-                        $this->logger->writeError(['function' => $funcName, 'keys' => array_keys($args)], 'String keys in args, skip request');
-                    }else{
-                        $res_data = $this->$funcName(...$args);
-                    }
+                }catch (Throwable $e){
+                    $this->logger->writeError([
+                        'function' => $funcName,
+                        'args'     => $args,
+                        'error'    => $e->getMessage(),
+                        'file'     => $e->getFile(),
+                        'line'     => $e->getLine(),
+                    ], 'Function exec error');
+                    $res_data = [];
                 }
                 $packedResult = self::packResult($res_data);
 
@@ -618,7 +633,12 @@ class ConnectorDb extends WorkerBase
      */
     public function getGeneralSettings(array $filter = []):array
     {
-        $settings = ModuleBitrix24Integration::findFirst($filter);
+        try {
+            $settings = ModuleBitrix24Integration::findFirst($filter);
+        } catch (\Throwable $e) {
+            $this->logger->writeError(['filter' => $filter, 'error' => $e->getMessage()], 'getGeneralSettings invalid filter');
+            $settings = null;
+        }
         if($settings === null){
             $settings = new ModuleBitrix24Integration();
         }
@@ -707,7 +727,7 @@ class ConnectorDb extends WorkerBase
 
         if(!empty($typesFiltered)){
             $filter['conditions'] .= ' AND contactType IN ({types:array})';
-            $filter['bind']['types'] = $types;
+            $filter['bind']['types'] = array_values($typesFiltered);
         }
         $data = B24PhoneBook::find($filter)->toArray();
 
@@ -717,7 +737,7 @@ class ConnectorDb extends WorkerBase
             $filtered = array_filter($data, function ($item) {
                 return $item['contactType'] === 'CONTACT';
             });
-            $ids = array_map(function ($item) {return $item['b24id'];}, $filtered);
+            $ids = array_values(array_map(function ($item) {return $item['b24id'];}, $filtered));
             if(!empty($ids)){
                 $filter = [
                     'columns' => 'contactId',

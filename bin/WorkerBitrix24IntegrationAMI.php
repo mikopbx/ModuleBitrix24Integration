@@ -73,7 +73,9 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     public function signalHandler(int $signal): void
     {
         parent::signalHandler($signal);
-        $this->logger->writeInfo("Need SHUTDOWN (state={$this->processState})... $signal");
+        if (isset($this->logger)) {
+            $this->logger->writeInfo("Need SHUTDOWN (state={$this->processState})... $signal");
+        }
         cli_set_process_title("SHUTDOWN[{$this->processState}]_" . self::class);
         try {
             $this->am->setBreak();
@@ -174,6 +176,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
 
         /** @var Extensions $res_ext */
         /** @var Extensions $exten */
+        $this->extensions = [];
         $res_ext = Extensions::find('type<>"EXTERNAL"');
         foreach ($res_ext as $exten) {
             $this->extensions[] = $exten->number;
@@ -214,6 +217,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     private function updateExternalLines(): void
     {
         $this->external_lines = [];
+        $this->disabledDid = [];
         $lines = ConnectorDb::invoke(ConnectorDb::FUNC_GET_EXTERNAL_LINES, []);
         foreach ($lines as $line){
             $this->external_lines[$line['number']] = $line['number'];
@@ -417,13 +421,15 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             return;
         }
         $LINE_NUMBER = $this->external_lines[$did]??'';
-        if (isset($this->inner_numbers[$data['src_num']]) && strlen($general_src_num) <= $this->extensionLength) {
+        $srcIsKnownInternal = isset($this->inner_numbers[$data['src_num']])
+            || isset($this->b24->usersSettingsB24[$data['src_num']]);
+        if ($srcIsKnownInternal && strlen($general_src_num) <= $this->extensionLength) {
             $this->logger->writeInfo("This is an outgoing call from an internal number. $linkedId");
             if (strlen($data['dst_num']) > $this->extensionLength && ! in_array($data['dst_num'], $this->extensions, true)) {
                 $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_IN && $this->crmCreateLead)?'1':"0";
                 $req_data = [
                     'CALL_START_DATE'  => date(\DateTimeInterface::ATOM, strtotime($data['start'])),
-                    'USER_ID'          => $this->inner_numbers[$data['src_num']]['ID'],
+                    'USER_ID'          => $this->inner_numbers[$data['src_num']]['ID'] ?? '',
                     'USER_PHONE_INNER' => $data['src_num'],
                     'CRM_CREATE'       => $createLead,
                     'DST_USER_CHANNEL' => '',
@@ -440,11 +446,14 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             }else{
                 $this->logger->writeInfo("{$data['dst_num']} <= $this->extensionLength || {$data['dst_num']} is  internal... cancellation $linkedId");
             }
-        } elseif (isset($this->inner_numbers[$data['dst_num']]) || isset($this->b24->mobile_numbers[$dstNum])) {
+        } elseif (isset($this->inner_numbers[$data['dst_num']])
+            || isset($this->b24->mobile_numbers[$dstNum])
+            || isset($this->b24->usersSettingsB24[$data['dst_num']])
+        ) {
             if(isset($this->b24->mobile_numbers[$dstNum])){
                 $userId = $this->b24->mobile_numbers[$dstNum]['ID'];
             }else{
-                $userId = $this->inner_numbers[$data['dst_num']]['ID'];
+                $userId = $this->inner_numbers[$data['dst_num']]['ID'] ?? '';
             }
             $inner  = $data['dst_num'];
             $this->logger->writeInfo("This is an incoming call to an employee's internal number. $linkedId");
