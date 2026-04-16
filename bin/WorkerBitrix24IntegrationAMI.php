@@ -109,6 +109,10 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         $this->extensionLength = $config->getGeneralSettings('PBXInternalExtensionLength');
 
         $this->am->addEventHandler("userevent", [$this, "callback"]);
+        if ($this->needRestart) {
+            $this->logger->writeInfo('Restart signal received during init, deferring — entering main loop.');
+            $this->needRestart = false;
+        }
         $this->processState = 'idle';
         while ($this->needRestart === false) {
             $this->processState = 'wait_ami';
