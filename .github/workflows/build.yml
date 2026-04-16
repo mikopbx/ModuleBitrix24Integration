@@ -1,0 +1,120 @@
+name: Build and Publish
+
+on:
+  push:
+    branches:
+      - master
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout module repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: module
+
+      - name: Checkout workflows repository
+        uses: actions/checkout@v4
+        with:
+          repository: mikopbx/.github-workflows
+          path: .github-workflows
+
+      - name: Validate module configuration
+        id: validate
+        uses: ./.github-workflows/.github/actions/validate
+
+      - name: Manage versions
+        id: version
+        uses: ./.github-workflows/.github/actions/versioning
+        with:
+          initial_version: "1.269"
+
+      - name: Setup build environment
+        uses: ./.github-workflows/.github/actions/docker-build
+        with:
+          php_version: ${{ steps.validate.outputs.php_version }}
+
+      - name: Handle dependencies
+        uses: ./.github-workflows/.github/actions/composer
+        with:
+          php_version: ${{ steps.validate.outputs.php_version }}
+
+      - name: Cache Docker images
+        uses: actions/cache@v3
+        id: docker-cache
+        with:
+          path: ${{ runner.temp }}/docker-cache-*.tar
+          key: ${{ runner.os }}-docker-${{ hashFiles('module/**/Dockerfile') }}
+          restore-keys: |
+            ${{ runner.os }}-docker-
+
+      - name: Replace OAuth placeholders
+        env:
+          CLIENT_ID_RU: ${{ secrets.CLIENT_ID_RU }}
+          CLIENT_SECRET_RU: ${{ secrets.CLIENT_SECRET_RU }}
+          CLIENT_ID_KZ: ${{ secrets.CLIENT_ID_KZ }}
+          CLIENT_SECRET_KZ: ${{ secrets.CLIENT_SECRET_KZ }}
+          CLIENT_ID_BEL: ${{ secrets.CLIENT_ID_BEL }}
+          CLIENT_SECRET_BEL: ${{ secrets.CLIENT_SECRET_BEL }}
+          CLIENT_ID_W: ${{ secrets.CLIENT_ID_W }}
+          CLIENT_SECRET_W: ${{ secrets.CLIENT_SECRET_W }}
+        run: |
+          cd module
+          sed -i "s|-CLIENT_ID_RU-|$CLIENT_ID_RU|g" Lib/Constants.php
+          sed -i "s|-CLIENT_SECRET_RU-|$CLIENT_SECRET_RU|g" Lib/Constants.php
+          sed -i "s|-CLIENT_ID_KZ-|$CLIENT_ID_KZ|g" Lib/Constants.php
+          sed -i "s|-CLIENT_SECRET_KZ-|$CLIENT_SECRET_KZ|g" Lib/Constants.php
+          sed -i "s|-CLIENT_ID_BEL-|$CLIENT_ID_BEL|g" Lib/Constants.php
+          sed -i "s|-CLIENT_SECRET_BEL-|$CLIENT_SECRET_BEL|g" Lib/Constants.php
+          sed -i "s|-CLIENT_ID_W-|$CLIENT_ID_W|g" Lib/Constants.php
+          sed -i "s|-CLIENT_SECRET_W-|$CLIENT_SECRET_W|g" Lib/Constants.php
+          echo "Constants.php placeholders replaced."
+
+      - name: Sync translations from Core
+        uses: ./.github-workflows/.github/actions/sync-translations
+
+      - name: Create module package
+        id: archive
+        uses: ./.github-workflows/.github/actions/archive
+        with:
+          version: ${{ steps.version.outputs.new_version }}
+
+      - name: Generate changelog
+        id: changelog
+        if: steps.validate.outputs.changelog_enabled == 'true'
+        uses: ./.github-workflows/.github/actions/changelog
+
+      - name: Publish module
+        if: |
+          github.ref == 'refs/heads/master' &&
+          steps.validate.outputs.publish_release == 'true'
+        env:
+          OWNCLOUD_AUTH: ${{ secrets.OWNCLOUD_AUTH }}
+          WEBDAV_ROOT: ${{ secrets.WEBDAV_ROOT }}
+          SHARE_API_URL: ${{ secrets.SHARE_API_URL }}
+          MIKO_LIC_REST_VENDOR_ID: ${{ secrets.MIKO_LIC_REST_VENDOR_ID }}
+          MIKO_LIC_REST_API_KEY: ${{ secrets.MIKO_LIC_REST_API_KEY }}
+          MIKO_LIC_HOSTNAME: ${{ secrets.MIKO_LIC_HOSTNAME }}
+        uses: ./.github-workflows/.github/actions/publish
+        with:
+          php_version: ${{ steps.validate.outputs.php_version }}
+          module_filename: ${{ steps.archive.outputs.filename }}
+          version: ${{ steps.version.outputs.new_version }}
+          changelog: ${{ steps.changelog.outputs.changelog }}
+
+      - name: Manage GitHub releases
+        if: steps.validate.outputs.create_github_release == 'true'
+        uses: ./.github-workflows/.github/actions/release
+        with:
+          version: ${{ steps.version.outputs.new_version }}
+          version_tag: ${{ steps.version.outputs.new_version_tag }}
+          module_filename: ${{ steps.archive.outputs.filename }}
+          changelog: ${{ steps.changelog.outputs.changelog }}

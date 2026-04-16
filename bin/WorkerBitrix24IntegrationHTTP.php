@@ -47,8 +47,8 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
 
     private int $lastSyncTime = 0;
     private int $syncInterval = 10;
-    private const SYNC_INTERVAL_MIN  = 10;
-    private const SYNC_INTERVAL_MAX  = 300;
+    private const SYNC_INTERVAL_MIN  = 60;
+    private const SYNC_INTERVAL_MAX  = 600;
     private const SYNC_INTERVAL_STEP = 2;
 
     private ?int $pidLinksSyncProc = null;
@@ -507,31 +507,57 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             'ONCRMCOMPANYUPDATE' => Bitrix24Integration::API_CRM_LIST_COMPANY,
         ];
         $events = $result['event.offline.get']['events'] ?? [];
-        $args = [];
+
+        // Дедупликация: собираем уникальные ID по типу сущности.
+        $updateIds = [];
+        $contactIdsForLinks = [];
+        $companyIdsForLinks = [];
+
         foreach ($events as $event) {
             $eventData = $event['EVENT_DATA'];
             if (isset($eventActionsDelete[$event['EVENT_NAME']])) {
                 $id = array_values($eventData['FIELDS']);
-                ConnectorDb::invoke(ConnectorDb::FUNC_DELETE_CONTACT_DATA, [$eventActionsDelete[$event['EVENT_NAME']], $id],false);
+                ConnectorDb::invoke(ConnectorDb::FUNC_DELETE_CONTACT_DATA, [$eventActionsDelete[$event['EVENT_NAME']], $id], false);
             }
             if (isset($eventActionsUpdate[$event['EVENT_NAME']])){
+                $type = $eventActionsUpdate[$event['EVENT_NAME']];
                 $arIds = array_values($eventData['FIELDS']);
-                $args[] = $this->b24->crmListEnt($eventActionsUpdate[$event['EVENT_NAME']], $arIds);
-                foreach ($arIds as $id){
-                    if($event['EVENT_NAME'] === 'ONCRMCONTACTUPDATE'){
-                        $args[] = $this->b24->getContactCompany($id);
-                    }elseif($event['EVENT_NAME'] === 'ONCRMCOMPANYUPDATE'){
-                        $args[] = $this->b24->getCompanyContacts($id);
+                foreach ($arIds as $id) {
+                    $updateIds[$type][$id] = true;
+                    if ($event['EVENT_NAME'] === 'ONCRMCONTACTUPDATE') {
+                        $contactIdsForLinks[$id] = true;
+                    } elseif ($event['EVENT_NAME'] === 'ONCRMCOMPANYUPDATE') {
+                        $companyIdsForLinks[$id] = true;
                     }
                 }
             }
-            $this->b24->handleEvent([ 'event' => $event, 'data'  => $eventData]);
+            $this->b24->handleEvent(['event' => $event, 'data' => $eventData]);
         }
-        if(!empty($args)){
+
+        // Один crmListEnt на тип сущности вместо отдельного на каждое событие.
+        $args = [];
+        foreach ($updateIds as $type => $idsMap) {
+            $args[] = $this->b24->crmListEnt($type, array_keys($idsMap));
+        }
+        // Relationship-запросы с кешем (TTL 5 мин) — пропускаем недавно запрошенные.
+        foreach (array_keys($contactIdsForLinks) as $id) {
+            $cacheKey = 'rel_contact_' . $id;
+            if ($this->b24->getCache($cacheKey) === null) {
+                $args[] = $this->b24->getContactCompany($id);
+                $this->b24->saveCache($cacheKey, '1', 300);
+            }
+        }
+        foreach (array_keys($companyIdsForLinks) as $id) {
+            $cacheKey = 'rel_company_' . $id;
+            if ($this->b24->getCache($cacheKey) === null) {
+                $args[] = $this->b24->getCompanyContacts($id);
+                $this->b24->saveCache($cacheKey, '1', 300);
+            }
+        }
+
+        if (!empty($args)) {
             $this->q_req = array_merge($this->q_req, array_merge(...$args));
         }
-        // События уже обрабатываются поштучно выше (crmListEnt + getContactCompany/getCompanyContacts).
-        // Не сбрасываем syncInterval — адаптивный backoff должен работать.
     }
 
 
