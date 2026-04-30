@@ -875,19 +875,32 @@ class Bitrix24Integration extends PbxExtensionBase
                 $user['EMAIL']           = $value['EMAIL'] ?? '';
                 $user['UF_PHONE_INNER']  = preg_replace('/(\D)/', '', $value['UF_PHONE_INNER']??'');
 
+                // Не индексируем пользователей с пустым ключом: иначе все «безномерные»
+                // (UF_PHONE_INNER/PERSONAL_MOBILE/WORK_PHONE пустой или нечисловой)
+                // перезаписывают друг друга под ключом "" и любой звонок без
+                // явного маппинга (например, на voicemail) будет приземляться
+                // на «последнего созданного пользователя без UF_PHONE_INNER».
                 if (!empty($user['PERSONAL_MOBILE'])) {
-                    $mobile_key                        = self::getPhoneIndex($user['PERSONAL_MOBILE']);
-                    $this->mobile_numbers[$mobile_key] = $user;
+                    $mobile_key = self::getPhoneIndex($user['PERSONAL_MOBILE']);
+                    if ($mobile_key !== '') {
+                        $this->mobile_numbers[$mobile_key] = $user;
+                    }
                 }
                 if (!empty($value['WORK_PHONE'])) {
-                    $mobile_key                        = self::getPhoneIndex($user['WORK_PHONE']);
-                    $this->mobile_numbers[$mobile_key] = $user;
+                    $mobile_key = self::getPhoneIndex($user['WORK_PHONE']);
+                    if ($mobile_key !== '') {
+                        $this->mobile_numbers[$mobile_key] = $user;
+                    }
                 }
                 if(isset($pbx_numbers[$user['UF_PHONE_INNER']])){
-                    $mobile_key                        = self::getPhoneIndex($pbx_numbers[$user['UF_PHONE_INNER']]);
-                    $this->mobile_numbers[$mobile_key] = $user;
+                    $mobile_key = self::getPhoneIndex($pbx_numbers[$user['UF_PHONE_INNER']]);
+                    if ($mobile_key !== '') {
+                        $this->mobile_numbers[$mobile_key] = $user;
+                    }
                 }
-                $this->inner_numbers[$user['UF_PHONE_INNER']] = $user;
+                if (!empty($user['UF_PHONE_INNER'])) {
+                    $this->inner_numbers[$user['UF_PHONE_INNER']] = $user;
+                }
                 $this->b24Users[$value['ID']] = $user['UF_PHONE_INNER'];
             }
 

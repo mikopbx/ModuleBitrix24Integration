@@ -627,6 +627,12 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
 
         $responsible = '';
         $isMissed = ($data['GLOBAL_STATUS'] ?? '') !== 'ANSWERED';
+        // Голосовая почта формально ANSWERED, но для CRM это пропущенный
+        // входящий: реального оператора не было — направляем на ответственного
+        // по умолчанию (responsibleMissedCalls), а не на «случайного» пользователя.
+        if (!$isOutgoing && ($dstNum === 'voicemail' || ($data['dst_chan'] ?? '') === 'VOICEMAIL')) {
+            $isMissed = true;
+        }
 
         $finishKeyID = 'finish-cdr-'.$uniqueId;
         if(!empty($USER_ID) && !$isMissed) {
@@ -725,8 +731,16 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
      */
     private function getInnerNum(string $number):string
     {
-        $userId = '';
+        if ($number === '') {
+            return '';
+        }
         $number = Bitrix24Integration::getPhoneIndex($number);
+        // После getPhoneIndex нечисловой ввод (например 'voicemail') превращается
+        // в '' — обращение по такому ключу подцепило бы «безномерных» пользователей.
+        if ($number === '') {
+            return '';
+        }
+        $userId = '';
         if(isset($this->inner_numbers[$number])){
             $userId = $this->inner_numbers[$number]['ID'];
         } elseif(isset($this->b24->mobile_numbers[$number])){
