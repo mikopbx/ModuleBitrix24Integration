@@ -1292,6 +1292,30 @@ class Bitrix24Integration extends PbxExtensionBase
     }
 
     /**
+     * Готовит CALL_ID для batch-параметра. Если значение — ключ register-метода
+     * (register ещё не выполнился, реального CALL_ID нет), оборачивает его в
+     * $result[<key>][CALL_ID], чтобы Bitrix24 разрешил ссылку на результат
+     * предыдущего вызова в этой же транзакции. Уже разрешённые/реальные значения
+     * (externalCall.xxx или $result[...]) возвращаются без изменений.
+     *
+     * @param string $callId
+     * @return string
+     */
+    public function resolveBatchCallId(string $callId): string
+    {
+        if ($callId === '') {
+            return $callId;
+        }
+        if (stripos($callId, '$result[') === 0) {
+            return $callId;
+        }
+        if (stripos($callId, self::API_CALL_REGISTER) === 0) {
+            return '$result['.$callId.'][CALL_ID]';
+        }
+        return $callId;
+    }
+
+    /**
      * Регистрация факта завершения звонка в b24.
      * @param $options
      * @param $tmpCallsData
@@ -1350,6 +1374,8 @@ class Bitrix24Integration extends PbxExtensionBase
         //
         ///////////////////////////////////////////////////////////////
         $userId = (intval($callDataFromDB['answer']??0) === 1) ? $callDataFromDB['user_id']??'' : '';
+        // Если register уйдёт в одном batch — finish должен ссылаться на его результат.
+        $callId = $this->resolveBatchCallId((string)$callId);
         $params = [
             'CALL_ID'       => $callId,
             'USER_ID'       => $userId,
@@ -1646,6 +1672,7 @@ class Bitrix24Integration extends PbxExtensionBase
         if (!in_array($ext, ['mp3', 'wav'], true)) {
             $FILENAME = pathinfo($FILENAME, PATHINFO_FILENAME) . '.mp3';
         }
+        $callId = $this->resolveBatchCallId((string)$callId);
         $params = [
             'CALL_ID'      => $callId,
             'FILENAME'     => $FILENAME,
@@ -1692,6 +1719,7 @@ class Bitrix24Integration extends PbxExtensionBase
             'auth'    => $this->getAccessToken(),
         ];
         $this->fillPropertyValues($options, $params);
+        $params['CALL_ID'] = $this->resolveBatchCallId((string)$params['CALL_ID']);
 
         $arg                   = [];
         $arg[self::API_CALL_HIDE.'_'.$options['linkedid'].'_'.uniqid('', true)] = self::API_CALL_HIDE.'?' . http_build_query($params);
@@ -1714,6 +1742,7 @@ class Bitrix24Integration extends PbxExtensionBase
             'auth'    => $this->getAccessToken(),
         ];
         $this->fillPropertyValues($options, $params);
+        $params['CALL_ID'] = $this->resolveBatchCallId((string)$params['CALL_ID']);
 
         $arg                   = [];
         $arg[self::API_CALL_SHOW.$options['linkedid'].'_'.uniqid('', true)] = self::API_CALL_SHOW.'?' . http_build_query($params);

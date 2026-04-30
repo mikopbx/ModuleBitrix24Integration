@@ -259,17 +259,10 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                         // Это Метод register
                         $callId = $key;
                     }
-                }elseif(stripos($callId,Bitrix24Integration::API_CALL_REGISTER) === false){
-                    $this->tmpCallsData[$data['linkedid']]['ARG_REGISTER_USER_'.$data['UNIQUEID']] = $data['USER_ID']??'';
-                    $this->tmpCallsData[$data['linkedid']]['ARGS_REGISTER_'.$data['UNIQUEID']] = $this->b24->telephonyExternalCallRegister($data);
-                    $data['CALL_ID'] = $callId;
-                    if($this->needShowCardDirectly($data['USER_ID'])){
-                        $arg = $this->b24->telephonyExternalCallShow($data);
-                    }
                 }else{
                     $this->tmpCallsData[$data['linkedid']]['ARG_REGISTER_USER_'.$data['UNIQUEID']] = $data['USER_ID']??'';
                     $this->tmpCallsData[$data['linkedid']]['ARGS_REGISTER_'.$data['UNIQUEID']] = $this->b24->telephonyExternalCallRegister($data);
-                    $data['CALL_ID'] = '$result['.$callId.'][CALL_ID]';
+                    $data['CALL_ID'] = $this->b24->resolveBatchCallId((string)$callId);
                     if($this->needShowCardDirectly($data['USER_ID'])){
                         $arg = $this->b24->telephonyExternalCallShow($data);
                     }
