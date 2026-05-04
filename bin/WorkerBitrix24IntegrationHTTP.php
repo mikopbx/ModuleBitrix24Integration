@@ -74,6 +74,10 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
      */
     public function start($argv): void
     {
+        // Поднимаем PHP memory_limit. Дефолт 128M ловит OOM на batch-ответах
+        // crm.lead.list / crm.contact.list / crm.company.list, когда в портале
+        // десятки тысяч записей. См. Sentry MIKOPBX-MH7 / issue #135.
+        ini_set('memory_limit', '256M');
         $this->b24 = new Bitrix24Integration();
         if (!$this->b24->initialized) {
             die('Settings not set...');

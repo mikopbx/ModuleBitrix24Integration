@@ -99,6 +99,17 @@ class ModuleBitrix24IntegrationForm extends Form
                                   'useEmpty' => false,
                                   'class'    => 'ui selection dropdown b24_regions-select',
                               ]));
+
+        $logLevels = [];
+        foreach (ModuleBitrix24Integration::getAvailableLogLevels() as $level) {
+            $logLevels[$level] = $this->translation->_('mod_b24_i_logLevel_' . $level);
+        }
+        $this->add(new Select('logLevel', $logLevels, [
+            'using'    => ['id', 'name'],
+            'value'    => empty($entity->logLevel) ? ModuleBitrix24Integration::LOG_LEVEL_INFO : $entity->logLevel,
+            'useEmpty' => false,
+            'class'    => 'ui selection dropdown',
+        ]));
     }
     /**
      * Adds a checkbox to the form field with the given name.

@@ -31,7 +31,24 @@ require_once(dirname(__DIR__) . '/vendor/autoload.php');
 
 class Logger
 {
-    public bool $debug;
+    public const LEVEL_NONE  = 0;
+    public const LEVEL_ERROR = 1;
+    public const LEVEL_INFO  = 2;
+    public const LEVEL_DEBUG = 3;
+
+    /**
+     * Безопасный максимум для одной записи в лог. Большие данные обрезаются,
+     * чтобы json_encode не съел всю PHP-память (по умолчанию memory_limit = 128M).
+     */
+    private const MAX_PAYLOAD_BYTES = 512 * 1024;
+
+    /**
+     * Совместимость с прежним кодом, где встречается обращение к публичному
+     * полю $debug. Теперь оно отражает: "уровень ≥ INFO".
+     */
+    public bool $debug = true;
+
+    private int $level = self::LEVEL_INFO;
     private $logger;
     private string $module_name;
     private string $logFile;
@@ -46,7 +63,6 @@ class Logger
     public function __construct(string $class, string $module_name)
     {
         $this->module_name = $module_name;
-        $this->debug = true;
         $logPath = Directories::getDir(Directories::CORE_LOGS_DIR) . '/' . $this->module_name . '/';
         if (!file_exists($logPath)) {
             Util::mwMkdir($logPath);
@@ -54,6 +70,42 @@ class Logger
         }
         $this->logFile = $logPath . $class . '.log';
         $this->initLogger();
+    }
+
+    /**
+     * Преобразует строковое имя уровня (NONE/ERROR/INFO/DEBUG) во внутренний int.
+     */
+    public static function resolveLevel(?string $name): int
+    {
+        switch (strtoupper((string)$name)) {
+            case 'NONE':  return self::LEVEL_NONE;
+            case 'ERROR': return self::LEVEL_ERROR;
+            case 'DEBUG': return self::LEVEL_DEBUG;
+            case 'INFO':
+            default:      return self::LEVEL_INFO;
+        }
+    }
+
+    /**
+     * Установить уровень логирования. Принимает строку (NONE/ERROR/INFO/DEBUG)
+     * или int-константу LEVEL_*.
+     *
+     * @param int|string $level
+     */
+    public function setLevel($level): void
+    {
+        $this->level = is_int($level) ? $level : self::resolveLevel($level);
+        $this->debug = $this->level >= self::LEVEL_INFO;
+    }
+
+    public function getLevel(): int
+    {
+        return $this->level;
+    }
+
+    public function isDebugEnabled(): bool
+    {
+        return $this->level >= self::LEVEL_DEBUG;
     }
 
     /**
@@ -130,34 +182,81 @@ class Logger
 
     public function writeError($data, string $header = ''): void
     {
-        $this->rotate();
-        if ($this->debug) {
-            if(!empty($header)){
-                $header.= '('.posix_getpid()."): ";
-            }
-            $this->logger->error($header . $this->getDecodedString($data));
+        if ($this->level < self::LEVEL_ERROR) {
+            return;
         }
+        $this->rotate();
+        if (!empty($header)) {
+            $header .= '(' . posix_getpid() . "): ";
+        }
+        $this->logger->error($header . $this->getDecodedString($data));
     }
 
     public function writeInfo($data, string $header = ''): void
     {
-        $this->rotate();
-        if ($this->debug) {
-            if(!empty($header)){
-                $header.= '('.posix_getpid()."): ";
-            }
-            $this->logger->info($header . $this->getDecodedString($data));
+        if ($this->level < self::LEVEL_INFO) {
+            return;
         }
+        $this->rotate();
+        if (!empty($header)) {
+            $header .= '(' . posix_getpid() . "): ";
+        }
+        $this->logger->info($header . $this->getDecodedString($data));
     }
 
+    /**
+     * Подробная запись — выводится только при уровне DEBUG. Используется для
+     * больших payload'ов (полный JSON ответа CRM), которые на INFO дают
+     * только summary.
+     */
+    public function writeDebug($data, string $header = ''): void
+    {
+        if ($this->level < self::LEVEL_DEBUG) {
+            return;
+        }
+        $this->rotate();
+        if (!empty($header)) {
+            $header .= '(' . posix_getpid() . "): ";
+        }
+        $this->logger->debug($header . $this->getDecodedString($data));
+    }
+
+    /**
+     * Сериализует данные для лога с защитой от перегрузки памяти.
+     *
+     * Раньше использовалась цепочка json_encode + urldecode, которая
+     * удваивала пиковую память (urldecode возвращает новую строку даже
+     * если декодировать нечего). При больших payload'ах из batch CRM это
+     * приводило к OOM (см. Sentry MIKOPBX-MH7).
+     *
+     * Теперь:
+     *  - сразу проверяем грубую оценку размера через strlen на строках;
+     *  - для массивов/объектов кодируем без urldecode и с лимитом в байтах;
+     *  - при превышении лимита возвращаем обрезанную строку с маркером.
+     */
     private function getDecodedString($data): string
     {
-        $printedData = json_encode($data, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
-        if (is_bool($printedData)) {
-            $result = '';
-        } else {
-            $result = urldecode($printedData);
+        if (is_string($data)) {
+            $len = strlen($data);
+            return $len > self::MAX_PAYLOAD_BYTES
+                ? substr($data, 0, self::MAX_PAYLOAD_BYTES) . '...[truncated, ' . $len . ' bytes]'
+                : $data;
         }
-        return $result;
+        if (is_scalar($data) || $data === null) {
+            return (string)$data;
+        }
+        $printedData = json_encode(
+            $data,
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE
+        );
+        if (!is_string($printedData)) {
+            return '';
+        }
+        $len = strlen($printedData);
+        if ($len > self::MAX_PAYLOAD_BYTES) {
+            return substr($printedData, 0, self::MAX_PAYLOAD_BYTES)
+                . '...[truncated, ' . $len . ' bytes]';
+        }
+        return $printedData;
     }
 }

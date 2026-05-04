@@ -126,6 +126,10 @@ class ConnectorDb extends WorkerBase
     public function start($argv):void
     {
         $this->logger =  new Logger('ConnectorDb', self::MODULE_ID);
+        $settings = ModuleBitrix24Integration::findFirst();
+        if ($settings && !empty($settings->logLevel)) {
+            $this->logger->setLevel($settings->logLevel);
+        }
         $this->logger->writeInfo('Starting');
         $beanstalk      = new BeanstalkClient(self::class);
         $beanstalk->subscribe(self::class, [$this, 'onEvents']);

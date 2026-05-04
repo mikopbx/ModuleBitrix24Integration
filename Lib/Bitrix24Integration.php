@@ -85,6 +85,9 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->mainLogger =  new MainLogger('HttpConnection'.$logPrefix, 'ModuleBitrix24Integration');
         $this->mem_cache = [];
         $data = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
+        if (is_object($data) && !empty($data->logLevel)) {
+            $this->mainLogger->setLevel($data->logLevel);
+        }
         if ($data === null
             || empty($data->portal)
             || empty($data->b24_region)) {
@@ -129,6 +132,9 @@ class Bitrix24Integration extends PbxExtensionBase
         }
         if($settings === null){
             return;
+        }
+        if (!empty($settings->logLevel)) {
+            $this->mainLogger->setLevel($settings->logLevel);
         }
         $this->b24GetPhones();
         $this->lastLeadId    = $settings->lastLeadId;
@@ -429,7 +435,7 @@ class Bitrix24Integration extends PbxExtensionBase
                 }
                 $this->mainLogger->writeInfo($queues, 'REQUEST');
                 $result = $response['result']["result"]??[];
-                // Чистым массив перед выводом в лог.
+                // Чистый массив перед выводом в лог: события не нужны для отладки CRM-листингов.
                 if(is_array($result)){
                     foreach (['event.get', 'event.offline.get'] as $key){
                         if(isset($result[$key])){
@@ -439,8 +445,13 @@ class Bitrix24Integration extends PbxExtensionBase
                 }
                 if(empty($result)){
                     $this->mainLogger->writeError($response, 'EMPTY RESPONSE[result][result]');
-                }else{
-                    $this->mainLogger->writeInfo($response, 'RESPONSE');
+                } else {
+                    // На INFO — только summary (count/total/next/первый ID),
+                    // полный payload — только на DEBUG. Защита от OOM при крупных
+                    // crm.lead.list / crm.contact.list / crm.company.list.
+                    $summary = $this->buildBatchResponseSummary($response, $result);
+                    $this->mainLogger->writeInfo($summary, 'RESPONSE');
+                    $this->mainLogger->writeDebug($response, 'RESPONSE-FULL');
                 }
             }
         }
@@ -452,6 +463,51 @@ class Bitrix24Integration extends PbxExtensionBase
 
         $this->mainLogger->rotate();
         return $response;
+    }
+
+    /**
+     * Краткая сводка по batch-ответу для INFO-лога. Цель — оставить
+     * информацию, достаточную для диагностики (что вернулось, сколько,
+     * есть ли next, был ли total), не выгружая весь массив записей в память.
+     *
+     * @param array $response — полный ответ Bitrix24
+     * @param array $result   — $response['result']['result'] (уже без event.*)
+     * @return array
+     */
+    private function buildBatchResponseSummary(array $response, array $result): array
+    {
+        $summary = [
+            'http_total'       => $response['total'] ?? null,
+            'time'             => $response['time']['duration'] ?? null,
+            'result_total'     => $response['result']['result_total'] ?? null,
+            'result_next'      => $response['result']['result_next'] ?? null,
+            'result_error'     => $response['result']['result_error'] ?? null,
+            'commands'         => [],
+        ];
+        foreach ($result as $cmdKey => $cmdResult) {
+            $entry = ['count' => null, 'first_id' => null, 'last_id' => null];
+            if (is_array($cmdResult)) {
+                $entry['count'] = count($cmdResult);
+                $first = reset($cmdResult);
+                $last  = end($cmdResult);
+                if (is_array($first) && isset($first['ID'])) {
+                    $entry['first_id'] = $first['ID'];
+                }
+                if (is_array($last) && isset($last['ID'])) {
+                    $entry['last_id'] = $last['ID'];
+                }
+            } else {
+                $entry['value'] = $cmdResult;
+            }
+            $summary['commands'][$cmdKey] = $entry;
+        }
+        // Срезаем пустые поля, чтобы лог оставался читаемым.
+        foreach (['http_total', 'time', 'result_total', 'result_next', 'result_error'] as $k) {
+            if ($summary[$k] === null || $summary[$k] === [] || $summary[$k] === '') {
+                unset($summary[$k]);
+            }
+        }
+        return $summary;
     }
 
     private function checkErrorInResponse(&$response, $status)

@@ -102,6 +102,9 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             $this->logger->writeError('Settings not set... exit');
             exit();
         }
+        // Bitrix24Integration уже подгрузил настройки через ConnectorDb::invoke
+        // и применил уровень к своему логгеру — синхронизируемся.
+        $this->logger->setLevel($this->b24->mainLogger->getLevel());
         $this->setFilter();
         $this->updateSettings();
 

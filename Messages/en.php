@@ -71,4 +71,11 @@ return [
     'mod_b24_i_OPEN_CARD_ANSWERED' => 'Open on answer',
     'mod_b24_i_lead_type_incoming' => 'Inbox only',
     'mod_b24_i_lead_type_outgoing' => 'Outgoing only',
+
+    'mod_b24_i_logLevel'           => 'Log verbosity',
+    'mod_b24_i_logLevelHint'       => 'INFO is enough for routine issue analysis (call lookup by linkedid). Switch to DEBUG only for deep investigation — full request/response payloads will be written to disk and may significantly increase memory usage on portals with large CRM volumes.',
+    'mod_b24_i_logLevel_NONE'      => 'Off',
+    'mod_b24_i_logLevel_ERROR'     => 'Errors only',
+    'mod_b24_i_logLevel_INFO'      => 'Standard (recommended)',
+    'mod_b24_i_logLevel_DEBUG'     => 'Detailed (full payloads)',
 ];

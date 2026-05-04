@@ -34,6 +34,11 @@
                 <label>{{ t._('mod_b24_i_backgroundUpload') }}</label>
             </div>
         </div>
+        <div class="ten wide field">
+            <label>{{ t._('mod_b24_i_logLevel') }}</label>
+            {{ form.render('logLevel') }}
+            <div class="ui small text">{{ t._('mod_b24_i_logLevelHint') }}</div>
+        </div>
         <div class="ui divider"></div>
         <div class="field">
             <button class="ui basic button disability" id="sync-links-button" type="button">
