@@ -633,7 +633,9 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         // Голосовая почта формально ANSWERED, но для CRM это пропущенный
         // входящий: реального оператора не было — направляем на ответственного
         // по умолчанию (responsibleMissedCalls), а не на «случайного» пользователя.
-        if (!$isOutgoing && ($dstNum === 'voicemail' || ($data['dst_chan'] ?? '') === 'VOICEMAIL')) {
+        $isVoicemail = !$isOutgoing
+            && ($dstNum === 'voicemail' || ($data['dst_chan'] ?? '') === 'VOICEMAIL');
+        if ($isVoicemail) {
             $isMissed = true;
         }
 
@@ -641,8 +643,10 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         // (например, IVR/очередь ответили — GLOBAL_STATUS=ANSWERED — но
         // абонент сбросил до распределения на оператора). Без этой ветки
         // такие звонки терялись: USER_ID пуст, isMissed=false, и обработчик
-        // уходил в "responsible person was not found".
+        // уходил в "responsible person was not found". Voicemail исключаем —
+        // он идёт по своему пути, длительность/запись там значимы.
         $isOrphanIncoming = (!$isOutgoing
+            && !$isVoicemail
             && empty($USER_ID)
             && strlen($srcNum) > $this->extensionLength
             && !in_array($srcNum, $this->extensions, true)
