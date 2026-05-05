@@ -637,6 +637,20 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             $isMissed = true;
         }
 
+        // Входящий внешний звонок, который не дошёл до сотрудника
+        // (например, IVR/очередь ответили — GLOBAL_STATUS=ANSWERED — но
+        // абонент сбросил до распределения на оператора). Без этой ветки
+        // такие звонки терялись: USER_ID пуст, isMissed=false, и обработчик
+        // уходил в "responsible person was not found".
+        $isOrphanIncoming = (!$isOutgoing
+            && empty($USER_ID)
+            && strlen($srcNum) > $this->extensionLength
+            && !in_array($srcNum, $this->extensions, true)
+            && !empty($this->responsibleMissedCalls));
+        if ($isOrphanIncoming) {
+            $isMissed = true;
+        }
+
         $finishKeyID = 'finish-cdr-'.$uniqueId;
         if(!empty($USER_ID) && !$isMissed) {
             if (($data['disposition'] ?? '') === 'ANSWERED') {
@@ -692,14 +706,26 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 }
             }
 
+            // Для orphan-incoming реальный оператор не отвечал — IVR/очередь
+            // ответили формально. Принудительно помечаем звонок как пропущенный,
+            // чтобы B24 показал его в "Пропущенных" у ответственного.
+            $globalStatus = $data['GLOBAL_STATUS'] ?? '';
+            $disposition  = $data['disposition'] ?? '';
+            $billsec      = $data['billsec'] ?? '0';
+            if ($isOrphanIncoming) {
+                $globalStatus = 'NOANSWER';
+                $disposition  = 'NOANSWER';
+                $billsec      = '0';
+            }
+
             $this->logger->writeInfo("Send finish event...".$linkedId);
             $params = [
                 'UNIQUEID'       => $uniqueId,
                 'USER_ID'        => $responsible,
-                'DURATION'       => $data['billsec'] ?? '0',
+                'DURATION'       => $billsec,
                 'FILE'           => $data['recordingfile'] ?? '',
-                'GLOBAL_STATUS'  => $data['GLOBAL_STATUS'] ?? '',
-                'disposition'    => $data['disposition'] ?? '',
+                'GLOBAL_STATUS'  => $globalStatus,
+                'disposition'    => $disposition,
                 "export_records" => $this->export_records,
                 'linkedid'       => $linkedId,
                 'LINE_NUMBER'    => $LINE_NUMBER,
