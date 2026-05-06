@@ -1411,15 +1411,17 @@ class Bitrix24Integration extends PbxExtensionBase
             return [$arg,$finishKey];
         }
 
-        // Проверка дедупликации по оригинальному callId (до ARGS_REGISTER)
-        $finishOneKey = self::API_CALL_FINISH.'_'.$callId;
+        // Дедупликация ПЛЕЧА: блокируем повтор finish только для того же UNIQUEID.
+        // По CALL_ID нельзя — у звонка с переводом несколько плеч (UNIQUEID),
+        // и каждому нужен свой finish, иначе ответственным остаётся первый ответивший,
+        // а не тот, кто реально завершил разговор.
+        $finishOneKey = self::API_CALL_FINISH.'_'.$options['UNIQUEID'];
         if($this->getCache($finishOneKey)){
-            // Finish уже отправлен, но если есть запись — прикрепим её
             if ($options['export_records'] && !empty($options['FILE']) && ($this->backgroundUpload || file_exists($options['FILE']))) {
-                $this->mainLogger->writeInfo($options, "Finish already sent, attaching record ($callId).");
+                $this->mainLogger->writeInfo($options, "Finish already sent for this leg, attaching record ($callId).");
                 $this->telephonyExternalCallAttachRecord($options['FILE'], $callId, $arg);
             } else {
-                $this->mainLogger->writeInfo($options, "The challenge has already been finish earlier ($callId).");
+                $this->mainLogger->writeInfo($options, "The challenge has already been finish earlier for this leg ($callId).");
             }
             return [$arg,$finishKey];
         }
@@ -1459,8 +1461,19 @@ class Bitrix24Integration extends PbxExtensionBase
         ];
         $this->fillPropertyValues($options, $params);
 
+        // Трекинг "лучшего" плеча (с максимальной длительностью) для звонка.
+        // Используется в PostFinish: ASSIGNED_BY_ID/activity актуализируем только для
+        // плеча-победителя, остальные finish создают activity, которое будет удалено.
+        $this->updateBestLegForCall($id, (string)$params['USER_ID'], (int)$params['DURATION']);
+
         $finishKey       = self::API_CALL_FINISH.'_'.$id.'_' . uniqid('', true);
         $arg[$finishKey] = self::API_CALL_FINISH.'?' . http_build_query($params);
+        // Метаданные плеча для PostFinish (linkedid + USER_ID + DURATION).
+        $this->mem_cache["$finishKey-leg"] = [
+            'linkedid' => $id,
+            'user_id'  => (string)$params['USER_ID'],
+            'duration' => (int)$params['DURATION'],
+        ];
         if ($options['export_records']) {
             $this->telephonyExternalCallAttachRecord($options['FILE'], $callId, $arg);
         }
@@ -1476,6 +1489,35 @@ class Bitrix24Integration extends PbxExtensionBase
         }
         $this->mainLogger->writeInfo($params, "Add finish req ($id)");
         return [$arg,$finishKey];
+    }
+
+    /**
+     * Сохраняет плечо с максимальной длительностью для звонка (linkedid).
+     * Используется в PostFinish, чтобы ASSIGNED_BY_ID назначался по реальному
+     * собеседнику, завершившему разговор, а не по первому ответившему до перевода.
+     */
+    private function updateBestLegForCall(string $linkedId, string $userId, int $duration): void
+    {
+        if ($linkedId === '' || $userId === '') {
+            return;
+        }
+        $key  = self::API_CALL_FINISH.'-best-leg-'.$linkedId;
+        $best = $this->getCache($key);
+        if (!is_array($best) || $duration > (int)($best['duration'] ?? -1)) {
+            $this->saveCache($key, ['user_id' => $userId, 'duration' => $duration], 300);
+        }
+    }
+
+    /**
+     * Возвращает USER_ID плеча с максимальной длительностью для звонка.
+     */
+    private function getBestLegUserId(string $linkedId): string
+    {
+        if ($linkedId === '') {
+            return '';
+        }
+        $best = $this->getCache(self::API_CALL_FINISH.'-best-leg-'.$linkedId);
+        return is_array($best) ? (string)($best['user_id'] ?? '') : '';
     }
 
     /**
@@ -1496,6 +1538,23 @@ class Bitrix24Integration extends PbxExtensionBase
             $cacheData = $this->getMemCache("$finishKey-missed");
         }
         $id = str_replace(self::API_CALL_FINISH, '', $finishKey);
+
+        // При переводе для одного звонка приходит несколько finish (по плечу на UNIQUEID).
+        // Каждый создаёт своё activity в B24. Оставляем только activity плеча-победителя
+        // (с максимальной длительностью), а ASSIGNED_BY_ID обновляем по нему же.
+        $legMeta      = $this->getMemCache("$finishKey-leg");
+        $linkedId     = is_array($legMeta) ? (string)($legMeta['linkedid'] ?? '') : '';
+        $bestUserId   = $this->getBestLegUserId($linkedId);
+        $portalUserId = (string)($response['PORTAL_USER_ID'] ?? '');
+        $isBestLeg    = ($bestUserId === '' || $bestUserId === $portalUserId);
+
+        if (!$isBestLeg) {
+            // Это не "лучшее" плечо — удаляем созданный для него activity и не трогаем CRM.
+            if (!empty($activityId)) {
+                $queryArray[] = $this->crmActivityDelete($activityId);
+            }
+            return;
+        }
 
         if(isset($cacheData['contact_id'])){
             $queryArray[] = $this->crmContactUpdate($cacheData['contact_id'], $response['PORTAL_USER_ID'], $id);
