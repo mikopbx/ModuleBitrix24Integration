@@ -629,6 +629,26 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 $this->q_req = array_merge($this->q_req, $arg);
             }
         } elseif ('action_dial_answer' === $data['action']) {
+            // Помечаем звонок как реально отвеченный оператором.
+            // Это блокирует orphan-finish'и (USER_ID=responsibleMissedCalls,
+            // GLOBAL_STATUS=NOANSWER) от IVR/queue-leg'ов, которые AMI-воркер
+            // шлёт в той же серии CDR — без этого они приходят в B24 раньше
+            // ANSWERED-finish'а реального оператора и переписывают статус
+            // звонка на «пропущен», а ответственного — на «ответственного
+            // за пропущенные» (см. AMI:actionCompleteCdr ветка isOrphanIncoming).
+            //
+            // Маркер хранится в Redis, а не в $tmpCallsData: при крашах
+            // HTTP-воркера (см. OOM-фиксы 0bae398) очередь Beanstalk переживает
+            // рестарт, RAM — нет. Без persistence orphan-finish после рестарта
+            // прошёл бы фильтр и баг возродился.
+            //
+            // TTL = 3 часа: маркер должен пережить весь разговор до hangup'а.
+            // 3 часа покрывают практически все реальные кейсы (конференции,
+            // длинная техподдержка); звонки длиннее — редкое исключение,
+            // в нём фильтр перестанет работать, но критичной регрессии нет:
+            // вернётся прежнее поведение. Asterisk-linkedid (unixtime.seq)
+            // не переиспользуется, «протекание» в чужой звонок исключено.
+            $this->b24->saveCache('b24-answered-' . $data['linkedid'], true, 10800);
             $tmpArr = [];
             $userId = $this->tmpCallsData[$data['linkedid']]['ARG_REGISTER_USER_'.$data['UNIQUEID']]??'';
             $dealId = '';
@@ -677,12 +697,34 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 $this->q_req = array_merge($this->q_req, ...$tmpArr);
             }
         } elseif ('telephonyExternalCallFinish' === $data['action']) {
-            [$arg,$finishKey] = $this->b24->telephonyExternalCallFinish($data, $this->tmpCallsData);
-            $this->q_req = array_merge($this->q_req, $arg);
-
-            if(!empty($finishKey)){
-                $arg = $this->b24->crmActivityUpdate('$result['.$finishKey.'][CRM_ACTIVITY_ID]', $data['linkedid'], $data['linkedid']);
+            // Защита от orphan-leg'ов: если звонок уже был реально отвечен
+            // (action_dial_answer пришёл), NOANSWER-finish для другого
+            // (IVR/queue) leg'а — это служебный «осколок», не звонок.
+            // Пропускаем его целиком — иначе он уходит в B24 первым с
+            // USER_ID=responsibleMissedCalls и DURATION=0, перетирая статус
+            // и ответственного у уже-отвеченного звонка. Запись разговора
+            // для orphan-leg'а (короткий IVR-фрагмент) тоже не прикрепляется —
+            // это устраняет «фантомные» аудио у пропущенных. См. логи
+            // 79245067790@2026-05-08 12:52 и 79636988999@16:36.
+            //
+            // Источник маркера answered — Redis (через b24->getCache):
+            // переживает рестарт HTTP-воркера, согласован с Beanstalk-очередью,
+            // которая тоже persistent.
+            $alreadyAnswered = !empty($this->b24->getCache('b24-answered-' . $data['linkedid']));
+            $globalStatus   = (string)($data['GLOBAL_STATUS'] ?? '');
+            if ($alreadyAnswered && $globalStatus !== 'ANSWERED') {
+                $this->b24->mainLogger->writeInfo(
+                    $data,
+                    "Skip orphan NOANSWER finish (call was answered): {$data['linkedid']}"
+                );
+            } else {
+                [$arg,$finishKey] = $this->b24->telephonyExternalCallFinish($data, $this->tmpCallsData);
                 $this->q_req = array_merge($this->q_req, $arg);
+
+                if(!empty($finishKey)){
+                    $arg = $this->b24->crmActivityUpdate('$result['.$finishKey.'][CRM_ACTIVITY_ID]', $data['linkedid'], $data['linkedid']);
+                    $this->q_req = array_merge($this->q_req, $arg);
+                }
             }
         }else{
             $this->b24->mainLogger->writeInfo($data, "The event handler was not found ($data[linkedid])");
