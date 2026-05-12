@@ -46,6 +46,7 @@ class ModuleBitrix24IntegrationForm extends Form
         $this->addCheckBox('backgroundUpload', intval($entity->backgroundUpload) === 1);
         $this->addCheckBox('export_records', intval($entity->export_records) === 1);
         $this->addCheckBox('use_interception', intval($entity->use_interception) === 1);
+        $this->addCheckBox('import_mts_calls', intval($entity->import_mts_calls) === 1);
 
         // Numeric
         $this->add(new Numeric('interception_call_duration'));

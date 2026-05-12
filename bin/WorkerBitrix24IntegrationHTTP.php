@@ -30,6 +30,20 @@ use Modules\ModuleBitrix24Integration\Lib\CacheManager;
 
 class WorkerBitrix24IntegrationHTTP extends WorkerBase
 {
+    /**
+     * Максимум исторических звонков в одном invoke. 10×2 cmd (register+finish)
+     * = 20 элементов, безопасно для лимита B24 batch в 50 cmd.
+     *
+     * ВАЖНО: значение должно совпадать с BATCH_SIZE в bin/MtsImporter.php —
+     * cron-импортёр шлёт пачками по BATCH_SIZE, а воркер срезает по этому
+     * потолку. Если меняете одно — поднимите оба.
+     */
+    public const MAX_HISTORICAL_CALLS_PER_INVOKE = 10;
+
+    /** Статусы ACK для action 'importHistoricalCalls'. */
+    public const IMPORT_ACK_OK        = 'ok';
+    public const IMPORT_ACK_NOT_READY = 'not_ready';
+
     private Bitrix24Integration $b24;
     private $pidSyncProcContacts;
     private $timeSyncProcContacts;
@@ -164,10 +178,337 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $arg = $this->b24->getScopeAsync($data['inbox_tube']??'');
         }elseif($action === 'needRestart'){
             $this->needRestart = true;
+        }elseif($action === 'importHistoricalCalls'){
+            $this->handleImportHistoricalCalls(
+                $data['args']['calls'] ?? [],
+                (string)($data['inbox_tube'] ?? '')
+            );
         }
         if(!empty($arg)){
             $this->b24->mainLogger->writeInfo($data, "Add action $action in queue...");
             $this->q_req = array_merge($this->q_req, $arg);
+        }
+    }
+
+    /**
+     * Публикует ответ инициатору invoke (Bitrix24InvokeRest::invoke).
+     * Без публикации клиент будет ждать timeout и логировать ошибку, поэтому
+     * для всех веток `invokeRest` с указанным inbox_tube нужно отправлять
+     * хотя бы пустой/статусный ACK.
+     *
+     * @param string $tube  Имя tube'а из payload (data['inbox_tube']).
+     * @param array  $body  Тело ответа: например ['status' => self::IMPORT_ACK_OK].
+     */
+    private function publishInvokeAck(string $tube, array $body): void
+    {
+        if ($tube === '') {
+            return;
+        }
+        $resFile = ConnectorDb::saveResultInTmpFile($body);
+        if ($resFile === '') {
+            return;
+        }
+        $this->queueAgent->publish($resFile, $tube);
+    }
+
+    /**
+     * Импорт пачки исторических звонков (например, из ModuleMtsPbx).
+     * Каждый звонок проходит штатный путь register+finish и попадает в общую
+     * очередь $this->q_req, которая batch'ем уходит в Bitrix24 через sendBatch().
+     *
+     * Жёсткий потолок MAX_HISTORICAL_CALLS_PER_INVOKE звонков на один invoke:
+     * 10×2 cmd = 20 элементов в batch, безопасно для лимита B24 в 50 cmd.
+     * Cron-импортёр сам не превышает этот лимит, но подстраховываемся на случай
+     * ручных вызовов.
+     *
+     * Контракт ACK:
+     *  - self::IMPORT_ACK_NOT_READY пока inner_numbers / mobile_numbers ещё
+     *    не наполнены (стартап). Импортёр должен НЕ двигать курсор и попробовать позже.
+     *  - self::IMPORT_ACK_OK штатная обработка завершена. Импортёр двигает курсор.
+     *
+     * @param array  $calls
+     * @param string $inboxTube  tube для ACK инициатору invoke.
+     */
+    private function handleImportHistoricalCalls(array $calls, string $inboxTube = ''): void
+    {
+        // Защита от обработки до синхронизации пользователей B24:
+        // findMtsEmployee опирается на inner_numbers/mobile_numbers, заполняемые
+        // в Bitrix24Integration::b24GetPhones(). Если оба пусты, мы не можем
+        // достоверно разрешить USER_ID и ошибочно пропустим все звонки.
+        if (empty($this->b24->inner_numbers) && empty($this->b24->mobile_numbers)) {
+            $this->b24->mainLogger->writeError(
+                ['count' => count($calls)],
+                'MTS import: employee maps are empty (cold worker?), instructing caller to retry'
+            );
+            $this->publishInvokeAck($inboxTube, [
+                'status'   => self::IMPORT_ACK_NOT_READY,
+                'received' => count($calls),
+            ]);
+            return;
+        }
+
+        if (count($calls) > self::MAX_HISTORICAL_CALLS_PER_INVOKE) {
+            $this->b24->mainLogger->writeError(
+                ['received' => count($calls)],
+                'MTS import: too many calls in single invoke, truncating to '
+                . self::MAX_HISTORICAL_CALLS_PER_INVOKE
+            );
+            $calls = array_slice($calls, 0, self::MAX_HISTORICAL_CALLS_PER_INVOKE);
+        }
+        $accepted = 0;
+        $skipped  = 0;
+        foreach ($calls as $call) {
+            if (!is_array($call)) {
+                $skipped++;
+                continue;
+            }
+            if ($this->enqueueHistoricalCall($call)) {
+                $accepted++;
+            } else {
+                $skipped++;
+            }
+        }
+        if (!$this->insideExecuteTasks && count($this->q_req) >= 49) {
+            $this->executeTasks();
+        }
+        $this->publishInvokeAck($inboxTube, [
+            'status'   => self::IMPORT_ACK_OK,
+            'accepted' => $accepted,
+            'skipped'  => $skipped,
+        ]);
+    }
+
+    /**
+     * Помещает один исторический звонок в очередь q_req:
+     *  1) резолвит сотрудника (USER_ID/USER_PHONE_INNER) и направление (TYPE)
+     *     поиском в inner_numbers и mobile_numbers;
+     *  2) проверяет, не отправлялся ли уже звонок (по linkedid в b24_cdr_data);
+     *  3) формирует register, кладёт в q_req, сохраняет ключ register
+     *     в tmpCallsData[linkedid]['CALL_ID'] — это активирует механизм
+     *     resolveBatchCallId() и finish сошлётся на результат register
+     *     внутри одной batch-транзакции;
+     *  4) формирует finish (с FILE/export_records, если запись доступна локально).
+     *
+     * @param array $call Сырые поля звонка из mts_cdr.
+     * @return bool true если оба запроса (register+finish или хотя бы register)
+     *              положены в q_req; false если запись пропущена (internal,
+     *              сотрудник не найден, уже отправлена, dedup-cache hit и т.п.).
+     */
+    private function enqueueHistoricalCall(array $call): bool
+    {
+        $linkedId = (string)($call['linkedid'] ?? '');
+        if ($linkedId === '') {
+            $this->b24->mainLogger->writeError($call, 'MTS import: empty linkedid, skipping');
+            return false;
+        }
+        // Защита от чужих источников, если когда-нибудь в mts_cdr появятся.
+        if (($call['from_account'] ?? '') !== 'fs-mts') {
+            $this->b24->mainLogger->writeError($call, "MTS import: unexpected from_account, skipping ($linkedId)");
+            return false;
+        }
+
+        // 1) Резолв сотрудника.
+        $srcEmp = $this->findMtsEmployee((string)($call['src_num'] ?? ''));
+        $dstEmp = $this->findMtsEmployee((string)($call['dst_num'] ?? ''));
+
+        $type = '';
+        $userId = '';
+        $userPhoneInner = '';
+        $clientPhone = '';
+        if ($srcEmp !== null && $dstEmp !== null) {
+            $this->b24->mainLogger->writeInfo($call, "MTS import: internal call, skipping ($linkedId)");
+            return false;
+        }
+        if ($srcEmp !== null) {
+            // Звонит сотрудник наружу — исходящий.
+            $type = '1';
+            $userId         = (string)($srcEmp['ID'] ?? '');
+            $userPhoneInner = (string)($srcEmp['UF_PHONE_INNER'] ?? '');
+            $clientPhone    = (string)($call['dst_num'] ?? '');
+        } elseif ($dstEmp !== null) {
+            // Звонят сотруднику снаружи — входящий.
+            $type = '2';
+            $userId         = (string)($dstEmp['ID'] ?? '');
+            $userPhoneInner = (string)($dstEmp['UF_PHONE_INNER'] ?? '');
+            $clientPhone    = (string)($call['src_num'] ?? '');
+        } else {
+            $this->b24->mainLogger->writeError(
+                $call,
+                "MTS import: employee not found among inner_numbers/mobile_numbers, skipping ($linkedId)"
+            );
+            return false;
+        }
+
+        if ($userId === '' || $userPhoneInner === '') {
+            $this->b24->mainLogger->writeError(
+                $call,
+                "MTS import: resolved employee has empty ID/UF_PHONE_INNER, skipping ($linkedId)"
+            );
+            return false;
+        }
+
+        // 2) Строгий dedup по linkedid: ищем CDR с непустым call_id.
+        // Используем специальный метод (FUNC_GET_EXPORTED_CALL_ID), а не общий
+        // FUNC_GET_CDR_BY_LINKED_ID — у последнего leg-семантика и fallback
+        // на «первую попавшуюся CDR», что для импорта некорректно.
+        $exported = ConnectorDb::invoke(
+            ConnectorDb::FUNC_GET_EXPORTED_CALL_ID,
+            [$linkedId]
+        );
+        if (!empty($exported['call_id'])) {
+            $this->b24->mainLogger->writeDebug(
+                ['linkedid' => $linkedId, 'call_id' => $exported['call_id']],
+                'MTS import: call already sent, skipping'
+            );
+            return false;
+        }
+
+        // 3) Подготовка tmpCallsData. wait=false, чтобы при последующих AMI-эвентах
+        // не запускалась логика поиска контактов по этому linkedid.
+        if (!isset($this->tmpCallsData[$linkedId])) {
+            $this->tmpCallsData[$linkedId] = [
+                'wait'       => false,
+                'events'     => [],
+                'search'     => 1,
+                'lead'       => -1,
+                'list-lead'  => -1,
+                'company'    => -1,
+                'data'       => $call,
+                'crm-data'   => [],
+                'inbox_tube' => '',
+                'responsible'=> '',
+                'CALL_ID'    => '',
+            ];
+        }
+
+        // Флаги настроек прокидывает cron-импортёр (он уже читает их для своей логики).
+        $crmCreate = (((string)($call['crm_create'] ?? '0')) === '1') ? '1' : '0';
+        $exportRecordsSetting = (((string)($call['export_records_setting'] ?? '0')) === '1');
+
+        $disposition = (string)($call['disposition'] ?? 'NOANSWER');
+        $statusCode  = ($disposition === 'ANSWERED') ? '200' : '304';
+
+        // 4) Register.
+        $payloadRegister = [
+            'linkedid'         => $linkedId,
+            'UNIQUEID'         => $linkedId,
+            'USER_ID'          => $userId,
+            'USER_PHONE_INNER' => $userPhoneInner,
+            'PHONE_NUMBER'     => $clientPhone,
+            'CALL_START_DATE'  => $this->formatHistoricalDate($call['start'] ?? ''),
+            'TYPE'             => $type,
+            'CRM_CREATE'       => $crmCreate,
+            'SHOW'             => '0',
+            'LINE_NUMBER'      => (string)($call['did'] ?? ''),
+        ];
+        [$argRegister, $registerKey] = $this->b24->telephonyExternalCallRegister($payloadRegister);
+        if (!empty($argRegister)) {
+            $this->q_req = array_merge($this->q_req, $argRegister);
+        }
+        if ($registerKey === '') {
+            // Дубликат по кешу register (180 сек) — finish тоже не имеет смысла
+            // в этой итерации, так как CALL_ID в batch получить неоткуда.
+            $this->b24->mainLogger->writeDebug(
+                ['linkedid' => $linkedId],
+                'MTS import: register dedup-cache hit, skipping'
+            );
+            return false;
+        }
+        $this->tmpCallsData[$linkedId]['CALL_ID'] = $registerKey;
+
+        // 5) Finish.
+        $recordFile = '';
+        $exportRecords = false;
+        $recStatus = (string)($call['mts_rec_status'] ?? '');
+        $recPath   = (string)($call['recordingfile'] ?? '');
+        if ($recStatus === 'ok' && $recPath !== '' && file_exists($recPath)) {
+            $recordFile = $recPath;
+            $exportRecords = $exportRecordsSetting;
+        }
+
+        $payloadFinish = [
+            'linkedid'        => $linkedId,
+            'UNIQUEID'        => $linkedId,
+            'USER_ID'         => $userId,
+            'DURATION'        => (string)($call['duration'] ?? '0'),
+            'STATUS_CODE'     => $statusCode,
+            'GLOBAL_STATUS'   => $disposition,
+            'disposition'     => $disposition,
+            'FILE'            => $recordFile,
+            'export_records'  => $exportRecords,
+            'ADD_TO_CHAT'     => 0,
+        ];
+        [$argFinish, $finishKey] = $this->b24->telephonyExternalCallFinish($payloadFinish, $this->tmpCallsData);
+        if (!empty($argFinish)) {
+            $this->q_req = array_merge($this->q_req, $argFinish);
+        }
+        $this->b24->mainLogger->writeInfo(
+            [
+                'linkedid' => $linkedId,
+                'type'     => $type,
+                'user_id'  => $userId,
+                'inner'    => $userPhoneInner,
+                'phone'    => $clientPhone,
+                'rec'      => $recStatus,
+                'registerKey' => $registerKey,
+                'finishKey'   => $finishKey,
+            ],
+            'MTS import: enqueued'
+        );
+        return true;
+    }
+
+    /**
+     * Ищет сотрудника по номеру телефона из mts_cdr.
+     * Сначала по внутренним номерам (UF_PHONE_INNER) — для коротких номеров.
+     * Потом по mobile_numbers (PERSONAL_MOBILE / WORK_PHONE / соответствие
+     * UF_PHONE_INNER → внешний PBX-номер) — для мобильных сотрудников.
+     *
+     * @param string $number
+     * @return array|null Запись пользователя из b24->inner_numbers/mobile_numbers либо null.
+     */
+    private function findMtsEmployee(string $number): ?array
+    {
+        $clean = preg_replace('/\D+/', '', $number);
+        if ($clean === '') {
+            return null;
+        }
+        // Внутренние номера индексируются по UF_PHONE_INNER без нормализации.
+        if (isset($this->b24->inner_numbers[$clean])) {
+            return $this->b24->inner_numbers[$clean];
+        }
+        // Мобильные индексируются по getPhoneIndex (последние 10 цифр).
+        $key = Bitrix24Integration::getPhoneIndex($clean);
+        if ($key !== '' && isset($this->b24->mobile_numbers[$key])) {
+            return $this->b24->mobile_numbers[$key];
+        }
+        return null;
+    }
+
+    /**
+     * Преобразует время старта звонка из mts_cdr в ISO 8601.
+     * synchCdr.php уже применяет gap-сдвиг, поэтому значение в БД хранится
+     * как локальное время PBX. Привязываем DateTime к default-таймзоне
+     * (date_default_timezone_get) — иначе при работе без явной TZ-инфо во
+     * входной строке Bitrix24 может получить смещённое время.
+     *
+     * @param string $start
+     * @return string
+     */
+    private function formatHistoricalDate(string $start): string
+    {
+        if ($start === '') {
+            return '';
+        }
+        try {
+            $tz = new \DateTimeZone(date_default_timezone_get() ?: 'UTC');
+            return (new \DateTime($start, $tz))->format('c');
+        } catch (\Throwable $e) {
+            $this->b24->mainLogger->writeError(
+                ['start' => $start, 'error' => $e->getMessage()],
+                'MTS import: failed to parse start date'
+            );
+            return '';
         }
     }
 

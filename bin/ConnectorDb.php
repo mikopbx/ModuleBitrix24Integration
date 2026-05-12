@@ -50,6 +50,7 @@ class ConnectorDb extends WorkerBase
     public const FUNC_FIND_CDR_BY_UID               = "findCdrByUID";
     public const FUNC_UPDATE_CDR_BY_UID             = "updateCdrByUID";
     public const FUNC_GET_CDR_BY_LINKED_ID          = "getCdrDataByLinkedId";
+    public const FUNC_GET_EXPORTED_CALL_ID          = "getExportedCallIdByLinkedId";
     public const FUNC_GET_CDR_BY_FILTER             = "getCdrByFilter";
     public const FUNC_UPDATE_FROM_ARRAY_CDR_BY_UID  = "updateCdrFromArrayByUID";
     public const FUNC_SAVE_EXTERNAL_LINES           = "saveExternalLinesData";
@@ -78,6 +79,7 @@ class ConnectorDb extends WorkerBase
         'findCdrByUID'                => 2,
         'updateCdrByUID'              => 2,
         'getCdrDataByLinkedId'        => 2,
+        'getExportedCallIdByLinkedId' => 2,
         'getCdrByFilter'              => 2,
         'updateCdrFromArrayByUID'     => 2,
         'updateGeneralSettings'       => 10,
@@ -1182,6 +1184,37 @@ class ConnectorDb extends WorkerBase
             }
         }
         return $result;
+    }
+
+    /**
+     * Идемпотентная проверка для импорта исторических звонков:
+     * возвращает ['call_id' => '<b24-id>'] если звонок с таким linkedid
+     * уже был успешно отправлен в Bitrix24, или [] в противном случае.
+     *
+     * Отличие от getCdrDataByLinkedId: нет фильтра по UNIQUEID (leg-семантика
+     * не применима к импорту) и нет fallback на «первый попавшийся row».
+     * Возвращается ровно один ряд с непустым call_id; если такого нет —
+     * пустой массив.
+     *
+     * Результат обёрнут в массив, потому что unpackResult всегда требует
+     * массив от Beanstalk-RPC.
+     *
+     * @param string $linkedid
+     * @return array
+     */
+    private function getExportedCallIdByLinkedId(string $linkedid): array
+    {
+        if ($linkedid === '') {
+            return [];
+        }
+        $row = ModuleBitrix24CDR::findFirst([
+            'conditions' => "linkedid = :linkedid: AND call_id IS NOT NULL AND call_id <> ''",
+            'bind'       => ['linkedid' => $linkedid],
+        ]);
+        if (!$row) {
+            return [];
+        }
+        return ['call_id' => (string)$row->call_id];
     }
 
     /**

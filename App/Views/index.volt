@@ -34,6 +34,14 @@
                 <label>{{ t._('mod_b24_i_backgroundUpload') }}</label>
             </div>
         </div>
+        {% if isMtsModuleInstalled %}
+        <div class="field">
+            <div class="ui toggle checkbox">
+                {{ form.render('import_mts_calls') }}
+                <label>{{ t._('mod_b24_i_ImportMtsCalls') }}</label>
+            </div>
+        </div>
+        {% endif %}
         <div class="ten wide field">
             <label>{{ t._('mod_b24_i_logLevel') }}</label>
             {{ form.render('logLevel') }}

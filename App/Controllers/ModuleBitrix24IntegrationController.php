@@ -202,6 +202,9 @@ class ModuleBitrix24IntegrationController extends BaseController
         }
 
         $this->view->form = new ModuleBitrix24IntegrationForm($settings, $options);
+        // Опция импорта МТС доступна только если установлен соседний модуль ModuleMtsPbx.
+        // Используем FQCN-строку: при `use ...` PHP попытается зарезолвить класс ещё до class_exists.
+        $this->view->isMtsModuleInstalled = class_exists('\\Modules\\ModuleMtsPbx\\Models\\CallHistory');
         $this->view->pick("{$this->moduleDir}/App/Views/index");
     }
 
