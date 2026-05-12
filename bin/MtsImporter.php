@@ -24,10 +24,18 @@ use MikoPBX\Modules\PbxExtensionUtils;
 use Modules\ModuleBitrix24Integration\Lib\Bitrix24InvokeRest;
 use Modules\ModuleBitrix24Integration\Lib\Logger;
 
-// ВАЖНО: модель ModuleMtsPbx\Models\CallHistory НЕ импортируется через `use`.
-// Если соседний модуль не установлен, любое упоминание этого класса (включая
-// resolve через use) приведёт к ошибке автозагрузки. Доступ — только через
-// FQCN-строку после class_exists().
+// Источник данных — таблица mts_cdr соседнего модуля ModuleMtsPbx,
+// которая содержит только MTS-звонки и обогащённые MTS API метаданные
+// (recordingfile, mts_rec_status). Это узкая таблица без посторонних
+// записей — индекс на from_account не нужен (по сути все строки fs-mts).
+//
+// Альтернатива (cdr_general в cdr.db) была отвергнута: на крупных
+// инсталляциях миллионы записей без индекса на from_account делают
+// первичный скан медленным, а индекс на чужую БД мы добавлять не хотим.
+//
+// FQCN-строка вместо `use`, потому что Modules\ModuleMtsPbx\Models\CallHistory
+// может отсутствовать (соседний модуль не установлен) — `use` уронит
+// автозагрузку. Доступ — только через переменную после class_exists().
 const MTS_CALL_HISTORY_FQCN = '\\Modules\\ModuleMtsPbx\\Models\\CallHistory';
 
 const MAX_PER_RUN = 300;
@@ -66,7 +74,8 @@ register_shutdown_function(static function () use (&$lockHandle, $lockFile) {
     @unlink($lockFile);
 });
 
-// Проверяем доступность модели соседнего модуля.
+// Проверяем доступность модели соседнего модуля — это и источник данных,
+// и смысловой guard «MTS-trunk сконфигурирован».
 $callHistoryClass = MTS_CALL_HISTORY_FQCN;
 if (!class_exists($callHistoryClass)) {
     // ModuleMtsPbx не установлен — это штатная ситуация. Тихо выходим.
@@ -114,6 +123,10 @@ $processed   = 0;
 $todayStart  = (new \DateTime())->setTime(0, 0)->format('Y-m-d H:i:s');
 
 while ($processed < MAX_PER_RUN) {
+    // mts_cdr содержит только MTS-звонки — фильтр по from_account не нужен.
+    // Двусторонний курсор (id > cursor OR start >= today) — на случай
+    // повторной синхронизации MTS API за текущий день (мerging обновлений
+    // mts_rec_status для уже виденных id).
     $rows = $callHistoryClass::find([
         'id > :id: OR start >= :start:',
         'bind'  => [
@@ -132,21 +145,26 @@ while ($processed < MAX_PER_RUN) {
     $cursorCandidate = $cursor; // курсор сдвинется только после успешного invoke
     $stopAtPending = false;
     foreach ($rows as $row) {
-        $rowId = (int)($row['id'] ?? 0);
+        $rowId     = (int)($row['id'] ?? 0);
         $recStatus = (string)($row['mts_rec_status'] ?? '');
-        // Pending — отправлять преждевременно. Откладываем (не сдвигаем курсор,
-        // если запись из «новой» части, id > cursor; повторно попадёт в
-        // следующем тике через ветку фильтра).
-        if ($recStatus === 'pending' && $rowId > $cursor) {
+        // Pending — MP3 ещё не докачан ModuleMtsPbx (downloadRecords.php).
+        // Останавливаемся БЕЗОГОВОРОЧНО (без проверки rowId > cursor): иначе
+        // запись с id<=cursor, попавшая в выборку через ветку `start>=today`,
+        // ускользнёт от pending-guard и уйдёт в B24 без FILE. После докачки
+        // MP3 dedup (FUNC_GET_EXPORTED_CALL_ID) не пустит её повторно —
+        // запись разговора потеряется навсегда. См. ревью.
+        if ($recStatus === 'pending') {
             $logger->writeInfo(
                 ['id' => $rowId, 'linkedid' => $row['linkedid'] ?? ''],
-                'Skip pending without advancing cursor'
+                'Skip pending and stop run (wait for MP3 download next tick)'
             );
             $stopAtPending = true;
             break;
         }
 
-        // Чужие источники в mts_cdr — пропускаем без отправки в B24, но курсор двигаем.
+        // mts_cdr содержит только MTS-звонки, но защищаемся от поломок ORM
+        // или будущих изменений модели — другой from_account пропускаем со
+        // сдвигом курсора.
         $fromAccount = (string)($row['from_account'] ?? '');
         if ($fromAccount !== 'fs-mts') {
             if ($rowId > $cursorCandidate) {
@@ -220,7 +238,8 @@ while ($processed < MAX_PER_RUN) {
 
     if ($stopAtPending) {
         // Перед нами «застрявшая» pending-запись; продолжать выборку
-        // бессмысленно (тот же фильтр повторно её вернёт). Завершаем прогон.
+        // бессмысленно (тот же фильтр повторно её вернёт). Завершаем прогон,
+        // ждём следующего тика — MP3 успеет докачаться.
         break;
     }
     if ($processed >= MAX_PER_RUN) {
