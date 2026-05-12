@@ -96,6 +96,18 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
 
         $this->client = new BeanstalkClient(Bitrix24Integration::B24_INTEGRATION_CHANNEL);
         $this->am     = $this->createAstManager();
+
+        // ВАЖНО: AMI-фильтр и обработчик регистрируем ДО тяжёлого new
+        // Bitrix24Integration (он делает синхронный REST к B24 и может занимать
+        // секунды). safe.php (WorkerSafeScriptsCore::checkWorkerAMI) шлёт ping
+        // через UserEvent каждые ~5 сек и засчитывает 3 промаха подряд → SIGUSR1.
+        // Если listener не зарегистрирован к этому моменту, воркер крашится
+        // в цикле «Start daemon → Need SHUTDOWN... 10 → Start daemon». Ping-
+        // обработчик (replyOnPingRequest) зависит только от $this->am, поэтому
+        // безопасно выводить его регистрацию вперёд.
+        $this->setFilter();
+        $this->am->addEventHandler('userevent', [$this, 'callback']);
+
         $this->b24    = new Bitrix24Integration('_ami');
 
         if (!$this->b24->initialized) {
@@ -105,15 +117,19 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         // Bitrix24Integration уже подгрузил настройки через ConnectorDb::invoke
         // и применил уровень к своему логгеру — синхронизируемся.
         $this->logger->setLevel($this->b24->mainLogger->getLevel());
-        $this->setFilter();
         $this->updateSettings();
 
         $config                = new MikoPBXConfig();
         $this->extensionLength = $config->getGeneralSettings('PBXInternalExtensionLength');
 
-        $this->am->addEventHandler("userevent", [$this, "callback"]);
         if ($this->needRestart) {
-            $this->logger->writeInfo('Restart signal received during init, deferring — entering main loop.');
+            // SIGUSR1 пришёл во время init (например, safe.php засчитал нас
+            // мёртвыми по ping'у до того, как listener успел зарегистрироваться).
+            // Мы УЖЕ восстановили обработку — игнорируем этот сигнал, чтобы не
+            // рестартоваться сразу после старта. Реальный shutdown потребует
+            // нового SIGUSR1, который придёт через ping-механизм если воркер
+            // снова перестанет отвечать.
+            $this->logger->writeInfo('Ignoring early SIGUSR1 received during init — listener is now ready, entering main loop.');
             $this->needRestart = false;
         }
         $this->processState = 'idle';
@@ -280,6 +296,16 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     public function callback($parameters):void{
 
         if ($this->replyOnPingRequest($parameters)){
+            // Pong через replyOnPingRequest зависит только от $this->am и уже
+            // отправлен выше. Дальше начинается работа на $this->b24 /
+            // updateSettings — её НЕ дёргаем пока воркер в фазе init.
+            // processState='init' выставлен на уровне поля и меняется на
+            // 'idle' только в конце start() — это надёжный маркер
+            // «warming up», см. start(): между регистрацией listener
+            // и завершением new Bitrix24Integration окно несколько секунд.
+            if ($this->processState === 'init') {
+                return;
+            }
             $this->counter++;
             // Пинг приходит раз в минуту. Обычный интервал обновления — 5 минут.
             // Если inner_numbers пуст (токен был невалиден) — обновляем каждый пинг для быстрого восстановления.
@@ -294,6 +320,14 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             return;
         }
         if(!isset($parameters['AgiData'])){
+            return;
+        }
+        // CDR-event может прийти до окончания инициализации (b24, extensions,
+        // external_lines, extensionLength — всё ставится последовательно
+        // в start()). Обработчики ниже требуют их. Тот же маркер processState.
+        // Asterisk переотправит CDR при следующем звонке; во время первичного
+        // запуска воркера активных звонков обычно нет.
+        if ($this->processState === 'init') {
             return;
         }
         $agiData = $parameters['AgiData'];

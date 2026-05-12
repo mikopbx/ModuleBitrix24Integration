@@ -73,20 +73,32 @@ if (!class_exists($callHistoryClass)) {
     exit(0);
 }
 
+// ConnectorDb::FUNC_GET_GENERAL_SETTINGS возвращает stdClass (см. invoke():
+// `return (object)$cached;` для cache-hit и upstream-сериализацию модели).
+// Раньше здесь была проверка is_array — она роняла скрипт каждые 5 минут
+// с "Settings unavailable, exiting".
 $settings = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
-if (!is_array($settings) || empty($settings)) {
-    $logger->writeError('Settings unavailable, exiting');
+if (!is_object($settings)) {
+    // RPC-таймаут или fallback в invoke() вернул пустой массив. Cron повторит
+    // через 5 мин; пишем явно, чтобы отличать от «нет настроек в БД».
+    $logger->writeError(['type' => gettype($settings)], 'Settings RPC returned non-object (likely timeout), exiting');
+    exit(0);
+}
+if (empty($settings->portal)) {
+    // Модуль установлен, но не привязан к порталу B24 — OAuth не пройден.
+    // Импортировать всё равно некуда; молча выходим, чтобы не шуметь в логах.
+    $logger->writeInfo('B24 portal is not configured yet, exiting');
     exit(0);
 }
 
-if (((string)($settings['import_mts_calls'] ?? '0')) !== '1') {
+if (((string)($settings->import_mts_calls ?? '0')) !== '1') {
     // Опция выключена.
     exit(0);
 }
 
-$cursor          = (int)($settings['mts_import_last_id'] ?? 0);
-$crmCreateFlag   = (((string)($settings['crmCreateLead'] ?? '0')) === '1') ? '1' : '0';
-$exportRecordsFlag = (((string)($settings['export_records'] ?? '0')) === '1') ? '1' : '0';
+$cursor            = (int)($settings->mts_import_last_id ?? 0);
+$crmCreateFlag     = (((string)($settings->crmCreateLead ?? '0')) === '1') ? '1' : '0';
+$exportRecordsFlag = (((string)($settings->export_records ?? '0')) === '1') ? '1' : '0';
 
 $logger->writeInfo(
     [
