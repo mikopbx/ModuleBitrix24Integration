@@ -593,14 +593,23 @@ class ConnectorDb extends WorkerBase
     public function saveExternalLinesData(array $externalLinesPost):bool
     {
         if(empty($externalLinesPost)){
-            // Больше нет внешних линий, чистим все.
-            $filter = [];
-        }else{
-            $filter = [
-                'conditions' => 'id NOT IN ({ids:array})',
-                'bind' => ['ids' => array_column($externalLinesPost, 'id')]
-            ];
+            // Пустой POST — НЕ удаляем существующие линии. Раньше тут было
+            // `$filter = []` → find().delete() стирало все строки безусловно;
+            // при сбое JS на форме (если он не передал externalLines) таблица
+            // обнулялась за один клик «Сохранить». Удаление линий должно
+            // быть осознанным действием — отдельный экшн/кнопка, а не
+            // побочный эффект сохранения настроек.
+            if (ModuleBitrix24ExternalLines::count() > 0) {
+                $this->logger->writeError(
+                    'External lines POST is empty while table is non-empty — skipping destructive delete-all to preserve data'
+                );
+            }
+            return true;
         }
+        $filter = [
+            'conditions' => 'id NOT IN ({ids:array})',
+            'bind' => ['ids' => array_column($externalLinesPost, 'id')]
+        ];
         $externalLines = ModuleBitrix24ExternalLines::find($filter);
         foreach ($externalLines as $externalLine){
             $externalLine->delete();

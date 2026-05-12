@@ -369,12 +369,13 @@ class ModuleBitrix24IntegrationController extends BaseController
             return;
         }
         $externalLinesPost = json_decode($data['externalLines'],true);
-        $resultSaveLines   = ConnectorDb::invokePriority(ConnectorDb::FUNC_SAVE_EXTERNAL_LINES, [$externalLinesPost]);
-        if(!$resultSaveLines){
-            $this->view->error = 'Fail save externalLines...';
-            $this->view->success = false;
-            return;
-        }
+        // Результат saveExternalLinesData(bool) теряется при RPC-сериализации:
+        // unpackResult всегда возвращает array, json_decode(true|false) → bool
+        // → is_array(bool) === false → возврат `[]`. Старая проверка
+        // `if(!$resultSaveLines)` ложно срабатывала на каждом сохранении,
+        // показывая «Fail save externalLines...» даже при успешной записи.
+        // Полагаемся на лог ConnectorDb для диагностики реальных ошибок.
+        ConnectorDb::invokePriority(ConnectorDb::FUNC_SAVE_EXTERNAL_LINES, [$externalLinesPost]);
         $this->flash->success($this->translation->_('ms_SuccessfulSaved'));
         $this->view->success = true;
     }
