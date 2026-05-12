@@ -326,6 +326,12 @@ class ModuleBitrix24IntegrationController extends BaseController
                 case 'lastCompanyId':
                 case 'lastLeadId':
                 case 'lastDealId':
+                case 'mts_import_last_id':
+                    // Служебные/системные поля, не отображаются в форме.
+                    // НЕ трогаем — без break-ветки default обнулил бы их
+                    // на каждом сохранении настроек ('' → INTEGER → 0).
+                    // Для mts_import_last_id это бы сбрасывало прогресс
+                    // MTS-импорта в 0 при каждом сохранении через UI.
                     break;
                 case 'callbackQueue':
                     $record->$key = trim($data[$key]);
@@ -341,6 +347,11 @@ class ModuleBitrix24IntegrationController extends BaseController
                 case 'crmCreateLead':
                 case 'backgroundUpload':
                 case 'export_records':
+                case 'import_mts_calls':
+                    // Checkbox-поля: HTML отправляет 'on' если установлен,
+                    // не отправляет вовсе если снят. Раньше import_mts_calls
+                    // попадал в default → $record->key = 'on' → SQLite-affinity
+                    // INTEGER приводил к 0, и галка никогда не сохранялась как 1.
                     if (array_key_exists($key, $data)) {
                         $record->$key = ($data[$key] === 'on') ? '1' : '0';
                     } else {
