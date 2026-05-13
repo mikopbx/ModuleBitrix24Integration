@@ -606,7 +606,20 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                     }
                 }else{
                     $this->tmpCallsData[$data['linkedid']]['ARG_REGISTER_USER_'.$data['UNIQUEID']] = $data['USER_ID']??'';
-                    $this->tmpCallsData[$data['linkedid']]['ARGS_REGISTER_'.$data['UNIQUEID']] = $this->b24->telephonyExternalCallRegister($data);
+                    // Политика "один register на звонок":
+                    //   - очередь (звонок ещё не отвечен): доп. register НЕ создаём,
+                    //     для каждого участника очереди открываем общую карточку
+                    //     через telephony.externalcall.show на оригинальном CALL_ID;
+                    //   - переадресация (b24-answered-<linkedid> уже стоит — был
+                    //     action_dial_answer): создаём дополнительный register, чтобы
+                    //     у плеча-получателя перевода в B24 появилась СВОЯ карточка
+                    //     звонка со своим USER_ID/DURATION/записью. Этот register
+                    //     попадает в q_req только в момент finish'а через ARGS_REGISTER
+                    //     в Lib/Bitrix24Integration::telephonyExternalCallFinish.
+                    $isTransfer = !empty($this->b24->getCache('b24-answered-' . $data['linkedid']));
+                    if ($isTransfer) {
+                        $this->tmpCallsData[$data['linkedid']]['ARGS_REGISTER_'.$data['UNIQUEID']] = $this->b24->telephonyExternalCallRegister($data);
+                    }
                     $data['CALL_ID'] = $this->b24->resolveBatchCallId((string)$callId);
                     if($this->needShowCardDirectly($data['USER_ID'])){
                         $arg = $this->b24->telephonyExternalCallShow($data);
@@ -651,6 +664,52 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             $this->b24->saveCache('b24-answered-' . $data['linkedid'], true, 10800);
             $tmpArr = [];
             $userId = $this->tmpCallsData[$data['linkedid']]['ARG_REGISTER_USER_'.$data['UNIQUEID']]??'';
+
+            // Очередь: при ответе одного оператора у всех остальных участников,
+            // которым через register (TYPE=2/первое плечо) и show открыта общая
+            // карточка звонка, она должна сразу закрыться. Раньше hide шёл
+            // только в action_hangup_chan канала каждого участника — в очередях,
+            // где Asterisk не успевал прислать CANCEL → hangup_chan, карточка
+            // у не-ответивших висела до самого конца звонка.
+            //
+            // Маркер b24-hide-others-<linkedid> защищает от повторной рассылки
+            // при втором action_dial_answer (после перевода ответит ещё один
+            // сотрудник, но «остальных» в очереди скрывать второй раз не надо).
+            $linkedCallId = $this->tmpCallsData[$data['linkedid']]['CALL_ID'] ?? '';
+            $hideOthersKey = 'b24-hide-others-' . $data['linkedid'];
+            if (!empty($linkedCallId) && !$this->b24->getCache($hideOthersKey)) {
+                $resolvedCallId   = $this->b24->resolveBatchCallId((string)$linkedCallId);
+                $answeredUniqueId = (string)($data['UNIQUEID'] ?? '');
+                $hiddenUsers      = [];
+                $hideEmitted      = false;
+                foreach ($this->tmpCallsData[$data['linkedid']] as $tKey => $tValue) {
+                    if (strpos($tKey, 'ARG_REGISTER_USER_') !== 0) {
+                        continue;
+                    }
+                    $uid = substr($tKey, strlen('ARG_REGISTER_USER_'));
+                    if ($uid === $answeredUniqueId) {
+                        continue; // плечо, которое только что ответило
+                    }
+                    $regUserId = (string)$tValue;
+                    if ($regUserId === '' || $regUserId === (string)$userId) {
+                        continue; // тот же сотрудник по другому UNIQUEID — не скрываем
+                    }
+                    if (isset($hiddenUsers[$regUserId])) {
+                        continue;
+                    }
+                    $hiddenUsers[$regUserId] = true;
+                    $tmpArr[] = $this->b24->telephonyExternalCallHide([
+                        'CALL_ID'  => $resolvedCallId,
+                        'USER_ID'  => (int)$regUserId,
+                        'linkedid' => $data['linkedid'],
+                    ]);
+                    $hideEmitted = true;
+                }
+                if ($hideEmitted) {
+                    $this->b24->saveCache($hideOthersKey, true, 10800);
+                }
+            }
+
             $dealId = '';
             $leadId = '';
             $filter = [
