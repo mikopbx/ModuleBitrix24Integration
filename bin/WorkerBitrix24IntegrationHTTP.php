@@ -697,27 +697,56 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 $this->q_req = array_merge($this->q_req, ...$tmpArr);
             }
         } elseif ('telephonyExternalCallFinish' === $data['action']) {
-            // Защита от orphan-leg'ов: если звонок уже был реально отвечен
-            // (action_dial_answer пришёл), NOANSWER-finish для другого
-            // (IVR/queue) leg'а — это служебный «осколок», не звонок.
-            // Пропускаем его целиком — иначе он уходит в B24 первым с
-            // USER_ID=responsibleMissedCalls и DURATION=0, перетирая статус
-            // и ответственного у уже-отвеченного звонка. Запись разговора
-            // для orphan-leg'а (короткий IVR-фрагмент) тоже не прикрепляется —
-            // это устраняет «фантомные» аудио у пропущенных. См. логи
-            // 79245067790@2026-05-08 12:52 и 79636988999@16:36.
+            // Политика отправки finish в B24 для входящих звонков:
             //
-            // Источник маркера answered — Redis (через b24->getCache):
-            // переживает рестарт HTTP-воркера, согласован с Beanstalk-очередью,
-            // которая тоже persistent.
+            // 1) Если звонок В ЦЕЛОМ был отвечен сотрудником (action_dial_answer
+            //    пришёл хотя бы для одного плеча → маркер b24-answered-<linkedid>):
+            //    в B24 должны попасть ТОЛЬКО плечи, которые сами ответили
+            //    (disposition=ANSWERED). Любое плечо с disposition!=ANSWERED
+            //    (IVR/queue-orphan, второй оператор-перевод, который не взял
+            //    трубку) — отбрасываем целиком: register для него тоже не
+            //    уйдёт (он лежит в tmpCallsData[ARGS_REGISTER_<UNIQUEID>]
+            //    и попадает в q_req только из telephonyExternalCallFinish).
+            //    Без этого в журнале телефонии B24 появлялись «фантомные»
+            //    карточки с DURATION=0 и неверным RESPONSIBLE_ID, перетирающие
+            //    реальный статус. См. кейсы 79245067790@2026-05-08 12:52,
+            //    79636988999@16:36 и 79101755605@2026-05-13 10:01.
+            //
+            // 2) Если звонок ни один сотрудник не отвечал — отправляем РОВНО
+            //    ОДИН finish на linkedid (на первое NOANSWER-плечо), остальные
+            //    плечи того же звонка дедуплицируются по
+            //    'b24-missed-finish-<linkedid>'. Иначе в B24 на один MikoPBX-
+            //    звонок плодились бы N карточек «пропущенных».
+            //
+            // Маркеры в Redis (через b24->getCache/saveCache) переживают
+            // рестарт HTTP-воркера и согласованы с persistent Beanstalk-очередью.
             $alreadyAnswered = !empty($this->b24->getCache('b24-answered-' . $data['linkedid']));
-            $globalStatus   = (string)($data['GLOBAL_STATUS'] ?? '');
-            if ($alreadyAnswered && $globalStatus !== 'ANSWERED') {
+            $disposition     = (string)($data['disposition']    ?? '');
+            $globalStatus    = (string)($data['GLOBAL_STATUS']  ?? '');
+            $isLegAnswered   = ($disposition === 'ANSWERED');
+            $missedDedupKey  = 'b24-missed-finish-' . $data['linkedid'];
+
+            $skipReason = '';
+            if ($alreadyAnswered && !$isLegAnswered) {
+                // Случай (1): звонок ответил другой leg, этот — лишний.
+                $skipReason = 'call was answered, this leg disp='.$disposition.' global='.$globalStatus;
+            } elseif (!$isLegAnswered && $this->b24->getCache($missedDedupKey)) {
+                // Случай (2): missed-finish для linkedid уже отправлен.
+                $skipReason = 'missed finish already sent for linkedid (one per call)';
+            }
+
+            if ($skipReason !== '') {
                 $this->b24->mainLogger->writeInfo(
                     $data,
-                    "Skip orphan NOANSWER finish (call was answered): {$data['linkedid']}"
+                    "Skip leg finish ($skipReason): {$data['linkedid']}"
                 );
             } else {
+                if (!$isLegAnswered) {
+                    // Маркер для последующих missed-плеч того же звонка.
+                    // TTL 3 часа — как у b24-answered (одна и та же логическая
+                    // «продолжительность звонка»).
+                    $this->b24->saveCache($missedDedupKey, true, 10800);
+                }
                 [$arg,$finishKey] = $this->b24->telephonyExternalCallFinish($data, $this->tmpCallsData);
                 $this->q_req = array_merge($this->q_req, $arg);
 

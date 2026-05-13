@@ -714,6 +714,11 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         }elseif ($isMissed && !empty($USER_ID) ){
             // Рандомно назначаем ответственного для пропущенного.
             $responsible = $USER_ID;
+            // Дедуп — по linkedid, а не по UNIQUEID: при нескольких NOANSWER-
+            // плечах одного звонка в B24 должна попадать ровно одна карточка
+            // «пропущенного», иначе для очереди из N операторов уехало бы
+            // N missed-карточек.
+            $finishKeyID = 'finish-cdr-'.$linkedId;
         }else{
             // Расширенная диагностика причины: чаще всего сюда попадают
             // плечи входящих звонков, у которых dst_num — реальный
