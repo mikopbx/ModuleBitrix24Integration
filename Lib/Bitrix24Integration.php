@@ -918,6 +918,11 @@ class Bitrix24Integration extends PbxExtensionBase
                 }
             }
         } else {
+            // Сохраняем предыдущий снимок до полной перестройки:
+            // если новый ответ user.get окажется пустым/некорректным,
+            // безопасно восстановим состояние и не перетрем кеш.
+            $prevInner  = $this->inner_numbers;
+            $prevMobile = $this->mobile_numbers;
             $pbx_numbers = $this->getPbxNumbers();
             $this->inner_numbers  = [];
             $this->mobile_numbers = [];
@@ -962,8 +967,40 @@ class Bitrix24Integration extends PbxExtensionBase
 
             $data = $this->mobile_numbers;
 
+            // Защита от обнуления кеша при сбое user.get: если новый снимок
+            // пустой, оставляем предыдущий. Без этого один неудачный запрос к
+            // B24 «прячет» всех операторов на следующем 5-минутном тике AMI.
+            if (empty($this->inner_numbers) && !empty($prevInner)) {
+                $this->logger->writeError('b24GetPhones: empty inner_numbers built, restoring previous snapshot. prev_count=' . count($prevInner));
+                $this->inner_numbers  = $prevInner;
+                $this->mobile_numbers = $prevMobile;
+                $data = $this->mobile_numbers;
+                return $data;
+            }
+
+            // Лог диффа: какие внутренние номера пропали/появились между
+            // снимками. Полезно для постфактум-разбора кейсов "оператора
+            // временно не было в карте".
+            $addedKeys   = array_diff(array_keys($this->inner_numbers), array_keys($prevInner));
+            $removedKeys = array_diff(array_keys($prevInner), array_keys($this->inner_numbers));
+            if (!empty($prevInner) && (!empty($addedKeys) || !empty($removedKeys))) {
+                $added = [];
+                foreach ($addedKeys as $k) {
+                    $added[] = ['inner' => $k, 'id' => $this->inner_numbers[$k]['ID'] ?? '', 'name' => $this->inner_numbers[$k]['NAME'] ?? ''];
+                }
+                $removed = [];
+                foreach ($removedKeys as $k) {
+                    $removed[] = ['inner' => $k, 'id' => $prevInner[$k]['ID'] ?? '', 'name' => $prevInner[$k]['NAME'] ?? ''];
+                }
+                $this->logger->writeInfo(['added' => $added, 'removed' => $removed], 'inner_numbers_diff');
+            }
+
             $this->saveCache('inner_numbers', $this->inner_numbers);
             $this->saveCache('mobile_numbers', $this->mobile_numbers);
+            // Долгоживущий fallback (по аналогии с userGet_LONG).
+            // Используется AMI-воркером, если основной кеш протух/пуст.
+            $this->saveCache('inner_numbers_LONG',  $this->inner_numbers,  7 * 24 * 3600);
+            $this->saveCache('mobile_numbers_LONG', $this->mobile_numbers, 7 * 24 * 3600);
         }
 
         return $data;
@@ -1058,9 +1095,31 @@ class Bitrix24Integration extends PbxExtensionBase
                     $res_data[] = $res;
                 }
             }
-            // Сохраняем в кэше
-            $this->saveCache(__FUNCTION__, $res_data, 90);
-            $this->saveCache(__FUNCTION__."_LONG", $res_data);
+            // Сохраняем в кэше. Если ответ b24 пустой — НЕ перетираем
+            // предыдущий снимок: иначе при разовом сбое user.get
+            // (тайм-аут/невалидный токен) карты inner_numbers/mobile_numbers
+            // на следующем тике b24GetPhones обнулятся, и AMI-воркер
+            // перестанет распознавать операторов до следующего успеха.
+            $userCount = 0;
+            foreach ($res_data as $page) {
+                if (is_array($page)) {
+                    $userCount += count($page);
+                }
+            }
+            if ($userCount > 0) {
+                $this->saveCache(__FUNCTION__, $res_data, 90);
+                $this->saveCache(__FUNCTION__."_LONG", $res_data, 7 * 24 * 3600);
+            } else {
+                $this->logger->writeError(
+                    'userGet: empty result from user.get, keeping previous cache. response=' . json_encode($response['result']['result_error'] ?? $response['error'] ?? 'no_error_info')
+                );
+                // Возвращаем предыдущий снимок, чтобы вызывающий код
+                // (b24GetPhones) не построил пустую карту inner_numbers.
+                $fallback = $this->getCache(__FUNCTION__."_LONG");
+                if (is_array($fallback) && !empty($fallback)) {
+                    $res_data = $fallback;
+                }
+            }
         }elseif ($res_data === null ){
             $res_data = [];
         }

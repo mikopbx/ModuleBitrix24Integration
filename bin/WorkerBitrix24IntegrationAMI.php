@@ -217,8 +217,19 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         // Обновляем данные B24 (внутри вызывается b24GetPhones → обновляет кеш inner_numbers)
         $this->b24->updateSettings($settings);
 
-        // Читаем inner_numbers из кеша (заполнен b24GetPhones выше)
+        // Читаем inner_numbers из кеша (заполнен b24GetPhones выше).
+        // Если основной кеш пуст/протух (типичный кейс: разовый сбой
+        // user.get → b24GetPhones построил пустую карту в более ранней
+        // ветке без защиты, либо TTL=3600 истёк раньше следующего тика
+        // updateSettings), пробуем долгоживущий снимок inner_numbers_LONG.
         $innerNumbers = $this->b24->getCache('inner_numbers');
+        if (!is_array($innerNumbers) || count($innerNumbers) === 0) {
+            $longSnapshot = $this->b24->getCache('inner_numbers_LONG');
+            if (is_array($longSnapshot) && count($longSnapshot) > 0) {
+                $innerNumbers = $longSnapshot;
+                $this->logger->writeInfo('inner_numbers restored from LONG snapshot. count=' . count($longSnapshot));
+            }
+        }
         if (is_array($innerNumbers) && count($innerNumbers) > 0) {
             $this->inner_numbers = (array)$innerNumbers;
         } else {
@@ -704,6 +715,29 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             // Рандомно назначаем ответственного для пропущенного.
             $responsible = $USER_ID;
         }else{
+            // Расширенная диагностика причины: чаще всего сюда попадают
+            // плечи входящих звонков, у которых dst_num — реальный
+            // внутренний номер оператора, но он отсутствует в карте
+            // inner_numbers/mobile_numbers на момент обработки CDR
+            // (см. inner_numbers_diff в IntegrationAMI.log).
+            $this->logger->writeInfo([
+                'linkedid'               => $linkedId,
+                'src_num'                => $srcNum,
+                'dst_num'                => $dstNum,
+                'USER_ID'                => $USER_ID,
+                'srsUserId'              => $srsUserId,
+                'dstUserId'              => $dstUserId,
+                'isMissed'               => $isMissed,
+                'isOutgoing'             => $isOutgoing,
+                'isVoicemail'            => $isVoicemail,
+                'isOrphanIncoming'       => $isOrphanIncoming,
+                'GLOBAL_STATUS'          => $data['GLOBAL_STATUS'] ?? '',
+                'disposition'            => $data['disposition'] ?? '',
+                'responsibleMissedCalls' => $this->responsibleMissedCalls,
+                'inner_numbers_count'    => count($this->inner_numbers),
+                'dst_in_inner_numbers'   => isset($this->inner_numbers[$dstNum]),
+                'src_in_inner_numbers'   => isset($this->inner_numbers[$srcNum]),
+            ], 'CancellationContext');
             $this->logger->writeInfo("The responsible person was not found. cancellation ".$linkedId);
             return;
         }
