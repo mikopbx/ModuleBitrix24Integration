@@ -1510,11 +1510,17 @@ class Bitrix24Integration extends PbxExtensionBase
         // блок не срабатывал бы, и второе плечо снова попадало бы в дедуп по первому
         // CALL_ID и теряло свою карточку.
         $fileReady = !empty($options['FILE']) && ($this->backgroundUpload || file_exists($options['FILE']));
+        // Проверяем, что register не отдедупился: при повторе он возвращает [[],''] —
+        // если подставить $key='' в "$result[][CALL_ID]", получится невалидная
+        // batch-ссылка, и B24 отвергнет finish с "Call is not found". В таком случае
+        // оставляем оригинальный $callId и проваливаемся в обычный дедуп-attachRecord
+        // (поведение fallback, как до возврата per-leg).
+        $hasFreshRegister = !empty($regData[1] ?? '');
         if( $fileReady &&
             isset($callData['MAIN_FILE']) && !isset($callData['FILE_'.$options['UNIQUEID']] ) &&
-            !empty($regData)) {
+            $hasFreshRegister) {
             // Подключаем register этого плеча к нашему batch и берём из него CALL_ID.
-            [$arg, $key] = $tmpCallsData[$id]['ARGS_REGISTER_'.$options['UNIQUEID']];
+            [$arg, $key] = $regData;
             $callId = '$result['.$key.'][CALL_ID]';
             $callData['FILE_'.$options['UNIQUEID']] = $options['FILE'];
         }
