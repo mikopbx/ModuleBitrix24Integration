@@ -508,6 +508,13 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 $userId = $this->inner_numbers[$data['dst_num']]['ID'] ?? '';
             }
             $inner  = $data['dst_num'];
+            // dst_num настроен в модуле, но в B24 не привязан к пользователю —
+            // open карточки некому. Register с пустым USER_ID создаёт бесхозную
+            // карточку в B24; в очереди остальные плечи отработают своими dial'ами.
+            if ($userId === '') {
+                $this->logger->writeInfo("Internal $inner is configured in module but not assigned to any B24 user (empty USER_ID). Skip register. $linkedId");
+                return;
+            }
             $this->logger->writeInfo("This is an incoming call to an employee's internal number. $linkedId");
             $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_OUT && $this->crmCreateLead)?'1':'0';
             if (strlen($general_src_num) > $this->extensionLength && ! in_array($general_src_num, $this->extensions, true)) {

@@ -621,7 +621,9 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                         $this->tmpCallsData[$data['linkedid']]['ARGS_REGISTER_'.$data['UNIQUEID']] = $this->b24->telephonyExternalCallRegister($data);
                     }
                     $data['CALL_ID'] = $this->b24->resolveBatchCallId((string)$callId);
-                    if($this->needShowCardDirectly($data['USER_ID'])){
+                    // Страховка: show с пустым USER_ID не имеет получателя
+                    // (аналогичная защита есть в ветке action_hangup_chan).
+                    if(!empty($data['USER_ID']) && $this->needShowCardDirectly($data['USER_ID'])){
                         $arg = $this->b24->telephonyExternalCallShow($data);
                     }
                 }
