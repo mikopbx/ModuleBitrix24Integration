@@ -722,7 +722,24 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 $this->q_req = array_merge($this->q_req, $arg);
 
                 if(!empty($finishKey)){
-                    $arg = $this->b24->crmActivityUpdate('$result['.$finishKey.'][CRM_ACTIVITY_ID]', $data['linkedid'], $data['linkedid']);
+                    // Обогащаем DESCRIPTION плеча, чтобы при переводе разные
+                    // карточки звонка в B24 (per-leg, см. Bitrix24Integration::
+                    // telephonyExternalCallFinish: ARGS_REGISTER + finishOneKey)
+                    // визуально различались: видно, какой внутренний номер
+                    // обработал плечо, сколько говорил и чем закончилось.
+                    $descParts = [(string)$data['linkedid']];
+                    $inner     = (string)($data['USER_PHONE_INNER'] ?? '');
+                    $duration  = (string)($data['DURATION'] ?? '');
+                    $dispo     = (string)($data['disposition']  ?? '');
+                    if ($inner !== '' || $duration !== '' || $dispo !== '') {
+                        $legParts = [];
+                        if ($inner    !== '') { $legParts[] = "leg=$inner"; }
+                        if ($duration !== '') { $legParts[] = "{$duration}s"; }
+                        if ($dispo    !== '') { $legParts[] = $dispo; }
+                        $descParts[] = implode(', ', $legParts);
+                    }
+                    $description = implode(' | ', $descParts);
+                    $arg = $this->b24->crmActivityUpdate('$result['.$finishKey.'][CRM_ACTIVITY_ID]', $data['linkedid'], $description);
                     $this->q_req = array_merge($this->q_req, $arg);
                 }
             }

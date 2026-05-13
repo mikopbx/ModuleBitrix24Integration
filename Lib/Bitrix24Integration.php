@@ -1483,16 +1483,48 @@ class Bitrix24Integration extends PbxExtensionBase
         }
         $this->saveCache($legDedupKey, true, 30);
 
-        // 2) Учитываем плечо в "best leg" (по DURATION) — даже если finish в B24 не уйдёт
-        // (B24 принимает только первый externalcall.finish на CALL_ID, остальные отвергает
-        // с "Call is not found"). best leg используется в PostFinish для назначения
-        // ASSIGNED_BY_ID реальному собеседнику, а не первому ответившему.
+        // 2) Учитываем плечо в "best leg" (по DURATION). Best leg используется в
+        // PostFinish для назначения ASSIGNED_BY_ID лида/контакта/сделки реальному
+        // собеседнику, а не первому ответившему до перевода.
         $duration = isset($options['DURATION']) ? (int)$options['DURATION'] : 0;
         $userId   = isset($options['USER_ID'])  ? (string)$options['USER_ID']  : '';
         $this->updateBestLegForCall($id, $userId, $duration);
 
-        // 3) Дедуп ЗВОНКА (CALL_ID): в B24 уходит только первый finish для этого звонка.
-        // Для последующих плеч прикрепляем только запись (запись хранится по CALL_ID).
+        ///////////////////////////////////////////////////////////////
+        // 3) Подмена $callId через ARGS_REGISTER_<UNIQUEID> ДО дедупа finishOneKey.
+        // Для второго (и далее) плеча HTTP-воркер уже отправил отдельный
+        // telephony.externalcall.register (см. WorkerBitrix24IntegrationHTTP.php:609
+        // ветка transfer: $tmpCallsData[...]['ARGS_REGISTER_'.$UNIQUEID]) — на каждое
+        // плечо B24 возвращает СВОЙ CALL_ID. Без подмены ниже finishOneKey-дедуп
+        // сравнивает оригинальный CALL_ID (первого плеча) и схлопывает все
+        // последующие плечи в attachRecord (Bitrix24 хранит один файл на CALL_ID,
+        // и записи плеч до перевода теряются, а в карточке звонка USER_ID остаётся
+        // от первого ответившего). С per-leg CALL_ID в B24 на один MikoPBX-звонок
+        // создаётся отдельная карточка звонка на каждое плечо: свой USER_ID, своя
+        // запись, свой DURATION. Регрессия c0de8d3 (24.02.2026) отменена.
+        $callData = &$tmpCallsData[$id];
+        $regData  = $tmpCallsData[$id]['ARGS_REGISTER_'.$options['UNIQUEID']]??[];
+        // file_exists || backgroundUpload — выравниваем с проверкой ниже в attachRecord:
+        // при асинхронной загрузке (backgroundUpload=1) запись плеча ещё не лежит на
+        // диске в момент finish, но UploaderB24 догрузит её позже. Без || backgroundUpload
+        // блок не срабатывал бы, и второе плечо снова попадало бы в дедуп по первому
+        // CALL_ID и теряло свою карточку.
+        $fileReady = !empty($options['FILE']) && ($this->backgroundUpload || file_exists($options['FILE']));
+        if( $fileReady &&
+            isset($callData['MAIN_FILE']) && !isset($callData['FILE_'.$options['UNIQUEID']] ) &&
+            !empty($regData)) {
+            // Подключаем register этого плеча к нашему batch и берём из него CALL_ID.
+            [$arg, $key] = $tmpCallsData[$id]['ARGS_REGISTER_'.$options['UNIQUEID']];
+            $callId = '$result['.$key.'][CALL_ID]';
+            $callData['FILE_'.$options['UNIQUEID']] = $options['FILE'];
+        }
+        if(!isset($callData['MAIN_FILE'])){
+            $callData['MAIN_FILE'] = $options['FILE'];
+        }
+
+        // 4) Дедуп ЗВОНКА по подменённому CALL_ID. Для первого плеча — оригинальный
+        // CALL_ID; для второго — новый (из ARGS_REGISTER), значит в кеше его нет,
+        // и finish пройдёт в B24 как самостоятельный звонок.
         $finishOneKey = self::API_CALL_FINISH.'_'.$callId;
         if($this->getCache($finishOneKey)){
             if ($options['export_records'] && !empty($options['FILE']) && ($this->backgroundUpload || file_exists($options['FILE']))) {
@@ -1504,23 +1536,6 @@ class Bitrix24Integration extends PbxExtensionBase
             return [$arg,$finishKey];
         }
         $this->saveCache($finishOneKey, true, 30);
-
-        ///////////////////////////////////////////////////////////////
-        // Проверим, была ли уже отправлена запись разговора.
-        $callData = &$tmpCallsData[$id];
-        $regData = $tmpCallsData[$id]['ARGS_REGISTER_'.$options['UNIQUEID']]??[];
-        if( file_exists($options['FILE']) &&
-            isset($callData['MAIN_FILE']) && !isset($callData['FILE_'.$options['UNIQUEID']] ) &&
-            !empty($regData)) {
-            // Нужно зарегистрировать новый вызов
-            [$arg, $key] = $tmpCallsData[$id]['ARGS_REGISTER_'.$options['UNIQUEID']];
-            $callId = '$result['.$key.'][CALL_ID]';
-            $callData['FILE_'.$options['UNIQUEID']] = $options['FILE'];
-        }
-        if(!isset($callData['MAIN_FILE'])){
-            $callData['MAIN_FILE'] = $options['FILE'];
-        }
-        //
         ///////////////////////////////////////////////////////////////
         $userId = (intval($callDataFromDB['answer']??0) === 1) ? $callDataFromDB['user_id']??'' : '';
         // Если register уйдёт в одном batch — finish должен ссылаться на его результат.
