@@ -421,7 +421,12 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $exportRecords = false;
         $recStatus = (string)($call['mts_rec_status'] ?? '');
         $recPath   = (string)($call['recordingfile'] ?? '');
-        if ($recStatus === 'ok' && $recPath !== '' && file_exists($recPath)) {
+        // Прикрепляем запись при status='ok' ИЛИ при пустом status: старые
+        // строки mts_cdr (записанные ModuleMtsPbx до апдейта схемы) имеют
+        // NULL в mts_rec_status, но recordingfile заполнен и MP3 лежит на
+        // диске. Решающий признак — реально существующий файл. 'pending' и
+        // 'gone' при этом отсекаются: у них file_exists даёт false либо путь пуст.
+        if (($recStatus === 'ok' || $recStatus === '') && $recPath !== '' && file_exists($recPath)) {
             $recordFile = $recPath;
             $exportRecords = $exportRecordsSetting;
         }
