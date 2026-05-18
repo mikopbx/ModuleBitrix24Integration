@@ -50,6 +50,9 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
             if (empty($settings->b24_region)) {
                 $settings->b24_region = 'RUSSIA';
             }
+            if (empty($settings->logLevel)) {
+                $settings->logLevel = ModuleBitrix24Integration::LOG_LEVEL_INFO;
+            }
             $result = $settings->save();
         }
 

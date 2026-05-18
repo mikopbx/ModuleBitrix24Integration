@@ -13,6 +13,24 @@ use Modules\ModuleBitrix24Integration\Lib\Constants;
 
 class ModuleBitrix24Integration extends ModulesModelsBase
 {
+    public const LOG_LEVEL_NONE  = 'NONE';
+    public const LOG_LEVEL_ERROR = 'ERROR';
+    public const LOG_LEVEL_INFO  = 'INFO';
+    public const LOG_LEVEL_DEBUG = 'DEBUG';
+
+    /**
+     * Возвращает доступные уровни логирования.
+     */
+    public static function getAvailableLogLevels(): array
+    {
+        return [
+            self::LOG_LEVEL_NONE,
+            self::LOG_LEVEL_ERROR,
+            self::LOG_LEVEL_INFO,
+            self::LOG_LEVEL_DEBUG,
+        ];
+    }
+
     /**
      * @Primary
      * @Identity
@@ -134,6 +152,27 @@ class ModuleBitrix24Integration extends ModulesModelsBase
      * @Column(type="string", nullable=true)
      */
     public $lastLeadId;
+
+    /**
+     * Уровень логирования: NONE, ERROR, INFO, DEBUG.
+     *
+     * @Column(type="string", nullable=true, default="INFO")
+     */
+    public $logLevel = 'INFO';
+
+    /**
+     * Импортировать историю звонков из ModuleMtsPbx в Bitrix24.
+     *
+     * @Column(type="integer", nullable=true, default="0")
+     */
+    public $import_mts_calls = '0';
+
+    /**
+     * Курсор (mts_cdr.id) последней записи, поставленной в очередь импорта.
+     *
+     * @Column(type="integer", nullable=true, default="0")
+     */
+    public $mts_import_last_id = '0';
 
 
     public function initialize(): void

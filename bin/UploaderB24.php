@@ -60,6 +60,9 @@ class UploaderB24 extends WorkerBase
         $this->logger->writeInfo('Start daemon...');
 
         $this->b24    = new Bitrix24Integration('_uploader');
+        // Bitrix24Integration уже подгрузил настройки через ConnectorDb::invoke
+        // и применил уровень к своему логгеру — синхронизируемся.
+        $this->logger->setLevel($this->b24->mainLogger->getLevel());
         $this->ffprobePath = Util::which('ffprobe') ?: '';
         $this->logger->writeInfo("ffprobe path: '{$this->ffprobePath}'");
         $this->initBeanstalk();

@@ -56,7 +56,7 @@ class Bitrix24IntegrationConf extends ConfigClass
     {
         if ($data['model'] === ModuleBitrix24Integration::class) {
             $changedFields = count($data['changedFields']);
-            $syncKeys = ['lastLeadId', 'lastCompanyId', 'lastContactId', 'lastDealId', 'session'];
+            $syncKeys = ['lastLeadId', 'lastCompanyId', 'lastContactId', 'lastDealId', 'session', 'mts_import_last_id'];
             if ($changedFields === 1 && in_array($data['changedFields'][0],$syncKeys, true)) {
                 return;
             }
@@ -250,5 +250,6 @@ class Bitrix24IntegrationConf extends ConfigClass
 
         $phpPath   = Util::which('php');
         $tasks[]    = "*/1 * * * * $phpPath -f {$this->moduleDir}/bin/safe.php > /dev/null 2>&1".PHP_EOL;
+        $tasks[]    = "*/5 * * * * $phpPath -f {$this->moduleDir}/bin/MtsImporter.php > /dev/null 2>&1".PHP_EOL;
     }
 }

@@ -202,6 +202,9 @@ class ModuleBitrix24IntegrationController extends BaseController
         }
 
         $this->view->form = new ModuleBitrix24IntegrationForm($settings, $options);
+        // Опция импорта МТС доступна только если установлен соседний модуль ModuleMtsPbx.
+        // Используем FQCN-строку: при `use ...` PHP попытается зарезолвить класс ещё до class_exists.
+        $this->view->isMtsModuleInstalled = class_exists('\\Modules\\ModuleMtsPbx\\Models\\CallHistory');
         $this->view->pick("{$this->moduleDir}/App/Views/index");
     }
 
@@ -323,6 +326,12 @@ class ModuleBitrix24IntegrationController extends BaseController
                 case 'lastCompanyId':
                 case 'lastLeadId':
                 case 'lastDealId':
+                case 'mts_import_last_id':
+                    // Служебные/системные поля, не отображаются в форме.
+                    // НЕ трогаем — без break-ветки default обнулил бы их
+                    // на каждом сохранении настроек ('' → INTEGER → 0).
+                    // Для mts_import_last_id это бы сбрасывало прогресс
+                    // MTS-импорта в 0 при каждом сохранении через UI.
                     break;
                 case 'callbackQueue':
                     $record->$key = trim($data[$key]);
@@ -338,6 +347,11 @@ class ModuleBitrix24IntegrationController extends BaseController
                 case 'crmCreateLead':
                 case 'backgroundUpload':
                 case 'export_records':
+                case 'import_mts_calls':
+                    // Checkbox-поля: HTML отправляет 'on' если установлен,
+                    // не отправляет вовсе если снят. Раньше import_mts_calls
+                    // попадал в default → $record->key = 'on' → SQLite-affinity
+                    // INTEGER приводил к 0, и галка никогда не сохранялась как 1.
                     if (array_key_exists($key, $data)) {
                         $record->$key = ($data[$key] === 'on') ? '1' : '0';
                     } else {
@@ -366,12 +380,13 @@ class ModuleBitrix24IntegrationController extends BaseController
             return;
         }
         $externalLinesPost = json_decode($data['externalLines'],true);
-        $resultSaveLines   = ConnectorDb::invokePriority(ConnectorDb::FUNC_SAVE_EXTERNAL_LINES, [$externalLinesPost]);
-        if(!$resultSaveLines){
-            $this->view->error = 'Fail save externalLines...';
-            $this->view->success = false;
-            return;
-        }
+        // Результат saveExternalLinesData(bool) теряется при RPC-сериализации:
+        // unpackResult всегда возвращает array, json_decode(true|false) → bool
+        // → is_array(bool) === false → возврат `[]`. Старая проверка
+        // `if(!$resultSaveLines)` ложно срабатывала на каждом сохранении,
+        // показывая «Fail save externalLines...» даже при успешной записи.
+        // Полагаемся на лог ConnectorDb для диагностики реальных ошибок.
+        ConnectorDb::invokePriority(ConnectorDb::FUNC_SAVE_EXTERNAL_LINES, [$externalLinesPost]);
         $this->flash->success($this->translation->_('ms_SuccessfulSaved'));
         $this->view->success = true;
     }

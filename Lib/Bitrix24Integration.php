@@ -85,6 +85,9 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->mainLogger =  new MainLogger('HttpConnection'.$logPrefix, 'ModuleBitrix24Integration');
         $this->mem_cache = [];
         $data = ConnectorDb::invoke(ConnectorDb::FUNC_GET_GENERAL_SETTINGS);
+        if (is_object($data) && !empty($data->logLevel)) {
+            $this->mainLogger->setLevel($data->logLevel);
+        }
         if ($data === null
             || empty($data->portal)
             || empty($data->b24_region)) {
@@ -129,6 +132,9 @@ class Bitrix24Integration extends PbxExtensionBase
         }
         if($settings === null){
             return;
+        }
+        if (!empty($settings->logLevel)) {
+            $this->mainLogger->setLevel($settings->logLevel);
         }
         $this->b24GetPhones();
         $this->lastLeadId    = $settings->lastLeadId;
@@ -429,7 +435,7 @@ class Bitrix24Integration extends PbxExtensionBase
                 }
                 $this->mainLogger->writeInfo($queues, 'REQUEST');
                 $result = $response['result']["result"]??[];
-                // Чистым массив перед выводом в лог.
+                // Чистый массив перед выводом в лог: события не нужны для отладки CRM-листингов.
                 if(is_array($result)){
                     foreach (['event.get', 'event.offline.get'] as $key){
                         if(isset($result[$key])){
@@ -439,8 +445,13 @@ class Bitrix24Integration extends PbxExtensionBase
                 }
                 if(empty($result)){
                     $this->mainLogger->writeError($response, 'EMPTY RESPONSE[result][result]');
-                }else{
-                    $this->mainLogger->writeInfo($response, 'RESPONSE');
+                } else {
+                    // На INFO — только summary (count/total/next/первый ID),
+                    // полный payload — только на DEBUG. Защита от OOM при крупных
+                    // crm.lead.list / crm.contact.list / crm.company.list.
+                    $summary = $this->buildBatchResponseSummary($response, $result);
+                    $this->mainLogger->writeInfo($summary, 'RESPONSE');
+                    $this->mainLogger->writeDebug($response, 'RESPONSE-FULL');
                 }
             }
         }
@@ -452,6 +463,51 @@ class Bitrix24Integration extends PbxExtensionBase
 
         $this->mainLogger->rotate();
         return $response;
+    }
+
+    /**
+     * Краткая сводка по batch-ответу для INFO-лога. Цель — оставить
+     * информацию, достаточную для диагностики (что вернулось, сколько,
+     * есть ли next, был ли total), не выгружая весь массив записей в память.
+     *
+     * @param array $response — полный ответ Bitrix24
+     * @param array $result   — $response['result']['result'] (уже без event.*)
+     * @return array
+     */
+    private function buildBatchResponseSummary(array $response, array $result): array
+    {
+        $summary = [
+            'http_total'       => $response['total'] ?? null,
+            'time'             => $response['time']['duration'] ?? null,
+            'result_total'     => $response['result']['result_total'] ?? null,
+            'result_next'      => $response['result']['result_next'] ?? null,
+            'result_error'     => $response['result']['result_error'] ?? null,
+            'commands'         => [],
+        ];
+        foreach ($result as $cmdKey => $cmdResult) {
+            $entry = ['count' => null, 'first_id' => null, 'last_id' => null];
+            if (is_array($cmdResult)) {
+                $entry['count'] = count($cmdResult);
+                $first = reset($cmdResult);
+                $last  = end($cmdResult);
+                if (is_array($first) && isset($first['ID'])) {
+                    $entry['first_id'] = $first['ID'];
+                }
+                if (is_array($last) && isset($last['ID'])) {
+                    $entry['last_id'] = $last['ID'];
+                }
+            } else {
+                $entry['value'] = $cmdResult;
+            }
+            $summary['commands'][$cmdKey] = $entry;
+        }
+        // Срезаем пустые поля, чтобы лог оставался читаемым.
+        foreach (['http_total', 'time', 'result_total', 'result_next', 'result_error'] as $k) {
+            if ($summary[$k] === null || $summary[$k] === [] || $summary[$k] === '') {
+                unset($summary[$k]);
+            }
+        }
+        return $summary;
     }
 
     private function checkErrorInResponse(&$response, $status)
@@ -862,6 +918,11 @@ class Bitrix24Integration extends PbxExtensionBase
                 }
             }
         } else {
+            // Сохраняем предыдущий снимок до полной перестройки:
+            // если новый ответ user.get окажется пустым/некорректным,
+            // безопасно восстановим состояние и не перетрем кеш.
+            $prevInner  = $this->inner_numbers;
+            $prevMobile = $this->mobile_numbers;
             $pbx_numbers = $this->getPbxNumbers();
             $this->inner_numbers  = [];
             $this->mobile_numbers = [];
@@ -875,26 +936,71 @@ class Bitrix24Integration extends PbxExtensionBase
                 $user['EMAIL']           = $value['EMAIL'] ?? '';
                 $user['UF_PHONE_INNER']  = preg_replace('/(\D)/', '', $value['UF_PHONE_INNER']??'');
 
+                // Не индексируем пользователей с пустым ключом: иначе все «безномерные»
+                // (UF_PHONE_INNER/PERSONAL_MOBILE/WORK_PHONE пустой или нечисловой)
+                // перезаписывают друг друга под ключом "" и любой звонок без
+                // явного маппинга (например, на voicemail) будет приземляться
+                // на «последнего созданного пользователя без UF_PHONE_INNER».
                 if (!empty($user['PERSONAL_MOBILE'])) {
-                    $mobile_key                        = self::getPhoneIndex($user['PERSONAL_MOBILE']);
-                    $this->mobile_numbers[$mobile_key] = $user;
+                    $mobile_key = self::getPhoneIndex($user['PERSONAL_MOBILE']);
+                    if ($mobile_key !== '') {
+                        $this->mobile_numbers[$mobile_key] = $user;
+                    }
                 }
                 if (!empty($value['WORK_PHONE'])) {
-                    $mobile_key                        = self::getPhoneIndex($user['WORK_PHONE']);
-                    $this->mobile_numbers[$mobile_key] = $user;
+                    $mobile_key = self::getPhoneIndex($user['WORK_PHONE']);
+                    if ($mobile_key !== '') {
+                        $this->mobile_numbers[$mobile_key] = $user;
+                    }
                 }
                 if(isset($pbx_numbers[$user['UF_PHONE_INNER']])){
-                    $mobile_key                        = self::getPhoneIndex($pbx_numbers[$user['UF_PHONE_INNER']]);
-                    $this->mobile_numbers[$mobile_key] = $user;
+                    $mobile_key = self::getPhoneIndex($pbx_numbers[$user['UF_PHONE_INNER']]);
+                    if ($mobile_key !== '') {
+                        $this->mobile_numbers[$mobile_key] = $user;
+                    }
                 }
-                $this->inner_numbers[$user['UF_PHONE_INNER']] = $user;
+                if (!empty($user['UF_PHONE_INNER'])) {
+                    $this->inner_numbers[$user['UF_PHONE_INNER']] = $user;
+                }
                 $this->b24Users[$value['ID']] = $user['UF_PHONE_INNER'];
             }
 
             $data = $this->mobile_numbers;
 
+            // Защита от обнуления кеша при сбое user.get: если новый снимок
+            // пустой, оставляем предыдущий. Без этого один неудачный запрос к
+            // B24 «прячет» всех операторов на следующем 5-минутном тике AMI.
+            if (empty($this->inner_numbers) && !empty($prevInner)) {
+                $this->logger->writeError('b24GetPhones: empty inner_numbers built, restoring previous snapshot. prev_count=' . count($prevInner));
+                $this->inner_numbers  = $prevInner;
+                $this->mobile_numbers = $prevMobile;
+                $data = $this->mobile_numbers;
+                return $data;
+            }
+
+            // Лог диффа: какие внутренние номера пропали/появились между
+            // снимками. Полезно для постфактум-разбора кейсов "оператора
+            // временно не было в карте".
+            $addedKeys   = array_diff(array_keys($this->inner_numbers), array_keys($prevInner));
+            $removedKeys = array_diff(array_keys($prevInner), array_keys($this->inner_numbers));
+            if (!empty($prevInner) && (!empty($addedKeys) || !empty($removedKeys))) {
+                $added = [];
+                foreach ($addedKeys as $k) {
+                    $added[] = ['inner' => $k, 'id' => $this->inner_numbers[$k]['ID'] ?? '', 'name' => $this->inner_numbers[$k]['NAME'] ?? ''];
+                }
+                $removed = [];
+                foreach ($removedKeys as $k) {
+                    $removed[] = ['inner' => $k, 'id' => $prevInner[$k]['ID'] ?? '', 'name' => $prevInner[$k]['NAME'] ?? ''];
+                }
+                $this->logger->writeInfo(['added' => $added, 'removed' => $removed], 'inner_numbers_diff');
+            }
+
             $this->saveCache('inner_numbers', $this->inner_numbers);
             $this->saveCache('mobile_numbers', $this->mobile_numbers);
+            // Долгоживущий fallback (по аналогии с userGet_LONG).
+            // Используется AMI-воркером, если основной кеш протух/пуст.
+            $this->saveCache('inner_numbers_LONG',  $this->inner_numbers,  7 * 24 * 3600);
+            $this->saveCache('mobile_numbers_LONG', $this->mobile_numbers, 7 * 24 * 3600);
         }
 
         return $data;
@@ -989,9 +1095,31 @@ class Bitrix24Integration extends PbxExtensionBase
                     $res_data[] = $res;
                 }
             }
-            // Сохраняем в кэше
-            $this->saveCache(__FUNCTION__, $res_data, 90);
-            $this->saveCache(__FUNCTION__."_LONG", $res_data);
+            // Сохраняем в кэше. Если ответ b24 пустой — НЕ перетираем
+            // предыдущий снимок: иначе при разовом сбое user.get
+            // (тайм-аут/невалидный токен) карты inner_numbers/mobile_numbers
+            // на следующем тике b24GetPhones обнулятся, и AMI-воркер
+            // перестанет распознавать операторов до следующего успеха.
+            $userCount = 0;
+            foreach ($res_data as $page) {
+                if (is_array($page)) {
+                    $userCount += count($page);
+                }
+            }
+            if ($userCount > 0) {
+                $this->saveCache(__FUNCTION__, $res_data, 90);
+                $this->saveCache(__FUNCTION__."_LONG", $res_data, 7 * 24 * 3600);
+            } else {
+                $this->logger->writeError(
+                    'userGet: empty result from user.get, keeping previous cache. response=' . json_encode($response['result']['result_error'] ?? $response['error'] ?? 'no_error_info')
+                );
+                // Возвращаем предыдущий снимок, чтобы вызывающий код
+                // (b24GetPhones) не построил пустую карту inner_numbers.
+                $fallback = $this->getCache(__FUNCTION__."_LONG");
+                if (is_array($fallback) && !empty($fallback)) {
+                    $res_data = $fallback;
+                }
+            }
         }elseif ($res_data === null ){
             $res_data = [];
         }
@@ -1292,6 +1420,30 @@ class Bitrix24Integration extends PbxExtensionBase
     }
 
     /**
+     * Готовит CALL_ID для batch-параметра. Если значение — ключ register-метода
+     * (register ещё не выполнился, реального CALL_ID нет), оборачивает его в
+     * $result[<key>][CALL_ID], чтобы Bitrix24 разрешил ссылку на результат
+     * предыдущего вызова в этой же транзакции. Уже разрешённые/реальные значения
+     * (externalCall.xxx или $result[...]) возвращаются без изменений.
+     *
+     * @param string $callId
+     * @return string
+     */
+    public function resolveBatchCallId(string $callId): string
+    {
+        if ($callId === '') {
+            return $callId;
+        }
+        if (stripos($callId, '$result[') === 0) {
+            return $callId;
+        }
+        if (stripos($callId, self::API_CALL_REGISTER) === 0) {
+            return '$result['.$callId.'][CALL_ID]';
+        }
+        return $callId;
+    }
+
+    /**
      * Регистрация факта завершения звонка в b24.
      * @param $options
      * @param $tmpCallsData
@@ -1318,10 +1470,69 @@ class Bitrix24Integration extends PbxExtensionBase
             return [$arg,$finishKey];
         }
 
-        // Проверка дедупликации по оригинальному callId (до ARGS_REGISTER)
+        // 1) Дедуп ПЛЕЧА (UNIQUEID): блокирует повтор того же AMI-эвента (один и тот же leg).
+        $legDedupKey = self::API_CALL_FINISH.'_leg_'.$options['UNIQUEID'];
+        if($this->getCache($legDedupKey)){
+            if ($options['export_records'] && !empty($options['FILE']) && ($this->backgroundUpload || file_exists($options['FILE']))) {
+                $this->mainLogger->writeInfo($options, "Duplicate finish for leg, attaching record ($callId).");
+                $this->telephonyExternalCallAttachRecord($options['FILE'], $callId, $arg);
+            } else {
+                $this->mainLogger->writeInfo($options, "Duplicate finish for leg, ignored ($callId).");
+            }
+            return [$arg,$finishKey];
+        }
+        $this->saveCache($legDedupKey, true, 30);
+
+        // 2) Учитываем плечо в "best leg" (по DURATION). Best leg используется в
+        // PostFinish для назначения ASSIGNED_BY_ID лида/контакта/сделки реальному
+        // собеседнику, а не первому ответившему до перевода.
+        $duration = isset($options['DURATION']) ? (int)$options['DURATION'] : 0;
+        $userId   = isset($options['USER_ID'])  ? (string)$options['USER_ID']  : '';
+        $this->updateBestLegForCall($id, $userId, $duration);
+
+        ///////////////////////////////////////////////////////////////
+        // 3) Подмена $callId через ARGS_REGISTER_<UNIQUEID> ДО дедупа finishOneKey.
+        // Для второго (и далее) плеча HTTP-воркер уже отправил отдельный
+        // telephony.externalcall.register (см. WorkerBitrix24IntegrationHTTP.php:609
+        // ветка transfer: $tmpCallsData[...]['ARGS_REGISTER_'.$UNIQUEID]) — на каждое
+        // плечо B24 возвращает СВОЙ CALL_ID. Без подмены ниже finishOneKey-дедуп
+        // сравнивает оригинальный CALL_ID (первого плеча) и схлопывает все
+        // последующие плечи в attachRecord (Bitrix24 хранит один файл на CALL_ID,
+        // и записи плеч до перевода теряются, а в карточке звонка USER_ID остаётся
+        // от первого ответившего). С per-leg CALL_ID в B24 на один MikoPBX-звонок
+        // создаётся отдельная карточка звонка на каждое плечо: свой USER_ID, своя
+        // запись, свой DURATION. Регрессия c0de8d3 (24.02.2026) отменена.
+        $callData = &$tmpCallsData[$id];
+        $regData  = $tmpCallsData[$id]['ARGS_REGISTER_'.$options['UNIQUEID']]??[];
+        // file_exists || backgroundUpload — выравниваем с проверкой ниже в attachRecord:
+        // при асинхронной загрузке (backgroundUpload=1) запись плеча ещё не лежит на
+        // диске в момент finish, но UploaderB24 догрузит её позже. Без || backgroundUpload
+        // блок не срабатывал бы, и второе плечо снова попадало бы в дедуп по первому
+        // CALL_ID и теряло свою карточку.
+        $fileReady = !empty($options['FILE']) && ($this->backgroundUpload || file_exists($options['FILE']));
+        // Проверяем, что register не отдедупился: при повторе он возвращает [[],''] —
+        // если подставить $key='' в "$result[][CALL_ID]", получится невалидная
+        // batch-ссылка, и B24 отвергнет finish с "Call is not found". В таком случае
+        // оставляем оригинальный $callId и проваливаемся в обычный дедуп-attachRecord
+        // (поведение fallback, как до возврата per-leg).
+        $hasFreshRegister = !empty($regData[1] ?? '');
+        if( $fileReady &&
+            isset($callData['MAIN_FILE']) && !isset($callData['FILE_'.$options['UNIQUEID']] ) &&
+            $hasFreshRegister) {
+            // Подключаем register этого плеча к нашему batch и берём из него CALL_ID.
+            [$arg, $key] = $regData;
+            $callId = '$result['.$key.'][CALL_ID]';
+            $callData['FILE_'.$options['UNIQUEID']] = $options['FILE'];
+        }
+        if(!isset($callData['MAIN_FILE'])){
+            $callData['MAIN_FILE'] = $options['FILE'];
+        }
+
+        // 4) Дедуп ЗВОНКА по подменённому CALL_ID. Для первого плеча — оригинальный
+        // CALL_ID; для второго — новый (из ARGS_REGISTER), значит в кеше его нет,
+        // и finish пройдёт в B24 как самостоятельный звонок.
         $finishOneKey = self::API_CALL_FINISH.'_'.$callId;
         if($this->getCache($finishOneKey)){
-            // Finish уже отправлен, но если есть запись — прикрепим её
             if ($options['export_records'] && !empty($options['FILE']) && ($this->backgroundUpload || file_exists($options['FILE']))) {
                 $this->mainLogger->writeInfo($options, "Finish already sent, attaching record ($callId).");
                 $this->telephonyExternalCallAttachRecord($options['FILE'], $callId, $arg);
@@ -1331,25 +1542,10 @@ class Bitrix24Integration extends PbxExtensionBase
             return [$arg,$finishKey];
         }
         $this->saveCache($finishOneKey, true, 30);
-
-        ///////////////////////////////////////////////////////////////
-        // Проверим, была ли уже отправлена запись разговора.
-        $callData = &$tmpCallsData[$id];
-        $regData = $tmpCallsData[$id]['ARGS_REGISTER_'.$options['UNIQUEID']]??[];
-        if( file_exists($options['FILE']) &&
-            isset($callData['MAIN_FILE']) && !isset($callData['FILE_'.$options['UNIQUEID']] ) &&
-            !empty($regData)) {
-            // Нужно зарегистрировать новый вызов
-            [$arg, $key] = $tmpCallsData[$id]['ARGS_REGISTER_'.$options['UNIQUEID']];
-            $callId = '$result['.$key.'][CALL_ID]';
-            $callData['FILE_'.$options['UNIQUEID']] = $options['FILE'];
-        }
-        if(!isset($callData['MAIN_FILE'])){
-            $callData['MAIN_FILE'] = $options['FILE'];
-        }
-        //
         ///////////////////////////////////////////////////////////////
         $userId = (intval($callDataFromDB['answer']??0) === 1) ? $callDataFromDB['user_id']??'' : '';
+        // Если register уйдёт в одном batch — finish должен ссылаться на его результат.
+        $callId = $this->resolveBatchCallId((string)$callId);
         $params = [
             'CALL_ID'       => $callId,
             'USER_ID'       => $userId,
@@ -1366,6 +1562,10 @@ class Bitrix24Integration extends PbxExtensionBase
 
         $finishKey       = self::API_CALL_FINISH.'_'.$id.'_' . uniqid('', true);
         $arg[$finishKey] = self::API_CALL_FINISH.'?' . http_build_query($params);
+        // linkedid плеча для PostFinish (понадобится для вычитки best leg из кеша).
+        $this->mem_cache["$finishKey-leg"] = [
+            'linkedid' => $id,
+        ];
         if ($options['export_records']) {
             $this->telephonyExternalCallAttachRecord($options['FILE'], $callId, $arg);
         }
@@ -1381,6 +1581,35 @@ class Bitrix24Integration extends PbxExtensionBase
         }
         $this->mainLogger->writeInfo($params, "Add finish req ($id)");
         return [$arg,$finishKey];
+    }
+
+    /**
+     * Сохраняет плечо с максимальной длительностью для звонка (linkedid).
+     * Используется в PostFinish, чтобы ASSIGNED_BY_ID назначался по реальному
+     * собеседнику, завершившему разговор, а не по первому ответившему до перевода.
+     */
+    private function updateBestLegForCall(string $linkedId, string $userId, int $duration): void
+    {
+        if ($linkedId === '' || $userId === '') {
+            return;
+        }
+        $key  = self::API_CALL_FINISH.'-best-leg-'.$linkedId;
+        $best = $this->getCache($key);
+        if (!is_array($best) || $duration > (int)($best['duration'] ?? -1)) {
+            $this->saveCache($key, ['user_id' => $userId, 'duration' => $duration], 300);
+        }
+    }
+
+    /**
+     * Возвращает USER_ID плеча с максимальной длительностью для звонка.
+     */
+    private function getBestLegUserId(string $linkedId): string
+    {
+        if ($linkedId === '') {
+            return '';
+        }
+        $best = $this->getCache(self::API_CALL_FINISH.'-best-leg-'.$linkedId);
+        return is_array($best) ? (string)($best['user_id'] ?? '') : '';
     }
 
     /**
@@ -1402,14 +1631,24 @@ class Bitrix24Integration extends PbxExtensionBase
         }
         $id = str_replace(self::API_CALL_FINISH, '', $finishKey);
 
+        // ASSIGNED_BY_ID назначаем по "лучшему" плечу (с максимальной DURATION) звонка,
+        // если оно известно. Это важно при переводе: B24 принимает только первый finish
+        // (на CALL_ID), и его USER_ID может оказаться не тем, кто реально завершил
+        // разговор. Подменяем PORTAL_USER_ID лучшим из всех собранных плеч.
+        $legMeta      = $this->getMemCache("$finishKey-leg");
+        $linkedId     = is_array($legMeta) ? (string)($legMeta['linkedid'] ?? '') : '';
+        $bestUserId   = $this->getBestLegUserId($linkedId);
+        $portalUserId = (string)($response['PORTAL_USER_ID'] ?? '');
+        $assignTo     = ($bestUserId !== '') ? $bestUserId : $portalUserId;
+
         if(isset($cacheData['contact_id'])){
-            $queryArray[] = $this->crmContactUpdate($cacheData['contact_id'], $response['PORTAL_USER_ID'], $id);
+            $queryArray[] = $this->crmContactUpdate($cacheData['contact_id'], $assignTo, $id);
         }
         if(isset($cacheData['deal_id'])){
-            $queryArray[] = $this->crmDealUpdate($cacheData['deal_id'], $response['PORTAL_USER_ID'], $id);
+            $queryArray[] = $this->crmDealUpdate($cacheData['deal_id'], $assignTo, $id);
         }
         if(isset($cacheData['lead_id'])){
-            $queryArray[] = $this->crmLeadUpdate($cacheData['lead_id'], $response['PORTAL_USER_ID'], $id);
+            $queryArray[] = $this->crmLeadUpdate($cacheData['lead_id'], $assignTo, $id);
         }
     }
 
@@ -1646,6 +1885,7 @@ class Bitrix24Integration extends PbxExtensionBase
         if (!in_array($ext, ['mp3', 'wav'], true)) {
             $FILENAME = pathinfo($FILENAME, PATHINFO_FILENAME) . '.mp3';
         }
+        $callId = $this->resolveBatchCallId((string)$callId);
         $params = [
             'CALL_ID'      => $callId,
             'FILENAME'     => $FILENAME,
@@ -1692,6 +1932,7 @@ class Bitrix24Integration extends PbxExtensionBase
             'auth'    => $this->getAccessToken(),
         ];
         $this->fillPropertyValues($options, $params);
+        $params['CALL_ID'] = $this->resolveBatchCallId((string)$params['CALL_ID']);
 
         $arg                   = [];
         $arg[self::API_CALL_HIDE.'_'.$options['linkedid'].'_'.uniqid('', true)] = self::API_CALL_HIDE.'?' . http_build_query($params);
@@ -1714,6 +1955,7 @@ class Bitrix24Integration extends PbxExtensionBase
             'auth'    => $this->getAccessToken(),
         ];
         $this->fillPropertyValues($options, $params);
+        $params['CALL_ID'] = $this->resolveBatchCallId((string)$params['CALL_ID']);
 
         $arg                   = [];
         $arg[self::API_CALL_SHOW.$options['linkedid'].'_'.uniqid('', true)] = self::API_CALL_SHOW.'?' . http_build_query($params);

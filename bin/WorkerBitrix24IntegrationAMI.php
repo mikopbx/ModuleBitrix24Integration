@@ -96,21 +96,40 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
 
         $this->client = new BeanstalkClient(Bitrix24Integration::B24_INTEGRATION_CHANNEL);
         $this->am     = $this->createAstManager();
+
+        // ВАЖНО: AMI-фильтр и обработчик регистрируем ДО тяжёлого new
+        // Bitrix24Integration (он делает синхронный REST к B24 и может занимать
+        // секунды). safe.php (WorkerSafeScriptsCore::checkWorkerAMI) шлёт ping
+        // через UserEvent каждые ~5 сек и засчитывает 3 промаха подряд → SIGUSR1.
+        // Если listener не зарегистрирован к этому моменту, воркер крашится
+        // в цикле «Start daemon → Need SHUTDOWN... 10 → Start daemon». Ping-
+        // обработчик (replyOnPingRequest) зависит только от $this->am, поэтому
+        // безопасно выводить его регистрацию вперёд.
+        $this->setFilter();
+        $this->am->addEventHandler('userevent', [$this, 'callback']);
+
         $this->b24    = new Bitrix24Integration('_ami');
 
         if (!$this->b24->initialized) {
             $this->logger->writeError('Settings not set... exit');
             exit();
         }
-        $this->setFilter();
+        // Bitrix24Integration уже подгрузил настройки через ConnectorDb::invoke
+        // и применил уровень к своему логгеру — синхронизируемся.
+        $this->logger->setLevel($this->b24->mainLogger->getLevel());
         $this->updateSettings();
 
         $config                = new MikoPBXConfig();
         $this->extensionLength = $config->getGeneralSettings('PBXInternalExtensionLength');
 
-        $this->am->addEventHandler("userevent", [$this, "callback"]);
         if ($this->needRestart) {
-            $this->logger->writeInfo('Restart signal received during init, deferring — entering main loop.');
+            // SIGUSR1 пришёл во время init (например, safe.php засчитал нас
+            // мёртвыми по ping'у до того, как listener успел зарегистрироваться).
+            // Мы УЖЕ восстановили обработку — игнорируем этот сигнал, чтобы не
+            // рестартоваться сразу после старта. Реальный shutdown потребует
+            // нового SIGUSR1, который придёт через ping-механизм если воркер
+            // снова перестанет отвечать.
+            $this->logger->writeInfo('Ignoring early SIGUSR1 received during init — listener is now ready, entering main loop.');
             $this->needRestart = false;
         }
         $this->processState = 'idle';
@@ -198,8 +217,19 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         // Обновляем данные B24 (внутри вызывается b24GetPhones → обновляет кеш inner_numbers)
         $this->b24->updateSettings($settings);
 
-        // Читаем inner_numbers из кеша (заполнен b24GetPhones выше)
+        // Читаем inner_numbers из кеша (заполнен b24GetPhones выше).
+        // Если основной кеш пуст/протух (типичный кейс: разовый сбой
+        // user.get → b24GetPhones построил пустую карту в более ранней
+        // ветке без защиты, либо TTL=3600 истёк раньше следующего тика
+        // updateSettings), пробуем долгоживущий снимок inner_numbers_LONG.
         $innerNumbers = $this->b24->getCache('inner_numbers');
+        if (!is_array($innerNumbers) || count($innerNumbers) === 0) {
+            $longSnapshot = $this->b24->getCache('inner_numbers_LONG');
+            if (is_array($longSnapshot) && count($longSnapshot) > 0) {
+                $innerNumbers = $longSnapshot;
+                $this->logger->writeInfo('inner_numbers restored from LONG snapshot. count=' . count($longSnapshot));
+            }
+        }
         if (is_array($innerNumbers) && count($innerNumbers) > 0) {
             $this->inner_numbers = (array)$innerNumbers;
         } else {
@@ -277,6 +307,16 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
     public function callback($parameters):void{
 
         if ($this->replyOnPingRequest($parameters)){
+            // Pong через replyOnPingRequest зависит только от $this->am и уже
+            // отправлен выше. Дальше начинается работа на $this->b24 /
+            // updateSettings — её НЕ дёргаем пока воркер в фазе init.
+            // processState='init' выставлен на уровне поля и меняется на
+            // 'idle' только в конце start() — это надёжный маркер
+            // «warming up», см. start(): между регистрацией listener
+            // и завершением new Bitrix24Integration окно несколько секунд.
+            if ($this->processState === 'init') {
+                return;
+            }
             $this->counter++;
             // Пинг приходит раз в минуту. Обычный интервал обновления — 5 минут.
             // Если inner_numbers пуст (токен был невалиден) — обновляем каждый пинг для быстрого восстановления.
@@ -291,6 +331,14 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             return;
         }
         if(!isset($parameters['AgiData'])){
+            return;
+        }
+        // CDR-event может прийти до окончания инициализации (b24, extensions,
+        // external_lines, extensionLength — всё ставится последовательно
+        // в start()). Обработчики ниже требуют их. Тот же маркер processState.
+        // Asterisk переотправит CDR при следующем звонке; во время первичного
+        // запуска воркера активных звонков обычно нет.
+        if ($this->processState === 'init') {
             return;
         }
         $agiData = $parameters['AgiData'];
@@ -460,6 +508,13 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 $userId = $this->inner_numbers[$data['dst_num']]['ID'] ?? '';
             }
             $inner  = $data['dst_num'];
+            // dst_num настроен в модуле, но в B24 не привязан к пользователю —
+            // open карточки некому. Register с пустым USER_ID создаёт бесхозную
+            // карточку в B24; в очереди остальные плечи отработают своими dial'ами.
+            if ($userId === '') {
+                $this->logger->writeInfo("Internal $inner is configured in module but not assigned to any B24 user (empty USER_ID). Skip register. $linkedId");
+                return;
+            }
             $this->logger->writeInfo("This is an incoming call to an employee's internal number. $linkedId");
             $createLead = ($this->leadType !== Bitrix24Integration::API_LEAD_TYPE_OUT && $this->crmCreateLead)?'1':'0';
             if (strlen($general_src_num) > $this->extensionLength && ! in_array($general_src_num, $this->extensions, true)) {
@@ -627,6 +682,30 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
 
         $responsible = '';
         $isMissed = ($data['GLOBAL_STATUS'] ?? '') !== 'ANSWERED';
+        // Голосовая почта формально ANSWERED, но для CRM это пропущенный
+        // входящий: реального оператора не было — направляем на ответственного
+        // по умолчанию (responsibleMissedCalls), а не на «случайного» пользователя.
+        $isVoicemail = !$isOutgoing
+            && ($dstNum === 'voicemail' || ($data['dst_chan'] ?? '') === 'VOICEMAIL');
+        if ($isVoicemail) {
+            $isMissed = true;
+        }
+
+        // Входящий внешний звонок, который не дошёл до сотрудника
+        // (например, IVR/очередь ответили — GLOBAL_STATUS=ANSWERED — но
+        // абонент сбросил до распределения на оператора). Без этой ветки
+        // такие звонки терялись: USER_ID пуст, isMissed=false, и обработчик
+        // уходил в "responsible person was not found". Voicemail исключаем —
+        // он идёт по своему пути, длительность/запись там значимы.
+        $isOrphanIncoming = (!$isOutgoing
+            && !$isVoicemail
+            && empty($USER_ID)
+            && strlen($srcNum) > $this->extensionLength
+            && !in_array($srcNum, $this->extensions, true)
+            && !empty($this->responsibleMissedCalls));
+        if ($isOrphanIncoming) {
+            $isMissed = true;
+        }
 
         $finishKeyID = 'finish-cdr-'.$uniqueId;
         if(!empty($USER_ID) && !$isMissed) {
@@ -642,7 +721,35 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         }elseif ($isMissed && !empty($USER_ID) ){
             // Рандомно назначаем ответственного для пропущенного.
             $responsible = $USER_ID;
+            // Дедуп — по linkedid, а не по UNIQUEID: при нескольких NOANSWER-
+            // плечах одного звонка в B24 должна попадать ровно одна карточка
+            // «пропущенного», иначе для очереди из N операторов уехало бы
+            // N missed-карточек.
+            $finishKeyID = 'finish-cdr-'.$linkedId;
         }else{
+            // Расширенная диагностика причины: чаще всего сюда попадают
+            // плечи входящих звонков, у которых dst_num — реальный
+            // внутренний номер оператора, но он отсутствует в карте
+            // inner_numbers/mobile_numbers на момент обработки CDR
+            // (см. inner_numbers_diff в IntegrationAMI.log).
+            $this->logger->writeInfo([
+                'linkedid'               => $linkedId,
+                'src_num'                => $srcNum,
+                'dst_num'                => $dstNum,
+                'USER_ID'                => $USER_ID,
+                'srsUserId'              => $srsUserId,
+                'dstUserId'              => $dstUserId,
+                'isMissed'               => $isMissed,
+                'isOutgoing'             => $isOutgoing,
+                'isVoicemail'            => $isVoicemail,
+                'isOrphanIncoming'       => $isOrphanIncoming,
+                'GLOBAL_STATUS'          => $data['GLOBAL_STATUS'] ?? '',
+                'disposition'            => $data['disposition'] ?? '',
+                'responsibleMissedCalls' => $this->responsibleMissedCalls,
+                'inner_numbers_count'    => count($this->inner_numbers),
+                'dst_in_inner_numbers'   => isset($this->inner_numbers[$dstNum]),
+                'src_in_inner_numbers'   => isset($this->inner_numbers[$srcNum]),
+            ], 'CancellationContext');
             $this->logger->writeInfo("The responsible person was not found. cancellation ".$linkedId);
             return;
         }
@@ -683,14 +790,26 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
                 }
             }
 
+            // Для orphan-incoming реальный оператор не отвечал — IVR/очередь
+            // ответили формально. Принудительно помечаем звонок как пропущенный,
+            // чтобы B24 показал его в "Пропущенных" у ответственного.
+            $globalStatus = $data['GLOBAL_STATUS'] ?? '';
+            $disposition  = $data['disposition'] ?? '';
+            $billsec      = $data['billsec'] ?? '0';
+            if ($isOrphanIncoming) {
+                $globalStatus = 'NOANSWER';
+                $disposition  = 'NOANSWER';
+                $billsec      = '0';
+            }
+
             $this->logger->writeInfo("Send finish event...".$linkedId);
             $params = [
                 'UNIQUEID'       => $uniqueId,
                 'USER_ID'        => $responsible,
-                'DURATION'       => $data['billsec'] ?? '0',
+                'DURATION'       => $billsec,
                 'FILE'           => $data['recordingfile'] ?? '',
-                'GLOBAL_STATUS'  => $data['GLOBAL_STATUS'] ?? '',
-                'disposition'    => $data['disposition'] ?? '',
+                'GLOBAL_STATUS'  => $globalStatus,
+                'disposition'    => $disposition,
                 "export_records" => $this->export_records,
                 'linkedid'       => $linkedId,
                 'LINE_NUMBER'    => $LINE_NUMBER,
@@ -725,8 +844,16 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
      */
     private function getInnerNum(string $number):string
     {
-        $userId = '';
+        if ($number === '') {
+            return '';
+        }
         $number = Bitrix24Integration::getPhoneIndex($number);
+        // После getPhoneIndex нечисловой ввод (например 'voicemail') превращается
+        // в '' — обращение по такому ключу подцепило бы «безномерных» пользователей.
+        if ($number === '') {
+            return '';
+        }
+        $userId = '';
         if(isset($this->inner_numbers[$number])){
             $userId = $this->inner_numbers[$number]['ID'];
         } elseif(isset($this->b24->mobile_numbers[$number])){
