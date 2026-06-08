@@ -929,7 +929,7 @@ class Bitrix24Integration extends PbxExtensionBase
             $this->b24Users = [];
             foreach ($users_list['result'] as $value) {
                 $user                    = [];
-                $user['NAME']            = '' . $value['NAME'] . ' ' . $value['LAST_NAME'];
+                $user['NAME']            = '' . ($value['NAME'] ?? '') . ' ' . ($value['LAST_NAME'] ?? '');
                 $user['ID']              = $value['ID'];
                 $user['PERSONAL_MOBILE'] = preg_replace('/(\D)/', '', $value['PERSONAL_MOBILE']??'');
                 $user['WORK_PHONE']      = preg_replace('/(\D)/', '', $value['WORK_PHONE']??'');
