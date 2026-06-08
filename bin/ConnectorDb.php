@@ -938,7 +938,7 @@ class ConnectorDb extends WorkerBase
             $dateModify  = $entData['DATE_MODIFY'];
             $statusLeadId= $entData['STATUS_SEMANTIC_ID']??'';
             if(Bitrix24Integration::API_CRM_LIST_CONTACT === $action){
-                $name  = $entData['LAST_NAME'] ." " . $entData['NAME']. " " . $entData['SECOND_NAME'];
+                $name  = ($entData['LAST_NAME'] ?? '') ." " . ($entData['NAME'] ?? ''). " " . ($entData['SECOND_NAME'] ?? '');
             }else{
                 $name  = $entData['TITLE'];
             }
