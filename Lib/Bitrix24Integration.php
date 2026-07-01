@@ -1081,18 +1081,56 @@ class Bitrix24Integration extends PbxExtensionBase
                 $step = count($data['result']);
             }
             $arg = [];
-            while ($next < $total) {
-                // Пользователей больше 50ти, формируем пакетный запрос к b24.
-                $arg["userGet_$next"] = 'user.get?' . http_build_query(["start" => (string)$next, 'FILTER' => ['ACTIVE' => true]]);
-                $next                 += $step;
+            // $step==0 при total>0 (result пуст, но total>0) — иначе while ниже
+            // зациклится, наращивая $arg до исчерпания памяти и краха воркера.
+            if ($step > 0) {
+                while ($next < $total) {
+                    // Пользователей больше 50ти, формируем пакетный запрос к b24.
+                    $arg["userGet_$next"] = 'user.get?' . http_build_query(["start" => (string)$next, 'FILTER' => ['ACTIVE' => true]]);
+                    $next                 += $step;
+                }
             }
             // Пакет запросов сформирован, отправляем.
-            $response = $this->sendBatch($arg);
-            foreach ($arg as $key => $value) {
-                $res = $response['result']['result'][$key] ?? false;
-                if ($res) {
-                    // Собираем результат в массив.
-                    $res_data[] = $res;
+            // B24 допускает не более 50 команд в одном batch. При большом числе
+            // сотрудников (> ~2500, т.е. > 50 страниц user.get) единый batch
+            // отвергается с ERROR_BATCH_LENGTH_EXCEEDED, из-за чего карта
+            // inner_numbers строится по неполным данным (см. forum #5150).
+            // Число команд = число страниц (~total/50), так что чанков по 50 команд
+            // на реальных порталах единицы — блокирующих round-trip'ов немного.
+            $batchSize   = 50;
+            $response    = [];
+            $batchFailed = false;
+            $batchError  = null; // ответ первого сбойного чанка — для диагностики
+            foreach (array_chunk($arg, $batchSize, true) as $chunk) {
+                $response  = $this->sendBatch($chunk);
+                $resultMap = $response['result']['result'] ?? [];
+                $errorMap  = $response['result']['result_error'] ?? [];
+                if (!is_array($resultMap)) {
+                    $resultMap = [];
+                }
+                // Сбой чанка определяем по ЯВНЫМ сигналам ошибки, а не по
+                // отсутствию ключа: top-level error, per-command result_error
+                // (halt=0) или структурно пустой/битый ответ на непустой запрос.
+                // Пустая страница [] присутствует ключом в result и сбоем НЕ
+                // считается (B24 умеет завышать total) — иначе refresh замёрз бы.
+                if (!empty($response['error']) || !empty($errorMap) || empty($resultMap)) {
+                    $batchFailed = true;
+                    // Безопасная сводка (result_error/total/next/счётчики) — как
+                    // при логировании batch на строке 452 — чтобы при заморозке
+                    // refresh было видно, какая именно страница упала. Top-level
+                    // error лежит вне result, поэтому его отдаём как есть.
+                    $batchError  = !empty($response['error'])
+                        ? $response['error']
+                        : $this->buildBatchResponseSummary($response, $resultMap);
+                    // Остальные чанки всё равно будут отброшены cache-гейтом
+                    // (!$batchFailed) — не тратим блокирующие round-trip'ы.
+                    break;
+                }
+                foreach ($resultMap as $res) {
+                    if (!empty($res)) {
+                        // Собираем результат в массив.
+                        $res_data[] = $res;
+                    }
                 }
             }
             // Сохраняем в кэше. Если ответ b24 пустой — НЕ перетираем
@@ -1100,18 +1138,28 @@ class Bitrix24Integration extends PbxExtensionBase
             // (тайм-аут/невалидный токен) карты inner_numbers/mobile_numbers
             // на следующем тике b24GetPhones обнулятся, и AMI-воркер
             // перестанет распознавать операторов до следующего успеха.
+            // $res_data может остаться null, если первичный user.get не вернул
+            // 'result' (тайм-аут/ошибка) — тогда foreach ниже дал бы E_WARNING.
+            if (!is_array($res_data)) {
+                $res_data = [];
+            }
             $userCount = 0;
             foreach ($res_data as $page) {
                 if (is_array($page)) {
                     $userCount += count($page);
                 }
             }
-            if ($userCount > 0) {
+            if ($userCount > 0 && !$batchFailed) {
                 $this->saveCache(__FUNCTION__, $res_data, 90);
                 $this->saveCache(__FUNCTION__."_LONG", $res_data, 7 * 24 * 3600);
             } else {
+                // Пустой ИЛИ частичный ответ: не перетираем предыдущий снимок
+                // неполными данными (иначе операторы из непрочитанных страниц
+                // выпадут из inner_numbers — тот самый partial-dropout).
+                // $batchError хранит ответ сбойного чанка; null == ответ пуст без
+                // явной ошибки (все страницы вернули []).
                 $this->logger->writeError(
-                    'userGet: empty result from user.get, keeping previous cache. response=' . json_encode($response['result']['result_error'] ?? $response['error'] ?? 'no_error_info')
+                    'userGet: empty/partial result from user.get, keeping previous cache. response=' . json_encode($batchError ?? 'no_error_info')
                 );
                 // Возвращаем предыдущий снимок, чтобы вызывающий код
                 // (b24GetPhones) не построил пустую карту inner_numbers.
