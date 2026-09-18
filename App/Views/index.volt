@@ -42,6 +42,22 @@
             </div>
         </div>
         {% endif %}
+        {% if isBeelineModuleInstalled %}
+        <div class="field">
+            <div class="ui toggle checkbox">
+                {{ form.render('import_beeline_calls') }}
+                <label>{{ t._('mod_b24_i_ImportBeelineCalls') }}</label>
+            </div>
+        </div>
+        {% endif %}
+        {% if isMegafonModuleInstalled %}
+        <div class="field">
+            <div class="ui toggle checkbox">
+                {{ form.render('import_megafon_calls') }}
+                <label>{{ t._('mod_b24_i_ImportMegafonCalls') }}</label>
+            </div>
+        </div>
+        {% endif %}
         <div class="ten wide field">
             <label>{{ t._('mod_b24_i_logLevel') }}</label>
             {{ form.render('logLevel') }}
