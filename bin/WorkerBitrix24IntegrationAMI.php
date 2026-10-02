@@ -457,9 +457,18 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
 
         $dstNum = Bitrix24Integration::getPhoneIndex($data['dst_num']);
         $dstUserShotNum = $this->b24->mobile_numbers[$dstNum]['UF_PHONE_INNER']??'';
-        if( !isset($this->b24->usersSettingsB24[$data['dst_num']])
-            && !isset($this->b24->usersSettingsB24[$data['src_num']])
-            && !isset($this->b24->usersSettingsB24[$dstUserShotNum])){
+        // Gate должен совпадать с классификацией register ниже (476/501): участник
+        // считается "в интеграции", если известен через inner_numbers/mobile_numbers
+        // ИЛИ usersSettingsB24. Раньше проверялся только usersSettingsB24 — сотрудники,
+        // которые есть в B24 (UF_PHONE_INNER → inner_numbers), но отсутствуют в снимке
+        // ModuleBitrix24Users, молча теряли исходящие (forum: исходящие не уходят в B24).
+        $srcInvolved = isset($this->inner_numbers[$data['src_num']])
+            || isset($this->b24->usersSettingsB24[$data['src_num']]);
+        $dstInvolved = isset($this->inner_numbers[$data['dst_num']])
+            || isset($this->b24->mobile_numbers[$dstNum])
+            || isset($this->b24->usersSettingsB24[$data['dst_num']])
+            || isset($this->b24->usersSettingsB24[$dstUserShotNum]);
+        if (!$srcInvolved && !$dstInvolved){
             // Вызов по этому звонку не следует грузить в b24, внутренний номер не участвует в интеграции.
             // Или тут нет внутреннего номера.
             $this->logger->writeInfo("the internal number ($data[src_num] -> $data[dst_num], $dstUserShotNum) is not involved in the integration. $linkedId");

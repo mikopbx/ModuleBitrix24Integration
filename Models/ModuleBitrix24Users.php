@@ -38,10 +38,12 @@ class ModuleBitrix24Users extends ModulesModelsBase
 
     /**
      * статус фильтрации, если 1 то выключить передачу данных в Bitrix24
+     * Дефолт 0: иначе новые строки получают NULL, а фильтр 'disabled <> 1'
+     * (SQLite: NULL <> 1 → NULL) молча исключал бы таких пользователей из выборки.
      *
      * @Column(type="integer", nullable=true)
      */
-    public $disabled;
+    public $disabled = 0;
 
     /**
      * Returns dynamic relations between module models and common models

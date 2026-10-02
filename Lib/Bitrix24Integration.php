@@ -182,8 +182,10 @@ class Bitrix24Integration extends PbxExtensionBase
     {
         $this->mainLogger->rotate();
         // Мы не можем использовать JOIN в разных базах данных
+        // NULL-safe: в SQLite 'disabled <> 1' для disabled IS NULL даёт NULL (не TRUE),
+        // поэтому старые строки с NULL молча выпадали из выборки. Явно добавляем IS NULL.
         $parameters            = [
-            'conditions' => 'disabled <> 1',
+            'conditions' => 'disabled <> 1 OR disabled IS NULL',
             'columns'    => ['user_id,open_card_mode'],
         ];
         ConnectorDb::invoke(ConnectorDb::FUNC_GET_USERS, [$parameters]);
