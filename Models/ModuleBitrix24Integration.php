@@ -169,10 +169,48 @@ class ModuleBitrix24Integration extends ModulesModelsBase
 
     /**
      * Курсор (mts_cdr.id) последней записи, поставленной в очередь импорта.
+     * DEPRECATED: относился к старому источнику mts_cdr. Единый импорт истории
+     * читает cdr_general и ведёт свои курсоры *_hist_cursor. Поле оставлено,
+     * чтобы не ломать миграцию; не используется.
      *
      * @Column(type="integer", nullable=true, default="0")
      */
     public $mts_import_last_id = '0';
+
+    /**
+     * Импортировать историю звонков Beeline (ModuleBeelinePbx) в Bitrix24.
+     *
+     * @Column(type="integer", nullable=true, default="0")
+     */
+    public $import_beeline_calls = '0';
+
+    /**
+     * Импортировать историю звонков Megafon (ModuleMegafonPbx) в Bitrix24.
+     *
+     * @Column(type="integer", nullable=true, default="0")
+     */
+    public $import_megafon_calls = '0';
+
+    /**
+     * Курсор (cdr_general.id) единого импорта истории: MTS (linkedid fs-mts-*).
+     *
+     * @Column(type="integer", nullable=true, default="0")
+     */
+    public $mts_hist_cursor = '0';
+
+    /**
+     * Курсор (cdr_general.id) единого импорта истории: Beeline (fs-beeline-*).
+     *
+     * @Column(type="integer", nullable=true, default="0")
+     */
+    public $beeline_hist_cursor = '0';
+
+    /**
+     * Курсор (cdr_general.id) единого импорта истории: Megafon (fs-megapbx-*).
+     *
+     * @Column(type="integer", nullable=true, default="0")
+     */
+    public $megafon_hist_cursor = '0';
 
 
     public function initialize(): void

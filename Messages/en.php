@@ -23,6 +23,8 @@ return [
     'mod_b24_i_NotifyOnCall' => 'Upload call history to the portal',
     'mod_b24_i_ExportRecords' => 'To upload on the portal copies of records of conversations',
     'mod_b24_i_ImportMtsCalls' => 'Import call history from the «MTS Auto-secretary 2.0» module',
+    'mod_b24_i_ImportBeelineCalls' => 'Import call history from the «Beeline PBX» module',
+    'mod_b24_i_ImportMegafonCalls' => 'Import call history from the «Megafon PBX» module',
     'mod_b24_i_UpdateStatus' => 'Getting status',
     'mod_b24_i_Connected' => 'Connected to Bitrix24',
     'mod_b24_i_Disconnected' => 'Disconnected or unauthorized',

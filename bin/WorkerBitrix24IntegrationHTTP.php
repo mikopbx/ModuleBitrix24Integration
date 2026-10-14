@@ -34,7 +34,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
      * Максимум исторических звонков в одном invoke. 10×2 cmd (register+finish)
      * = 20 элементов, безопасно для лимита B24 batch в 50 cmd.
      *
-     * ВАЖНО: значение должно совпадать с BATCH_SIZE в bin/MtsImporter.php —
+     * ВАЖНО: значение должно совпадать с BATCH_SIZE в bin/HistoryImporter.php —
      * cron-импортёр шлёт пачками по BATCH_SIZE, а воркер срезает по этому
      * потолку. Если меняете одно — поднимите оба.
      */
@@ -238,7 +238,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         if (empty($this->b24->inner_numbers) && empty($this->b24->mobile_numbers)) {
             $this->b24->mainLogger->writeError(
                 ['count' => count($calls)],
-                'MTS import: employee maps are empty (cold worker?), instructing caller to retry'
+                'History import: employee maps are empty (cold worker?), instructing caller to retry'
             );
             $this->publishInvokeAck($inboxTube, [
                 'status'   => self::IMPORT_ACK_NOT_READY,
@@ -250,7 +250,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         if (count($calls) > self::MAX_HISTORICAL_CALLS_PER_INVOKE) {
             $this->b24->mainLogger->writeError(
                 ['received' => count($calls)],
-                'MTS import: too many calls in single invoke, truncating to '
+                'History import: too many calls in single invoke, truncating to '
                 . self::MAX_HISTORICAL_CALLS_PER_INVOKE
             );
             $calls = array_slice($calls, 0, self::MAX_HISTORICAL_CALLS_PER_INVOKE);
@@ -298,14 +298,12 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     {
         $linkedId = (string)($call['linkedid'] ?? '');
         if ($linkedId === '') {
-            $this->b24->mainLogger->writeError($call, 'MTS import: empty linkedid, skipping');
+            $this->b24->mainLogger->writeError($call, 'History import: empty linkedid, skipping');
             return false;
         }
-        // Защита от чужих источников, если когда-нибудь в mts_cdr появятся.
-        if (($call['from_account'] ?? '') !== 'fs-mts') {
-            $this->b24->mainLogger->writeError($call, "MTS import: unexpected from_account, skipping ($linkedId)");
-            return false;
-        }
+        // Источник-агностично: провайдер уже отобран cron'ом по префиксу linkedid
+        // (fs-mts-/fs-beeline-/fs-megapbx-). from_account у Megafon ненадёжен
+        // (у исходящих = внутр. номер), поэтому здесь по нему не фильтруем.
 
         // 1) Резолв сотрудника.
         $srcEmp = $this->findMtsEmployee((string)($call['src_num'] ?? ''));
@@ -316,7 +314,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $userPhoneInner = '';
         $clientPhone = '';
         if ($srcEmp !== null && $dstEmp !== null) {
-            $this->b24->mainLogger->writeInfo($call, "MTS import: internal call, skipping ($linkedId)");
+            $this->b24->mainLogger->writeInfo($call, "History import: internal call, skipping ($linkedId)");
             return false;
         }
         if ($srcEmp !== null) {
@@ -334,7 +332,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         } else {
             $this->b24->mainLogger->writeError(
                 $call,
-                "MTS import: employee not found among inner_numbers/mobile_numbers, skipping ($linkedId)"
+                "History import: employee not found among inner_numbers/mobile_numbers, skipping ($linkedId)"
             );
             return false;
         }
@@ -342,7 +340,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         if ($userId === '' || $userPhoneInner === '') {
             $this->b24->mainLogger->writeError(
                 $call,
-                "MTS import: resolved employee has empty ID/UF_PHONE_INNER, skipping ($linkedId)"
+                "History import: resolved employee has empty ID/UF_PHONE_INNER, skipping ($linkedId)"
             );
             return false;
         }
@@ -358,7 +356,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         if (!empty($exported['call_id'])) {
             $this->b24->mainLogger->writeDebug(
                 ['linkedid' => $linkedId, 'call_id' => $exported['call_id']],
-                'MTS import: call already sent, skipping'
+                'History import: call already sent, skipping'
             );
             return false;
         }
@@ -410,7 +408,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             // в этой итерации, так как CALL_ID в batch получить неоткуда.
             $this->b24->mainLogger->writeDebug(
                 ['linkedid' => $linkedId],
-                'MTS import: register dedup-cache hit, skipping'
+                'History import: register dedup-cache hit, skipping'
             );
             return false;
         }
@@ -458,7 +456,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 'registerKey' => $registerKey,
                 'finishKey'   => $finishKey,
             ],
-            'MTS import: enqueued'
+            'History import: enqueued'
         );
         return true;
     }
@@ -511,7 +509,7 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         } catch (\Throwable $e) {
             $this->b24->mainLogger->writeError(
                 ['start' => $start, 'error' => $e->getMessage()],
-                'MTS import: failed to parse start date'
+                'History import: failed to parse start date'
             );
             return '';
         }

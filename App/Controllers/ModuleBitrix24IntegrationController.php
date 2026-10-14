@@ -202,9 +202,12 @@ class ModuleBitrix24IntegrationController extends BaseController
         }
 
         $this->view->form = new ModuleBitrix24IntegrationForm($settings, $options);
-        // Опция импорта МТС доступна только если установлен соседний модуль ModuleMtsPbx.
-        // Используем FQCN-строку: при `use ...` PHP попытается зарезолвить класс ещё до class_exists.
-        $this->view->isMtsModuleInstalled = class_exists('\\Modules\\ModuleMtsPbx\\Models\\CallHistory');
+        // Опции импорта истории доступны только если установлен соответствующий
+        // операторский модуль. FQCN-строкой: при `use ...` PHP попытается
+        // зарезолвить класс ещё до class_exists.
+        $this->view->isMtsModuleInstalled     = class_exists('\\Modules\\ModuleMtsPbx\\Models\\CallHistory');
+        $this->view->isBeelineModuleInstalled = class_exists('\\Modules\\ModuleBeelinePbx\\Models\\CallHistory');
+        $this->view->isMegafonModuleInstalled = class_exists('\\Modules\\ModuleMegafonPbx\\Models\\ModuleMegafonPbx');
         $this->view->pick("{$this->moduleDir}/App/Views/index");
     }
 
@@ -327,11 +330,14 @@ class ModuleBitrix24IntegrationController extends BaseController
                 case 'lastLeadId':
                 case 'lastDealId':
                 case 'mts_import_last_id':
+                case 'mts_hist_cursor':
+                case 'beeline_hist_cursor':
+                case 'megafon_hist_cursor':
                     // Служебные/системные поля, не отображаются в форме.
                     // НЕ трогаем — без break-ветки default обнулил бы их
                     // на каждом сохранении настроек ('' → INTEGER → 0).
-                    // Для mts_import_last_id это бы сбрасывало прогресс
-                    // MTS-импорта в 0 при каждом сохранении через UI.
+                    // Для *_hist_cursor это бы сбрасывало прогресс импорта
+                    // истории в 0 при каждом сохранении через UI.
                     break;
                 case 'callbackQueue':
                     $record->$key = trim($data[$key]);
@@ -348,6 +354,8 @@ class ModuleBitrix24IntegrationController extends BaseController
                 case 'backgroundUpload':
                 case 'export_records':
                 case 'import_mts_calls':
+                case 'import_beeline_calls':
+                case 'import_megafon_calls':
                     // Checkbox-поля: HTML отправляет 'on' если установлен,
                     // не отправляет вовсе если снят. Раньше import_mts_calls
                     // попадал в default → $record->key = 'on' → SQLite-affinity
