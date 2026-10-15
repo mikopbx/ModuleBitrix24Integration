@@ -55,6 +55,8 @@ class Bitrix24Integration extends PbxExtensionBase
     public array $mobile_numbers = [];
     private $SESSION;
     public array $usersSettingsB24 = [];
+    /** Deny-list: внутренние номера сотрудников, отключённых в «Фильтре по пользователям» (disabled=1). */
+    public array $disabledNumbers = [];
     private array $mem_cache;
     private string $refresh_token;
     private string $portal;
@@ -141,7 +143,7 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->lastCompanyId = $settings->lastCompanyId;
         $this->lastContactId = $settings->lastContactId;
 
-        $this->usersSettingsB24 = $this->getUsersSettings();
+        $this->loadUsersSettings();
         $this->backgroundUpload = intval($settings->backgroundUpload) === 1;
         $default_action = IncomingRoutingTable::findFirst('priority = 9999');
         if(!empty($settings->callbackQueue)){
@@ -174,45 +176,72 @@ class Bitrix24Integration extends PbxExtensionBase
     }
 
     /**
-     * Возвращает массив номеров запрещенных к обработке.
+     * Единым запросом строит обе карты «Фильтра по пользователям» из одного
+     * снимка ModuleBitrix24Users:
+     *   - $this->usersSettingsB24 — включённые сотрудники (disabled <> 1 / NULL):
+     *     внутренний номер → настройки (open_card_mode);
+     *   - $this->disabledNumbers — deny-list явно отключённых (disabled = 1):
+     *     внутренний номер → true.
      *
-     * @return array
+     * Один invoke (а не два с разными фильтрами) принципиален: ConnectorDb::getUsers
+     * кладёт результат в общий ключ кеша ModuleBitrix24Users::class и читается он
+     * сразу после invoke. При двух вызовах сбой/таймаут второго invoke оставил бы
+     * в кеше результат первого, и мы прочитали бы чужой набор (включённых приняли
+     * бы за отключённых и наоборот → сотрудники молча выпадают из интеграции).
+     * Разбиваем один снимок в PHP — отравление кеша невозможно.
+     *
+     * Deny-list нужен потому, что отсутствие номера в usersSettingsB24 неоднозначно:
+     * это и «не настроен» (должен обрабатываться — forum: исходящие не уходят в B24),
+     * и «отключён в фильтре». Гейт AMI-воркера считает номер вовлечённым при наличии
+     * в inner_numbers (полный снимок user.get из B24), поэтому disabled-сотрудник без
+     * явного deny-list всё равно проходил бы фильтр и исключается только им.
      */
-    private function getUsersSettings(): array
+    private function loadUsersSettings(): void
     {
         $this->mainLogger->rotate();
-        // Мы не можем использовать JOIN в разных базах данных
-        // NULL-safe: в SQLite 'disabled <> 1' для disabled IS NULL даёт NULL (не TRUE),
-        // поэтому старые строки с NULL молча выпадали из выборки. Явно добавляем IS NULL.
-        $parameters            = [
-            'conditions' => 'disabled <> 1 OR disabled IS NULL',
-            'columns'    => ['user_id,open_card_mode'],
+        $this->usersSettingsB24 = [];
+        $this->disabledNumbers  = [];
+        // Мы не можем использовать JOIN в разных базах данных — тянем всех
+        // пользователей одним запросом и разбиваем на включённых/отключённых здесь.
+        $parameters = [
+            'columns' => ['user_id,open_card_mode,disabled'],
         ];
         ConnectorDb::invoke(ConnectorDb::FUNC_GET_USERS, [$parameters]);
         $bitrix24UsersTmp = CacheManager::getCacheData(ModuleBitrix24Users::class);
-
-        $uSettings = [];
-        foreach ($bitrix24UsersTmp as $uData){
-            $uSettings[$uData['user_id']] = $uData;
+        if(empty($bitrix24UsersTmp)){
+            $this->mainLogger->writeInfo($bitrix24UsersTmp, 'empty ModuleBitrix24Users loadUsersSettings');
+            return;
         }
-        if(empty($uSettings)){
-            $this->mainLogger->writeInfo($bitrix24UsersTmp, 'empty usersSettingsB24 getUsersSettings ret []');
-            return [];
+        // NULL-safe: disabled=1 → отключён; всё остальное (0 / NULL / '') → включён.
+        $uSettings    = []; // user_id → настройки включённого сотрудника
+        $disabledById = []; // user_id → true (отключён в фильтре)
+        foreach ($bitrix24UsersTmp as $uData){
+            if((int)($uData['disabled'] ?? 0) === 1){
+                $disabledById[$uData['user_id']] = true;
+            }else{
+                $uSettings[$uData['user_id']] = $uData;
+            }
         }
         unset($bitrix24UsersTmp);
+        $allIds = array_merge(array_keys($uSettings), array_keys($disabledById));
+        if(empty($allIds)){
+            return;
+        }
         $parameters = [
             'conditions' => 'is_general_user_number = 1 AND type = "SIP" AND userid IN ({ids:array})',
             'columns'    => ['number,userid'],
             'bind'       => [
-                'ids' => array_keys($uSettings),
+                'ids' => $allIds,
             ],
         ];
         $dbData = Extensions::find($parameters)->toArray();
-        $settings = [];
         foreach ($dbData as $row){
-            $settings[$row['number']] = $uSettings[$row['userid']];
+            if(isset($disabledById[$row['userid']])){
+                $this->disabledNumbers[$row['number']] = true;
+            }else{
+                $this->usersSettingsB24[$row['number']] = $uSettings[$row['userid']];
+            }
         }
-        return $settings;
     }
 
     /**

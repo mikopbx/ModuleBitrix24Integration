@@ -243,6 +243,7 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
 
         $this->updateExternalLines();
         $this->logger->writeInfo($this->b24->usersSettingsB24, 'usersSettingsB24');
+        $this->logger->writeInfo($this->b24->disabledNumbers, 'disabledNumbers (user filter deny-list)');
     }
 
     /**
@@ -462,12 +463,18 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         // ИЛИ usersSettingsB24. Раньше проверялся только usersSettingsB24 — сотрудники,
         // которые есть в B24 (UF_PHONE_INNER → inner_numbers), но отсутствуют в снимке
         // ModuleBitrix24Users, молча теряли исходящие (forum: исходящие не уходят в B24).
-        $srcInvolved = isset($this->inner_numbers[$data['src_num']])
-            || isset($this->b24->usersSettingsB24[$data['src_num']]);
-        $dstInvolved = isset($this->inner_numbers[$data['dst_num']])
+        // Deny-list «Фильтра по пользователям»: сотрудник с disabled=1 полностью
+        // исключается из интеграции (ни register, ни карточка, ни лид), даже если
+        // присутствует в inner_numbers/mobile_numbers (полный снимок user.get).
+        $srcDisabled = isset($this->b24->disabledNumbers[$data['src_num']]);
+        $dstDisabled = isset($this->b24->disabledNumbers[$data['dst_num']])
+            || ($dstUserShotNum !== '' && isset($this->b24->disabledNumbers[$dstUserShotNum]));
+        $srcInvolved = !$srcDisabled && (isset($this->inner_numbers[$data['src_num']])
+            || isset($this->b24->usersSettingsB24[$data['src_num']]));
+        $dstInvolved = !$dstDisabled && (isset($this->inner_numbers[$data['dst_num']])
             || isset($this->b24->mobile_numbers[$dstNum])
             || isset($this->b24->usersSettingsB24[$data['dst_num']])
-            || isset($this->b24->usersSettingsB24[$dstUserShotNum]);
+            || isset($this->b24->usersSettingsB24[$dstUserShotNum]));
         if (!$srcInvolved && !$dstInvolved){
             // Вызов по этому звонку не следует грузить в b24, внутренний номер не участвует в интеграции.
             // Или тут нет внутреннего номера.
@@ -482,8 +489,8 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             return;
         }
         $LINE_NUMBER = $this->external_lines[$did]??'';
-        $srcIsKnownInternal = isset($this->inner_numbers[$data['src_num']])
-            || isset($this->b24->usersSettingsB24[$data['src_num']]);
+        $srcIsKnownInternal = !$srcDisabled && (isset($this->inner_numbers[$data['src_num']])
+            || isset($this->b24->usersSettingsB24[$data['src_num']]));
         if ($srcIsKnownInternal && strlen($general_src_num) <= $this->extensionLength) {
             $this->logger->writeInfo("This is an outgoing call from an internal number. $linkedId");
             if (strlen($data['dst_num']) > $this->extensionLength && ! in_array($data['dst_num'], $this->extensions, true)) {
@@ -507,9 +514,9 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
             }else{
                 $this->logger->writeInfo("{$data['dst_num']} <= $this->extensionLength || {$data['dst_num']} is  internal... cancellation $linkedId");
             }
-        } elseif (isset($this->inner_numbers[$data['dst_num']])
+        } elseif (!$dstDisabled && (isset($this->inner_numbers[$data['dst_num']])
             || isset($this->b24->mobile_numbers[$dstNum])
-            || isset($this->b24->usersSettingsB24[$data['dst_num']])
+            || isset($this->b24->usersSettingsB24[$data['dst_num']]))
         ) {
             if(isset($this->b24->mobile_numbers[$dstNum])){
                 $userId = $this->b24->mobile_numbers[$dstNum]['ID'];
