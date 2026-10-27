@@ -125,6 +125,11 @@ const ModuleBitrix24IntegrationStatusWorker = {
 		if (data && data.linksSyncState && typeof ModuleBitrix24Integration !== 'undefined') {
 			ModuleBitrix24Integration.updateLinksSyncUI(data.linksSyncState);
 		}
+		if (data && typeof ModuleBitrix24Integration !== 'undefined') {
+			// Передаём и пустое состояние: истёкший в Redis статус должен
+			// разблокировать кнопку, а не оставить её в 'loading'.
+			ModuleBitrix24Integration.updateCacheRebuildUI(data.cacheRebuildState || null);
+		}
 	},
 	/**
 	 * Updates module status on the right corner label

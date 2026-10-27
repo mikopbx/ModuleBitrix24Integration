@@ -17,6 +17,7 @@
  * You should have received a copy of the GNU General Public License along with this program.
  * If not, see <https://www.gnu.org/licenses/>.
  */
+
 /* global globalTranslate, Form, Config, PbxApi */
 
 /**
@@ -47,6 +48,7 @@ var ModuleBitrix24IntegrationStatusWorker = {
       ModuleBitrix24IntegrationStatusWorker.changeStatus('Disconnected');
     }
   },
+
   /**
    * Проверка соединения с сервером Bitrix24
    * @returns {boolean}
@@ -59,86 +61,98 @@ var ModuleBitrix24IntegrationStatusWorker = {
       onComplete: function onComplete() {
         ModuleBitrix24IntegrationStatusWorker.timeoutHandle = window.setTimeout(ModuleBitrix24IntegrationStatusWorker.worker, ModuleBitrix24IntegrationStatusWorker.timeOut);
       },
-      onSuccess: function onSuccess() {
+      onSuccess: function onSuccess(response) {
         ModuleBitrix24IntegrationStatusWorker.changeStatus('Connected');
         ModuleBitrix24IntegrationStatusWorker.errorCounts = 0;
         ModuleBitrix24IntegrationStatusWorker.$formObj.removeClass('error');
+        ModuleBitrix24IntegrationStatusWorker.updateWorkersState(response.data);
       },
-      onFailure: function onFailure() {
+      onFailure: function onFailure(response) {
         ModuleBitrix24IntegrationStatusWorker.errorCounts++;
+
         if (ModuleBitrix24IntegrationStatusWorker.errorCounts > 3) {
           ModuleBitrix24IntegrationStatusWorker.changeStatus('ConnectionError');
         }
+
+        ModuleBitrix24IntegrationStatusWorker.updateWorkersState(response ? response.data : null);
       },
       onResponse: function onResponse(response) {
         $('.message.ajax').remove();
+
         if (ModuleBitrix24IntegrationStatusWorker.errorCounts < 3) {
           return;
-        }
+        } // Debug mode
 
-        // Debug mode
+
         if (typeof response.data !== 'undefined') {
           var visualErrorString = JSON.stringify(response.messages, null, 2);
+
           if (typeof visualErrorString === 'string') {
             visualErrorString = visualErrorString.replace(/\n/g, '<br/>');
             visualErrorString = visualErrorString.replace(/[\[\]']+/g, '');
+
             if (Object.keys(response).length > 0 && response.result !== true) {
-              ModuleBitrix24IntegrationStatusWorker.$moduleStatus.after("<div class=\"ui error icon message ajax\">\n\t\t\t\t\t\t\t\t\t<i class=\"exclamation circle icon\"></i>\n\t\t\t\t\t\t\t\t\t<div class=\"content\">\t\t\t\t\t\t\t\t\t\t\t\t\t\n\t\t\t\t\t\t\t\t\t\t<pre style='white-space: pre-wrap'>".concat(visualErrorString, "</pre>\n\t\t\t\t\t\t\t\t\t</div>\t\t\t\t\t\t\t\t\t\t  \n\t\t\t\t\t\t\t\t</div>"));
+              ModuleBitrix24IntegrationStatusWorker.$moduleStatus.after("<div class=\"ui error icon message ajax\">\n\t\t\t\t\t\t\t\t\t<i class=\"exclamation circle icon\"></i>\n\t\t\t\t\t\t\t\t\t<div class=\"content\">\n\t\t\t\t\t\t\t\t\t\t<pre style='white-space: pre-wrap'>".concat(visualErrorString, "</pre>\n\t\t\t\t\t\t\t\t\t</div>\n\t\t\t\t\t\t\t\t</div>"));
               ModuleBitrix24IntegrationStatusWorker.$formObj.addClass('error');
             }
           }
         }
       }
     });
-    $.ajax({
-      url: window.location.origin + '/pbxcore/api/bitrix-integration/workers/state',
-      method: 'GET',
-      dataType: 'json',
-      success: function success(response) {
-        var $container = $('#status-workers');
-        $container.empty();
-        var $label = $('<div class="ui small basic label" style="font-weight: bold; padding: 0.6em 1em;">' + globalTranslate.mod_b24_i_ServiceStateTitle + '</div>');
-        $container.append($label);
-        if (response.result === true && Array.isArray(response.data)) {
-          // Для каждого сервиса создаём label
-          response.data.forEach(function (service) {
-            var colorClass = service.state === 'OK' ? 'green' : 'red';
-            var $label = $("<div class=\"ui ".concat(colorClass, " label\">").concat(service.label, "</div>"));
-            $container.append($label);
-          });
-        } else {
-          // Если result: false или data не массив
-          var _$label = $('<div class="ui red label">' + globalTranslate.mod_b24_i_GetServiceStateError + '</div>');
-          $container.append(_$label);
-        }
-      },
-      error: function error() {
-        var $container = $('#status-workers');
-        $container.empty();
-        var $label = $('<div class="ui red label">' + globalTranslate.mod_b24_i_GetServiceStateError + '</div>');
-        $container.append($label);
-      }
-    });
   },
+  updateWorkersState: function updateWorkersState(data) {
+    var $container = $('#status-workers');
+    $container.empty();
+    var $title = $('<div class="ui small basic label" style="font-weight: bold; padding: 0.6em 1em;">' + globalTranslate.mod_b24_i_ServiceStateTitle + '</div>');
+    $container.append($title);
+    var workers = data && data.workers ? data.workers : null;
+
+    if (Array.isArray(workers)) {
+      workers.forEach(function (service) {
+        var colorClass = service.state === 'OK' ? 'green' : 'red';
+        var $label = $("<div class=\"ui ".concat(colorClass, " label\">").concat(service.label, "</div>"));
+        $container.append($label);
+      });
+    } else {
+      var $label = $('<div class="ui red label">' + globalTranslate.mod_b24_i_GetServiceStateError + '</div>');
+      $container.append($label);
+    }
+
+    if (data && data.linksSyncState && typeof ModuleBitrix24Integration !== 'undefined') {
+      ModuleBitrix24Integration.updateLinksSyncUI(data.linksSyncState);
+    }
+
+    if (data && typeof ModuleBitrix24Integration !== 'undefined') {
+      // Передаём и пустое состояние: истёкший в Redis статус должен
+      // разблокировать кнопку, а не оставить её в 'loading'.
+      ModuleBitrix24Integration.updateCacheRebuildUI(data.cacheRebuildState || null);
+    }
+  },
+
   /**
    * Updates module status on the right corner label
    * @param status
    */
   changeStatus: function changeStatus(status) {
     ModuleBitrix24IntegrationStatusWorker.$moduleStatus.removeClass('grey').removeClass('yellow').removeClass('green').removeClass('red');
+
     switch (status) {
       case 'Connected':
         ModuleBitrix24IntegrationStatusWorker.$moduleStatus.addClass('green').html(globalTranslate.mod_b24_i_Connected_v2);
         break;
+
       case 'Disconnected':
         ModuleBitrix24IntegrationStatusWorker.$moduleStatus.addClass('grey').html(globalTranslate.mod_b24_i_Disconnected);
         break;
+
       case 'ConnectionError':
         ModuleBitrix24IntegrationStatusWorker.$moduleStatus.addClass('red').html(globalTranslate.mod_b24_i_StatusError);
         break;
+
       case 'Updating':
         ModuleBitrix24IntegrationStatusWorker.$moduleStatus.addClass('grey').html("<i class=\"spinner loading icon\"></i>".concat(globalTranslate.mod_b24_i_UpdateStatus));
         break;
+
       default:
         ModuleBitrix24IntegrationStatusWorker.$moduleStatus.addClass('red').html(globalTranslate.mod_b24_i_StatusError);
         break;

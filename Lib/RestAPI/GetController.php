@@ -39,4 +39,13 @@ class GetController extends ModulesControllerBase
         $this->callActionForModule('ModuleBitrix24Integration', 'LINKS_SYNC_STATE');
         $this->response->sendRaw();
     }
+
+    /**
+     * http://127.0.0.1/pbxcore/api/bitrix-integration/cache-rebuild/state
+     */
+    public function getCacheRebuildState(): void
+    {
+        $this->callActionForModule('ModuleBitrix24Integration', 'CACHE_REBUILD_STATE');
+        $this->response->sendRaw();
+    }
 }

@@ -27,4 +27,10 @@ class PostController extends ModulesControllerBase
         $this->callActionForModule('ModuleBitrix24Integration', 'START_LINKS_SYNC');
         $this->response->sendRaw();
     }
+
+    public function startCacheRebuild(): void
+    {
+        $this->callActionForModule('ModuleBitrix24Integration', 'START_CACHE_REBUILD');
+        $this->response->sendRaw();
+    }
 }

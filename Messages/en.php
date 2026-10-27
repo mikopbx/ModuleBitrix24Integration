@@ -68,6 +68,13 @@ return [
     'mod_b24_i_SyncLinksDone' => 'Sync completed',
     'mod_b24_i_SyncLinksError' => 'Failed to start sync',
 
+    'mod_b24_i_RebuildCache' => 'Rebuild contacts cache',
+    'mod_b24_i_RebuildCacheHint' => 'Clears the local contacts cache and reloads it from Bitrix24. Use this if deleted ("stale") leads/contacts remain in the cache. During the rebuild, calls may temporarily fail to match a contact.',
+    'mod_b24_i_RebuildCacheConfirm' => 'The contacts cache will be fully cleared and reloaded from Bitrix24. During the rebuild, inbound and outbound calls may temporarily fail to match contacts. Continue?',
+    'mod_b24_i_RebuildCacheStarted' => 'Cache rebuild started...',
+    'mod_b24_i_RebuildCacheDone' => 'Cache cleared, rebuilding from Bitrix24',
+    'mod_b24_i_RebuildCacheError' => 'Cache rebuild error',
+
     'mod_b24_i_OPEN_CARD' => 'call card',
     'mod_b24_i_OPEN_CARD_NONE' => 'Do not open',
     'mod_b24_i_OPEN_CARD_DIRECTLY' => 'Open on call',

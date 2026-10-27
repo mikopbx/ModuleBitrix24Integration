@@ -8,7 +8,6 @@
  */
 
 /* global globalRootUrl, globalTranslate, Form, SemanticLocalization, InputMaskPatterns  */
-
 var ModuleBitrix24Integration = {
   $formObj: $('#module-bitrix24-integration-form'),
   $submitButton: $('#submitbutton'),
@@ -19,6 +18,11 @@ var ModuleBitrix24Integration = {
   $globalSearch: $('#globalsearch'),
   $recordsTable: $('#external-line-table'),
   $addNewButton: $('#add-new-external-line-button'),
+  $syncLinksButton: $('#sync-links-button'),
+  $syncLinksStatus: $('#sync-links-status'),
+  linksSyncPollHandle: null,
+  $rebuildCacheButton: $('#rebuild-cache-button'),
+  $rebuildCacheStatus: $('#rebuild-cache-status'),
   $elRegion: $('#b24_region'),
   $elAppData: $('#b24-app-data'),
   inputNumberJQTPL: 'input.external-number',
@@ -51,6 +55,7 @@ var ModuleBitrix24Integration = {
   },
   onChangeRegion: function onChangeRegion() {
     var region = ModuleBitrix24Integration.$elRegion.val();
+
     if (region === 'REST_API') {
       ModuleBitrix24Integration.$formObj.form('set value', 'isREST', true);
       ModuleBitrix24Integration.$elAppData.show();
@@ -58,10 +63,12 @@ var ModuleBitrix24Integration = {
       ModuleBitrix24Integration.$formObj.form('set value', 'isREST', '');
       ModuleBitrix24Integration.$elAppData.hide();
     }
+
     ModuleBitrix24Integration.onChangeField();
   },
   updateAuthInfo: function updateAuthInfo(e) {
     var data = e.originalEvent.data;
+
     if (typeof data !== 'string' && data.code !== undefined) {
       data.region = ModuleBitrix24Integration.$elRegion.val();
       data.portal = $('#portal').val();
@@ -80,6 +87,7 @@ var ModuleBitrix24Integration = {
   },
   initialize: function initialize() {
     var _this = this;
+
     ModuleBitrix24Integration.checkStatusToggle();
     window.addEventListener('ModuleStatusChanged', ModuleBitrix24Integration.checkStatusToggle);
     ModuleBitrix24Integration.initializeForm();
@@ -101,6 +109,7 @@ var ModuleBitrix24Integration = {
         orderable: false,
         searchable: false
       }, null, null, null, null],
+
       /**
        * Draw event - fired once the table has completed a draw.
        */
@@ -178,6 +187,7 @@ var ModuleBitrix24Integration = {
       info: false,
       // scrollCollapse: true,
       // scroller: true,
+
       /**
        * Конструктор строки записи
        * @param row
@@ -195,6 +205,7 @@ var ModuleBitrix24Integration = {
         $('td', row).eq(3).html(templateDid);
         $('td', row).eq(4).html(templateDeleteButton);
       },
+
       /**
        * Draw event - fired once the table has completed a draw.
        */
@@ -210,9 +221,8 @@ var ModuleBitrix24Integration = {
       language: SemanticLocalization.dataTableLocalisation,
       ordering: false
     });
-    ModuleBitrix24Integration.dataTable = ModuleBitrix24Integration.$recordsTable.DataTable();
+    ModuleBitrix24Integration.dataTable = ModuleBitrix24Integration.$recordsTable.DataTable(); // Двойной клик на поле ввода номера
 
-    // Двойной клик на поле ввода номера
     $('body').on('focusin', '.external-name, .external-number, .external-aliases ', function (e) {
       $(e.target).transition('glow');
       $(e.target).closest('div').removeClass('transparent').addClass('changed-field');
@@ -221,9 +231,8 @@ var ModuleBitrix24Integration = {
       ModuleBitrix24Integration.$dirrtyField.trigger('change');
       Form.$formObj.form('set value', 'dirrty', Math.random());
       Form.checkValues();
-    });
+    }); // Отправка формы на сервер по уходу с поля ввода
 
-    // Отправка формы на сервер по уходу с поля ввода
     $('body').on('focusout', '.external-name, .external-number, .external-aliases', function (e) {
       $(e.target).closest('div').addClass('transparent').removeClass('changed-field');
       $(e.target).attr('readonly', true);
@@ -231,20 +240,20 @@ var ModuleBitrix24Integration = {
       ModuleBitrix24Integration.$dirrtyField.trigger('change');
       Form.$formObj.form('set value', 'dirrty', Math.random());
       Form.checkValues();
-    });
+    }); // Клик на кнопку удалить
 
-    // Клик на кнопку удалить
     $('body').on('click', 'a.delete', function (e) {
       e.preventDefault();
       $(e.target).closest('tr').remove();
+
       if (ModuleBitrix24Integration.$recordsTable.find('tbody > tr').length === 0) {
         ModuleBitrix24Integration.$recordsTable.find('tbody').append('<tr class="odd"></tr>');
       }
+
       Form.$formObj.form('set value', 'dirrty', Math.random());
       Form.checkValues();
-    });
+    }); // Добавление новой строки
 
-    // Добавление новой строки
     ModuleBitrix24Integration.$addNewButton.on('click', function (e) {
       e.preventDefault();
       $('.dataTables_empty').remove();
@@ -257,10 +266,105 @@ var ModuleBitrix24Integration = {
       Form.$formObj.form('set value', 'dirrty', Math.random());
       Form.checkValues();
     });
+    ModuleBitrix24Integration.$syncLinksButton.on('click', function () {
+      ModuleBitrix24Integration.startLinksSync();
+    });
+    ModuleBitrix24Integration.$rebuildCacheButton.on('click', function () {
+      // eslint-disable-next-line no-alert
+      if (window.confirm(globalTranslate.mod_b24_i_RebuildCacheConfirm)) {
+        ModuleBitrix24Integration.startCacheRebuild();
+      }
+    });
     $('#open-cards-list option').each(function (index, obj) {
       $(obj).html(globalTranslate["mod_b24_i_OPEN_CARD_" + $(obj).val()]);
     });
   },
+  startLinksSync: function startLinksSync() {
+    ModuleBitrix24Integration.$syncLinksButton.addClass('loading disabled');
+    $.ajax({
+      url: window.location.origin + '/pbxcore/api/bitrix-integration/links-sync/start',
+      method: 'POST',
+      dataType: 'json',
+      success: function success(response) {
+        if (response.result === true) {
+          ModuleBitrix24Integration.$syncLinksStatus.text(globalTranslate.mod_b24_i_SyncLinksStarted);
+        } else {
+          ModuleBitrix24Integration.$syncLinksButton.removeClass('loading disabled');
+          ModuleBitrix24Integration.$syncLinksStatus.text(globalTranslate.mod_b24_i_SyncLinksError);
+        }
+      },
+      error: function error() {
+        ModuleBitrix24Integration.$syncLinksButton.removeClass('loading disabled');
+        ModuleBitrix24Integration.$syncLinksStatus.text(globalTranslate.mod_b24_i_SyncLinksError);
+      }
+    });
+  },
+  updateLinksSyncUI: function updateLinksSyncUI(data) {
+    if (!data) {
+      return;
+    }
+
+    var status = data.status || '';
+
+    if (status === 'running' || status === 'pending') {
+      ModuleBitrix24Integration.$syncLinksButton.addClass('loading disabled');
+      var text = data.message || '';
+
+      if (data.total > 0) {
+        var pct = Math.round(data.progress / data.total * 100);
+        text += " (".concat(pct, "%)");
+      }
+
+      ModuleBitrix24Integration.$syncLinksStatus.text(text);
+    } else if (status === 'done') {
+      ModuleBitrix24Integration.$syncLinksButton.removeClass('loading disabled');
+      ModuleBitrix24Integration.$syncLinksStatus.text(data.message || globalTranslate.mod_b24_i_SyncLinksDone);
+    } else if (status === 'error') {
+      ModuleBitrix24Integration.$syncLinksButton.removeClass('loading disabled');
+      ModuleBitrix24Integration.$syncLinksStatus.text(data.message || globalTranslate.mod_b24_i_SyncLinksError);
+    } else {
+      ModuleBitrix24Integration.$syncLinksButton.removeClass('loading disabled');
+      ModuleBitrix24Integration.$syncLinksStatus.text('');
+    }
+  },
+  startCacheRebuild: function startCacheRebuild() {
+    ModuleBitrix24Integration.$rebuildCacheButton.addClass('loading disabled');
+    $.ajax({
+      url: window.location.origin + '/pbxcore/api/bitrix-integration/cache-rebuild/start',
+      method: 'POST',
+      dataType: 'json',
+      success: function success(response) {
+        if (response.result === true) {
+          ModuleBitrix24Integration.$rebuildCacheStatus.text(globalTranslate.mod_b24_i_RebuildCacheStarted);
+        } else {
+          ModuleBitrix24Integration.$rebuildCacheButton.removeClass('loading disabled');
+          ModuleBitrix24Integration.$rebuildCacheStatus.text(globalTranslate.mod_b24_i_RebuildCacheError);
+        }
+      },
+      error: function error() {
+        ModuleBitrix24Integration.$rebuildCacheButton.removeClass('loading disabled');
+        ModuleBitrix24Integration.$rebuildCacheStatus.text(globalTranslate.mod_b24_i_RebuildCacheError);
+      }
+    });
+  },
+  updateCacheRebuildUI: function updateCacheRebuildUI(data) {
+    var status = data && data.status || '';
+
+    if (status === 'running' || status === 'pending') {
+      ModuleBitrix24Integration.$rebuildCacheButton.addClass('loading disabled');
+      ModuleBitrix24Integration.$rebuildCacheStatus.text(data.message || '');
+    } else if (status === 'done') {
+      ModuleBitrix24Integration.$rebuildCacheButton.removeClass('loading disabled');
+      ModuleBitrix24Integration.$rebuildCacheStatus.text(data.message || globalTranslate.mod_b24_i_RebuildCacheDone);
+    } else if (status === 'error') {
+      ModuleBitrix24Integration.$rebuildCacheButton.removeClass('loading disabled');
+      ModuleBitrix24Integration.$rebuildCacheStatus.text(data.message || globalTranslate.mod_b24_i_RebuildCacheError);
+    } else {
+      ModuleBitrix24Integration.$rebuildCacheButton.removeClass('loading disabled');
+      ModuleBitrix24Integration.$rebuildCacheStatus.text('');
+    }
+  },
+
   /**
    * Подготавливает список выбора пользователей
    * @param selected
@@ -284,6 +388,7 @@ var ModuleBitrix24Integration = {
     });
     return values;
   },
+
   /**
    * Обработка изменения группы в списке
    */
@@ -292,6 +397,7 @@ var ModuleBitrix24Integration = {
     ModuleBitrix24Integration.$dirrtyField.val(Math.random());
     ModuleBitrix24Integration.$dirrtyField.trigger('change');
   },
+
   /**
    * Изменение статуса кнопок при изменении статуса модуля
    */
@@ -311,6 +417,7 @@ var ModuleBitrix24Integration = {
       $('[data-tab = "external_lines"]').addClass('disabled');
     }
   },
+
   /**
    * Инициализирует красивое представление номеров
    */
@@ -319,6 +426,7 @@ var ModuleBitrix24Integration = {
       // Подготовим таблицу для сортировки
       ModuleBitrix24Integration.$maskList = $.masksSort(InputMaskPatterns, ['#'], /[0-9]|#/, 'mask');
     }
+
     $el.inputmasks({
       inputmask: {
         definitions: {
@@ -331,8 +439,8 @@ var ModuleBitrix24Integration = {
         // oncleared: extension.cbOnClearedMobileNumber,
         oncomplete: ModuleBitrix24Integration.cbOnCompleteNumber,
         // clearIncomplete: true,
-        onBeforePaste: ModuleBitrix24Integration.cbOnNumberBeforePaste
-        // regex: /\D+/,
+        onBeforePaste: ModuleBitrix24Integration.cbOnNumberBeforePaste // regex: /\D+/,
+
       },
       match: /[0-9]/,
       replace: '9',
@@ -340,6 +448,7 @@ var ModuleBitrix24Integration = {
       listKey: 'mask'
     });
   },
+
   /**
    * Очистка номера перед вставкой от лишних символов
    * @returns {boolean|*|void|string}
@@ -347,15 +456,18 @@ var ModuleBitrix24Integration = {
   cbOnNumberBeforePaste: function cbOnNumberBeforePaste(pastedValue) {
     return pastedValue.replace(/\D+/g, '');
   },
+
   /**
    * После ввода номера
    */
   cbOnCompleteNumber: function cbOnCompleteNumber(e) {
     var didEl = $(e.target).closest('tr').find('input.external-aliases');
+
     if (didEl.val() === '') {
       didEl.val($(e.target).inputmask('unmaskedvalue'));
     }
   },
+
   /**
    * Колбек перед отправкой формы
    * @param settings
@@ -379,9 +491,11 @@ var ModuleBitrix24Integration = {
     var arrUsers = [];
     $('#extensions-table tr').each(function (index, obj) {
       var uname = $(obj).find('td input[type="checkbox"]').attr('name');
+
       if (uname === undefined) {
         return;
       }
+
       arrUsers.push({
         id: $(obj).attr('id'),
         user_id: uname.replace('user-', ''),
@@ -393,6 +507,7 @@ var ModuleBitrix24Integration = {
     result.data.arrUsers = JSON.stringify(arrUsers);
     return result;
   },
+
   /**
    * Колбек после отправки формы
    */
