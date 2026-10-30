@@ -70,6 +70,13 @@
             </button>
             <span id="sync-links-status" class="ui small text" style="margin-left: 10px;"></span>
         </div>
+        <div class="field">
+            <button class="ui basic button disability" id="rebuild-cache-button" type="button">
+                <i class="redo icon"></i>{{ t._('mod_b24_i_RebuildCache') }}
+            </button>
+            <span id="rebuild-cache-status" class="ui small text" style="margin-left: 10px;"></span>
+            <div class="ui small text">{{ t._('mod_b24_i_RebuildCacheHint') }}</div>
+        </div>
     </div>
     <div class="ui bottom attached tab segment active" data-tab="general">
         <div class="ten wide field">

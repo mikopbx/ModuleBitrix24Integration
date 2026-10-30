@@ -466,9 +466,8 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         // Deny-list «Фильтра по пользователям»: сотрудник с disabled=1 полностью
         // исключается из интеграции (ни register, ни карточка, ни лид), даже если
         // присутствует в inner_numbers/mobile_numbers (полный снимок user.get).
-        $srcDisabled = isset($this->b24->disabledNumbers[$data['src_num']]);
-        $dstDisabled = isset($this->b24->disabledNumbers[$data['dst_num']])
-            || ($dstUserShotNum !== '' && isset($this->b24->disabledNumbers[$dstUserShotNum]));
+        $srcDisabled = $this->b24->isNumberDisabled($data['src_num']);
+        $dstDisabled = $this->b24->isNumberDisabled($data['dst_num']);
         $srcInvolved = !$srcDisabled && (isset($this->inner_numbers[$data['src_num']])
             || isset($this->b24->usersSettingsB24[$data['src_num']]));
         $dstInvolved = !$dstDisabled && (isset($this->inner_numbers[$data['dst_num']])
@@ -633,7 +632,8 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         }
 
         $srsUserId = $this->getInnerNum($data['src_num'] ?? '');
-        if(!empty($srsUserId) && !empty($outChanData) && ($data['dialstatus'] ?? '') !== 'ANSWERED'){
+        if(!empty($srsUserId) && !empty($outChanData) && ($data['dialstatus'] ?? '') !== 'ANSWERED'
+            && !$this->b24->isNumberDisabled($data['src_num'] ?? '')){
             $this->logger->writeInfo("Send finish event from hangup...".($data['linkedid'] ?? ''));
             $params = [
                 'UNIQUEID'       => $outChanData['UNIQUEID'],
@@ -694,6 +694,21 @@ class WorkerBitrix24IntegrationAMI extends WorkerBase
         } else{
             // Это входящие вызов.
             $USER_ID     = $dstUserId;
+        }
+
+        // Deny-list «Фильтра по пользователям»: если внутренний участник этого
+        // плеча отключён (disabled=1), звонок полностью выпадает из интеграции —
+        // ни register, ни карточка, ни лид (включая пропущенные). Симметрично
+        // actionCreateCdr. Без этого отключённый номер корректно пропускал
+        // ИСХОДЯЩИЕ (gate в actionCreateCdr), но на ВХОДЯЩИХ register-on-finish
+        // ниже всё равно создавал лид с USER_PHONE_INNER=отключённый (forum:
+        // «на входящие лид создаётся»). Проверяем ОБЕ стороны безусловно, не
+        // полагаясь на $isOutgoing (он выводится из inner_numbers, а отключённый
+        // оператор может там отсутствовать — документированное расхождение):
+        // внешний номер в deny-list попасть не может, ложных пропусков нет.
+        if ($this->b24->isNumberDisabled($srcNum) || $this->b24->isNumberDisabled($dstNum)) {
+            $this->logger->writeInfo("Participant disabled in user filter — skip register/finish. $linkedId");
+            return;
         }
 
         $responsible = '';

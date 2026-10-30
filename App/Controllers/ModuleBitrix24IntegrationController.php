@@ -253,6 +253,7 @@ class ModuleBitrix24IntegrationController extends BaseController
             $this->view->data = [
                 'workers' => $this->getWorkersState(),
                 'linksSyncState' => CacheManager::getCacheData('links_sync_state'),
+                'cacheRebuildState' => CacheManager::getCacheData('cache_rebuild_state'),
             ];
             $this->view->messages = $result;
             CacheManager::setCacheData('module_scope', $result, 30);

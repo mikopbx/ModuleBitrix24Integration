@@ -45,6 +45,7 @@ class ConnectorDb extends WorkerBase
     public const FUNC_DELETE_CONTACT_DATA           = "deletePhoneContact";
     public const FUNC_UPDATE_ENT_CONTACT            = "updateEntContact";
     public const FUNC_GET_CONTACT_BY_PHONE_USER     = "getContactsByPhoneAndUser";
+    public const FUNC_GET_PB_VERIFY_CANDIDATES      = "getPhoneBookVerifyCandidates";
     public const FUNC_GET_CONTACT_BY_PHONE          = "getContactsByPhone";
     public const FUNC_GET_CONTACT_BY_PHONE_ORDER    = "getContactsByPhoneWithOrder";
     public const FUNC_FIND_CDR_BY_UID               = "findCdrByUID";
@@ -59,6 +60,7 @@ class ConnectorDb extends WorkerBase
     public const FUNC_DELETE_EXTERNAL_LINE          = "deleteExternalLines";
     public const FUNC_GET_USERS                     = "getUsers";
     public const FUNC_SAVE_USERS                    = "saveUsers";
+    public const FUNC_REBUILD_CONTACTS_CACHE        = "rebuildContactsCache";
 
     private Logger  $logger;
     private const MODULE_ID = 'ModuleBitrix24Integration';
@@ -817,21 +819,64 @@ class ConnectorDb extends WorkerBase
     }
 
     /**
-     * Удаляем контакт по ID;
+     * Уровень 3.2: кандидаты для сверки существования — distinct b24id данного типа
+     * с b24id > cursor (лексикографический порядок — для ротации прохода достаточно),
+     * не более $limit. Возвращает ids и maxId (последний id прохода) для курсора.
+     *
+     * @param string $contactType LEAD|CONTACT|COMPANY
+     * @param string $cursor      b24id, с которого продолжать (пусто = сначала)
+     * @param int    $limit       размер прохода
+     * @return array{ids: string[], maxId: string}
+     */
+    public function getPhoneBookVerifyCandidates(string $contactType, string $cursor, int $limit):array
+    {
+        $rows = B24PhoneBook::find([
+            'conditions' => 'contactType = :t: AND b24id > :c:',
+            'bind'       => ['t' => $contactType, 'c' => $cursor],
+            'columns'    => ['b24id'],
+            'group'      => 'b24id',
+            'order'      => 'b24id ASC',
+            'limit'      => $limit,
+        ])->toArray();
+        $ids = [];
+        foreach ($rows as $r) {
+            $id = (string)($r['b24id'] ?? '');
+            if ($id !== ''){
+                $ids[] = $id;
+            }
+        }
+        return ['ids' => $ids, 'maxId' => empty($ids) ? '' : end($ids)];
+    }
+
+    /**
+     * Удаляем контакт по ID.
+     *
+     * $b24id — скаляр ИЛИ массив id. handleEvent(ONCRM*DELETE) передаёт
+     * array_values(FIELDS) = [id], а sweep — скаляр; поэтому нормализуем к списку
+     * и используем IN(...). Раньше массив биндился в скалярный `b24id = ?` и ничего
+     * не матчил → событийная инвалидация кеша при удалении молча не работала.
+     *
      * @param string $contactType
-     * @param        $b24id
+     * @param string|array $b24id
      * @param array  $phoneIds
      * @return bool
      */
     public function deletePhoneContact(string $contactType, $b24id, array $phoneIds = []):bool
     {
+        $ids = is_array($b24id) ? array_values($b24id) : [$b24id];
+        $ids = array_values(array_filter(array_map('strval', $ids), static fn($v) => $v !== ''));
+        if (empty($ids)) {
+            return false;
+        }
+        $result = false;
         try {
             $record = new B24PhoneBook();
             $db = $record->getWriteConnection();
             $table = $record->getSource();
 
-            $sql = "DELETE FROM {$table} WHERE contactType = ? AND b24id = ?";
-            $params = [$contactType, $b24id];
+            $idPlaceholders = implode(',', array_fill(0, count($ids), '?'));
+            $sql = "DELETE FROM {$table} WHERE contactType = ? AND b24id IN ({$idPlaceholders})";
+            $params = array_merge([$contactType], $ids);
 
             if (!empty($phoneIds)) {
                 $placeholders = implode(',', array_fill(0, count($phoneIds), '?'));
@@ -976,6 +1021,52 @@ class ConnectorDb extends WorkerBase
             $this->updateGeneralSettings((array)$settings);
         }
         return $this->getGeneralSettings($filter);
+    }
+
+    /**
+     * Полная пересборка кеша контактов: сбрасывает курсоры инкрементальной
+     * синхронизации (lastContactId/lastCompanyId/lastLeadId → '0') и вычищает
+     * телефонную книгу (m_B24PhoneBook).
+     *
+     * После сброса HTTP-воркер входит в режим initial-sync (crmListEnt c
+     * фильтром '>ID' от нуля) и перетягивает из B24 только живые объекты.
+     * «Мёртвые» записи (удалённые в CRM, но зависшие в кеше из-за потерянных
+     * offline-событий) при этом исчезают. Вызывается вручную из веб-интерфейса.
+     *
+     * m_ContactLinks не трогаем: к мёртвым объектам связи отношения не имеют,
+     * а initial-sync восстанавливает только основной COMPANY_ID — очистка
+     * потеряла бы связи «контакт ↔ несколько компаний» из ручного links-sync.
+     *
+     * Порядок важен: сначала курсоры, потом DELETE. Если DELETE упадёт,
+     * initial-sync просто перезапишет существующие строки (addPhoneContact
+     * заменяет строки по b24id) — кеш не останется пустым со старыми курсорами.
+     *
+     * @return array ['ok' => bool] — успех очистки и сброса курсоров.
+     *               Возврат массивом, т.к. RPC-канал (unpackResult) приводит
+     *               не-массивы к [], поэтому голый bool терять нельзя.
+     */
+    public function rebuildContactsCache(): array
+    {
+        try {
+            $saved = $this->updateGeneralSettings([
+                'lastContactId' => '0',
+                'lastCompanyId' => '0',
+                'lastLeadId'    => '0',
+            ]);
+            if (!$saved) {
+                $this->logger->writeError('rebuildContactsCache: failed to reset sync cursors');
+                return ['ok' => false];
+            }
+
+            $pb = new B24PhoneBook();
+            $pb->getWriteConnection()->execute('DELETE FROM ' . $pb->getSource());
+
+            $this->logger->writeInfo('Contacts cache rebuilt: sync cursors reset, phonebook truncated');
+            return ['ok' => true];
+        } catch (\Throwable $e) {
+            $this->logger->writeError($e->getMessage(), 'rebuildContactsCache failed');
+            return ['ok' => false];
+        }
     }
 
     public function updateLinks($data = []):array

@@ -44,6 +44,8 @@ class Bitrix24IntegrationConf extends ConfigClass
             [GetController::class, 'getWorkerState', '/pbxcore/api/bitrix-integration/workers/state',  'get', '/', true],
             [GetController::class, 'getLinksSyncState', '/pbxcore/api/bitrix-integration/links-sync/state',  'get', '/', true],
             [PostController::class, 'startLinksSync', '/pbxcore/api/bitrix-integration/links-sync/start',  'post', '/', false],
+            [GetController::class, 'getCacheRebuildState', '/pbxcore/api/bitrix-integration/cache-rebuild/state',  'get', '/', true],
+            [PostController::class, 'startCacheRebuild', '/pbxcore/api/bitrix-integration/cache-rebuild/start',  'post', '/', false],
         ];
     }
 
@@ -145,6 +147,15 @@ class Bitrix24IntegrationConf extends ConfigClass
                 'total' => 0,
                 'message' => 'Запуск синхронизации связей...',
             ], 86400);
+            $res->success = true;
+        } elseif ($action === "CACHE_REBUILD_STATE") {
+            $res->data = CacheManager::getCacheData('cache_rebuild_state');
+            $res->success = true;
+        } elseif ($action === "START_CACHE_REBUILD") {
+            CacheManager::setCacheData('cache_rebuild_state', [
+                'status'  => 'pending',
+                'message' => 'Запуск пересборки кеша контактов...',
+            ], 3600);
             $res->success = true;
         } else {
             $res->messages[] = "API action '$action' not found in moduleRestAPICallback ModuleBitrix24Integration";

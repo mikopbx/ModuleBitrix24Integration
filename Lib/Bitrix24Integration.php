@@ -77,6 +77,9 @@ class Bitrix24Integration extends PbxExtensionBase
     public $lastCompanyId;
     public $lastLeadId;
 
+    /** Уровень 3.2: фоновая сверка существования закешированных объектов CRM (sweep удалений). */
+    public bool $cacheVerifyEnabled = true;
+
     public function __construct(string $logPrefix = '')
     {
         parent::__construct();
@@ -142,6 +145,8 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->lastLeadId    = $settings->lastLeadId;
         $this->lastCompanyId = $settings->lastCompanyId;
         $this->lastContactId = $settings->lastContactId;
+
+        $this->cacheVerifyEnabled = !isset($settings->cacheVerifyEnabled) || intval($settings->cacheVerifyEnabled) !== 0;
 
         $this->loadUsersSettings();
         $this->backgroundUpload = intval($settings->backgroundUpload) === 1;
@@ -638,6 +643,28 @@ class Bitrix24Integration extends PbxExtensionBase
     public function saveCache(string $cacheKey, $resData, int $ttl = 3600): void
     {
         CacheManager::setCacheData($cacheKey, [$resData], $ttl);
+    }
+
+    /**
+     * Номер отключён в «Фильтре по пользователям» (disabled=1) → полностью
+     * исключён из интеграции (ни register, ни карточка, ни лид, включая
+     * пропущенные). Единая точка для всех гейтов (actionCreateCdr,
+     * actionCompleteCdr, hangup-finish): проверяет и прямой внутренний номер,
+     * и mobile/work-номер, смапленный на отключённый внутренний (UF_PHONE_INNER).
+     *
+     * @param string $num внутренний номер или mobile/work-номер участника
+     * @return bool
+     */
+    public function isNumberDisabled(string $num): bool
+    {
+        if ($num === '') {
+            return false;
+        }
+        if (isset($this->disabledNumbers[$num])) {
+            return true;
+        }
+        $shotNum = $this->mobile_numbers[self::getPhoneIndex($num)]['UF_PHONE_INNER'] ?? '';
+        return $shotNum !== '' && isset($this->disabledNumbers[$shotNum]);
     }
 
     /**
@@ -1826,6 +1853,31 @@ class Bitrix24Integration extends PbxExtensionBase
         $arg = [];
         $arg[$keyId] = $type.'?' . http_build_query($params);
         return $arg;
+    }
+
+    /**
+     * Уровень 3.2: команда проверки существования объектов CRM по списку ID.
+     * Едет довеском в sync-батч (без нового round-trip). В ответе возвращаются
+     * только существующие ID — отсутствующие считаются удалёнными и вычищаются
+     * из m_B24PhoneBook (см. applyCacheVerifyResults). Ключ `b24verify_<short>`
+     * специально не совпадает с `<method>_init/_update`, чтобы не попасть в
+     * crmListEntResults и не сдвинуть ID-курсор.
+     *
+     * @param string $method    crm.lead.list|crm.contact.list|crm.company.list
+     * @param string $shortType LEAD|CONTACT|COMPANY
+     * @param array  $ids       идентификаторы для проверки
+     * @return array
+     */
+    public function crmVerifyExistence(string $method, string $shortType, array $ids): array
+    {
+        $params = [
+            'order'  => ['ID' => 'ASC'],
+            'filter' => ['ID' => array_values($ids)],
+            'select' => ['ID'],
+            'start'  => '-1',
+            'auth'   => $this->getAccessToken(),
+        ];
+        return ['b24verify_' . $shortType => strtolower($method) . '?' . http_build_query($params)];
     }
 
     /**

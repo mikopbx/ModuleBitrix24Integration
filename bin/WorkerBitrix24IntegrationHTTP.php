@@ -63,7 +63,20 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
     private int $syncInterval = 10;
     private const SYNC_INTERVAL_MIN  = 60;
     private const SYNC_INTERVAL_MAX  = 600;
+
+    /** Уровень 3.2: период и размер прохода фоновой сверки существования кеша контактов. */
+    private const CACHE_VERIFY_INTERVAL = 3600;
+    /**
+     * Размер прохода сверки. НЕ поднимать выше размера страницы crm.*.list (50):
+     * пагинации в crmVerifyExistence нет, хвост за 50-й строкой выпал бы из ответа
+     * и был бы удалён как «удалённый». При необходимости >50 — добавить постраничность.
+     */
+    private const CACHE_VERIFY_BATCH    = 50;
     private const SYNC_INTERVAL_STEP = 2;
+    /** Пересборка кеша синхронная (invoke ≤30с): 'running' дольше — воркер упал посреди неё. */
+    private const CACHE_REBUILD_STALE_TIMEOUT = 120;
+    /** Redis-ключ троттлинга фоновой сверки кеша (Уровень 3.2). */
+    private const CACHE_VERIFY_TS_KEY = 'b24_verify_ts';
 
     private ?int $pidLinksSyncProc = null;
     private int  $timeLinksSyncProc = 0;
@@ -97,6 +110,19 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             die('Settings not set...');
         }
         $this->b24->mainLogger->writeInfo('Starting...');
+
+        // ВАЖНО: beanstalk-клиент и ping-слушатель поднимаем ДО тяжёлого
+        // синхронного REST-init ниже (checkNeedUpdateToken + syncExternalLines).
+        // В окна планового обслуживания коробки B24 (у degon.ru ~22:00 и ~03:00)
+        // REST отвечает по 10-30с, и этот init висит десятки секунд. safe.php
+        // (WorkerSafeScriptsCore, раз в минуту) за это время не получает pong и
+        // шлёт SIGUSR1. Если слушатель не поднят и ранний сигнал не поглощён,
+        // воркер уходит в рестарт сразу после старта → цикл перезапусков.
+        // Callbacks (b24ChannelCallBack и пр.) во время init НЕ срабатывают —
+        // воркер ещё не в queueAgent->wait(), события ждут в очереди.
+        // Та же защита, что у WorkerBitrix24IntegrationAMI.
+        $this->initBeanstalk();
+
         $this->b24->checkNeedUpdateToken();
         // При старте синхронизируем внешние линии.
         $externalLines = $this->b24->syncExternalLines();
@@ -121,8 +147,17 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
             // Пустой обработчик — достаточно прервать poll()
         }, false); // false = НЕ перезапускать прерванные syscall
 
+        // SIGUSR1, пришедший во время медленного REST-init выше, означает, что
+        // safe.php засчитал промахи по ping'у. Слушатель уже поднят — поглощаем
+        // первый сигнал, иначе воркер рестартуется сразу после старта и уходит
+        // в цикл. Настоящий shutdown придёт следующим SIGUSR1, если воркер снова
+        // перестанет отвечать на ping в основном цикле.
+        if ($this->needRestart) {
+            $this->b24->mainLogger->writeInfo('Ignoring early SIGUSR1 received during init — listener is ready, entering main loop.');
+            $this->needRestart = false;
+        }
+
         /** Основной цикл демона. */
-        $this->initBeanstalk();
         $this->processState = 'idle';
         while ($this->needRestart === false) {
             try {
@@ -591,6 +626,10 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                     $data['CRM_ENTITY_TYPE'] = $cache_data['CRM_ENTITY_TYPE'] ?? '';
                 }elseif($data['TYPE'] === '1'){
                     // Для исходящих определяем идентификатор и тип контакта.
+                    // Протухший CRM_ENTITY_ID (удалённый объект) здесь больше не
+                    // накапливается: событийная инвалидация кеша при удалении
+                    // починена (deletePhoneContact IN), а пропущенные события
+                    // добирает фоновый sweep (buildCacheVerifyRequests).
                     $contactsData = ConnectorDb::invoke(ConnectorDb::FUNC_GET_CONTACT_BY_PHONE_USER, [$data['PHONE_NUMBER'], $data['USER_ID']]);
                     $data['PHONE_NUMBER']    = $contactsData['phone']??$data['PHONE_NUMBER'];
                     $data['CRM_ENTITY_ID']   = $contactsData['b24id']??'';
@@ -1119,6 +1158,14 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         $arg = $this->b24->crmListEnt(Bitrix24Integration::API_CRM_LIST_LEAD);
         $syncProcReq = array_merge($syncProcReq, $arg);
 
+        // Уровень 3.2: фоновая сверка существования закешированных объектов CRM.
+        // Удалённые в B24 объекты, оставшиеся в m_B24PhoneBook из-за потерянного
+        // offline-события, иначе продолжали бы пиниться на исходящих в пределах
+        // окна TTL-маркера. Команды проверки докладываются в этот же sync-батч
+        // (без нового round-trip), не чаще CACHE_VERIFY_INTERVAL, по
+        // CACHE_VERIFY_BATCH id за проход.
+        $verifyCandidates = $this->buildCacheVerifyRequests($syncProcReq);
+
         $response = $this->b24->sendBatch($syncProcReq);
         $result = $response['result']['result'] ?? [];
 
@@ -1145,8 +1192,203 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
         if (!empty($contactCompanyLinks)) {
             ConnectorDb::invoke(ConnectorDb::FUNC_UPDATE_LINKS_BATCH, [$contactCompanyLinks], false);
         }
+        if (!empty($verifyCandidates)) {
+            $this->applyCacheVerifyResults($result, $verifyCandidates);
+        }
         // Это дочерний процесс, завершаем его.
         exit(0);
+    }
+
+    /**
+     * Уровень 3.2: формирует команды сверки существования закешированных объектов
+     * CRM и докладывает их в sync-батч (мутирует $req). Throttle и курсор прохода
+     * по типам хранятся в Redis: потеря курсора на рестарте безвредна — сверка
+     * идемпотентна и просто начнётся заново. Лексикографический порядок b24id
+     * достаточен для ротации (важно только полное покрытие набора, не числовой
+     * порядок). Возвращает карту кандидатов для applyCacheVerifyResults.
+     */
+    private function buildCacheVerifyRequests(array &$req): array
+    {
+        if (!$this->b24->cacheVerifyEnabled) {
+            return [];
+        }
+        // Метку троттлинга ставим только после реальной обработки (здесь — при
+        // пустом наборе, иначе в applyCacheVerifyResults): сбой RPC или
+        // sendBatch не должен съедать целый CACHE_VERIFY_INTERVAL.
+        $last = (int)$this->b24->getCache(self::CACHE_VERIFY_TS_KEY);
+        if ($last !== 0 && (time() - $last) < self::CACHE_VERIFY_INTERVAL) {
+            return [];
+        }
+
+        $types = [
+            'LEAD'    => Bitrix24Integration::API_CRM_LIST_LEAD,
+            'CONTACT' => Bitrix24Integration::API_CRM_LIST_CONTACT,
+            'COMPANY' => Bitrix24Integration::API_CRM_LIST_COMPANY,
+        ];
+        $candidates = [];
+        $rpcFailed  = false;
+        foreach ($types as $short => $method) {
+            $cursorKey = 'b24_verify_cursor_' . $short;
+            $cursor    = (string)($this->b24->getCache($cursorKey) ?? '');
+            // Короткий timeout: эти RPC блокирующие и идут до синхронного
+            // sendBatch в форк-ребёнке, которого родитель убивает на 40с —
+            // на медленном ConnectorDb не должны съесть окно всей синхронизации.
+            $cand = ConnectorDb::invoke(
+                ConnectorDb::FUNC_GET_PB_VERIFY_CANDIDATES,
+                [$short, $cursor, self::CACHE_VERIFY_BATCH],
+                true,
+                2
+            );
+            // Сбой/таймаут RPC invoke возвращает [] — это не «конец набора»:
+            // курсор не трогаем, иначе старшие id никогда не проверятся.
+            if (!is_array($cand) || !array_key_exists('ids', $cand)) {
+                $rpcFailed = true;
+                continue;
+            }
+            $ids = $cand['ids'];
+            if (empty($ids)) {
+                // Конец набора — сбрасываем курсор на начало (wrap).
+                $this->b24->saveCache($cursorKey, '', 86400);
+                continue;
+            }
+            $req = array_merge($req, $this->b24->crmVerifyExistence($method, $short, $ids));
+            $candidates[$short] = [
+                'cursorKey' => $cursorKey,
+                'maxId'     => (string)($cand['maxId'] ?? ''),
+                'ids'       => $ids,
+                'full'      => count($ids) >= self::CACHE_VERIFY_BATCH,
+            ];
+        }
+        if (empty($candidates) && !$rpcFailed) {
+            // Проверять нечего (кеш пуст) — проход отработан, троттлим.
+            $this->b24->saveCache(self::CACHE_VERIFY_TS_KEY, time(), 86400);
+        }
+        return $candidates;
+    }
+
+    /**
+     * Уровень 3.2: обрабатывает ответы сверки — отсутствующие в ответе id считаем
+     * удалёнными и вычищаем из m_B24PhoneBook; двигаем курсор прохода (или wrap).
+     */
+    private function applyCacheVerifyResults(array $result, array $candidates): void
+    {
+        $processed = false;
+        foreach ($candidates as $short => $info) {
+            // Прунить и двигать курсор можно ТОЛЬКО если команда сверки реально
+            // выполнилась. При сбое батча/команды (таймаут, QUERY_LIMIT,
+            // OPERATION_TIME_LIMIT, рефреш токена) ключ результата отсутствует —
+            // иначе пустой $present привёл бы к удалению всех кандидатов (до 50
+            // живых записей на тип) как «удалённых». Отсутствие ключа = ошибка:
+            // пропускаем тип, курсор не двигаем — окно перепроверится позже.
+            if (!array_key_exists('b24verify_' . $short, $result)) {
+                continue;
+            }
+            $resp = $result['b24verify_' . $short];
+            if (!is_array($resp)) {
+                continue;
+            }
+            $present = [];
+            foreach ($resp as $row) {
+                if (!empty($row['ID'])) {
+                    $present[(string)$row['ID']] = true;
+                }
+            }
+            $missing = [];
+            foreach ($info['ids'] as $b24id) {
+                if (!isset($present[(string)$b24id])) {
+                    $missing[] = (string)$b24id;
+                }
+            }
+            if (!empty($missing)) {
+                // deletePhoneContact принимает список — одно RPC на тип.
+                ConnectorDb::invoke(ConnectorDb::FUNC_DELETE_CONTACT_DATA, [$short, $missing], false);
+                $this->b24->mainLogger->writeInfo("Cache verify ($short): pruned " . count($missing) . ' stale phonebook entries');
+            }
+            // Полный проход — двигаем курсор к последнему id; конец набора — wrap.
+            $this->b24->saveCache($info['cursorKey'], $info['full'] ? $info['maxId'] : '', 86400);
+            $processed = true;
+        }
+        if ($processed) {
+            $this->b24->saveCache(self::CACHE_VERIFY_TS_KEY, time(), 86400);
+        }
+    }
+
+    /**
+     * Проверяет запрос на ручную пересборку кеша контактов из веб-интерфейса.
+     *
+     * Сама операция быстрая (сброс курсоров + DELETE телефонной книги),
+     * поэтому выполняется синхронно, без fork. Вызывается до syncProcContacts:
+     * в этой же итерации isInitialSync увидит курсоры '0' и запустит загрузку
+     * из B24 заново — только живые объекты (мёртвые записи исчезают).
+     */
+    private function checkCacheRebuild(): void
+    {
+        $state  = CacheManager::getCacheData('cache_rebuild_state');
+        $status = $state['status'] ?? '';
+        if ($status === 'running'
+            && (time() - (int)($state['ts'] ?? 0)) > self::CACHE_REBUILD_STALE_TIMEOUT) {
+            // Пересборка синхронная — 'running' дольше таймаута значит, что воркер
+            // упал посреди неё. Не держим кнопку в UI заблокированной.
+            CacheManager::setCacheData('cache_rebuild_state', [
+                'status'  => 'error',
+                'message' => 'Пересборка прервана, запустите повторно',
+            ], 300);
+            return;
+        }
+        if ($status !== 'pending') {
+            return;
+        }
+
+        CacheManager::setCacheData('cache_rebuild_state', [
+            'status'  => 'running',
+            'message' => 'Очистка кеша контактов...',
+            'ts'      => time(),
+        ], 3600);
+
+        // Форк синхронизации работает со старыми курсорами и асинхронно шлёт
+        // updateEntContact, который после сброса вернул бы lastXxxId к старому
+        // maxId — initial-sync бы не случился. Останавливаем его до сброса;
+        // уже отправленные им записи стоят в очереди ConnectorDb раньше rebuild
+        // и выполнятся до него.
+        $this->stopSyncProcContacts();
+
+        $res = ConnectorDb::invoke(ConnectorDb::FUNC_REBUILD_CONTACTS_CACHE, [], true, 30);
+        if (!is_array($res) || ($res['ok'] ?? false) !== true) {
+            $this->b24->mainLogger->writeError('Cache rebuild failed in ConnectorDb');
+            CacheManager::setCacheData('cache_rebuild_state', [
+                'status'  => 'error',
+                'message' => 'Ошибка очистки кеша',
+            ], 300);
+            return;
+        }
+
+        // Синхронизируем in-memory курсоры с обнулёнными в БД (не зависим от
+        // успеха последующего updateSettings) — isInitialSync сработает сразу.
+        $this->b24->lastContactId = '0';
+        $this->b24->lastCompanyId = '0';
+        $this->b24->lastLeadId    = '0';
+
+        $this->b24->mainLogger->writeInfo('Contacts cache rebuild requested: cache cleared, re-sync started');
+        CacheManager::setCacheData('cache_rebuild_state', [
+            'status'  => 'done',
+            'message' => 'Кеш очищен, идёт пересборка из Bitrix24',
+        ], 300);
+    }
+
+    /**
+     * Останавливает форк синхронизации контактов, если он ещё работает.
+     */
+    private function stopSyncProcContacts(): void
+    {
+        if (empty($this->pidSyncProcContacts)) {
+            return;
+        }
+        if (pcntl_waitpid($this->pidSyncProcContacts, $status, WNOHANG) === 0) {
+            posix_kill($this->pidSyncProcContacts, SIGKILL);
+            pcntl_waitpid($this->pidSyncProcContacts, $status);
+            $this->b24->mainLogger->writeInfo('Sync contacts child stopped for cache rebuild: ' . $this->pidSyncProcContacts);
+        }
+        $this->pidSyncProcContacts = null;
     }
 
     /**
@@ -1349,6 +1591,10 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                 $this->needRestart = true;
                 return;
             }
+            // До syncProcContacts: сброс курсоров должен быть виден isInitialSync
+            // в этой же итерации, а старый форк синхронизации — остановлен.
+            $this->checkCacheRebuild();
+
             $prevLastContactId = $this->b24->lastContactId;
             $prevLastCompanyId = $this->b24->lastCompanyId;
             $prevLastLeadId    = $this->b24->lastLeadId;

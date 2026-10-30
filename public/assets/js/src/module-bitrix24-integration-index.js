@@ -21,6 +21,8 @@ const ModuleBitrix24Integration = {
 	$syncLinksButton: $('#sync-links-button'),
 	$syncLinksStatus: $('#sync-links-status'),
 	linksSyncPollHandle: null,
+	$rebuildCacheButton: $('#rebuild-cache-button'),
+	$rebuildCacheStatus: $('#rebuild-cache-status'),
 	$elRegion: $('#b24_region'),
 	$elAppData: $('#b24-app-data'),
 
@@ -313,6 +315,13 @@ const ModuleBitrix24Integration = {
 			ModuleBitrix24Integration.startLinksSync();
 		});
 
+		ModuleBitrix24Integration.$rebuildCacheButton.on('click', () => {
+			// eslint-disable-next-line no-alert
+			if (window.confirm(globalTranslate.mod_b24_i_RebuildCacheConfirm)) {
+				ModuleBitrix24Integration.startCacheRebuild();
+			}
+		});
+
 		$('#open-cards-list option').each((index, obj) => {
 			$(obj).html(globalTranslate["mod_b24_i_OPEN_CARD_"+$(obj).val()]);
 		});
@@ -361,6 +370,44 @@ const ModuleBitrix24Integration = {
 		} else {
 			ModuleBitrix24Integration.$syncLinksButton.removeClass('loading disabled');
 			ModuleBitrix24Integration.$syncLinksStatus.text('');
+		}
+	},
+
+	startCacheRebuild() {
+		ModuleBitrix24Integration.$rebuildCacheButton.addClass('loading disabled');
+		$.ajax({
+			url: window.location.origin + '/pbxcore/api/bitrix-integration/cache-rebuild/start',
+			method: 'POST',
+			dataType: 'json',
+			success(response) {
+				if (response.result === true) {
+					ModuleBitrix24Integration.$rebuildCacheStatus.text(globalTranslate.mod_b24_i_RebuildCacheStarted);
+				} else {
+					ModuleBitrix24Integration.$rebuildCacheButton.removeClass('loading disabled');
+					ModuleBitrix24Integration.$rebuildCacheStatus.text(globalTranslate.mod_b24_i_RebuildCacheError);
+				}
+			},
+			error() {
+				ModuleBitrix24Integration.$rebuildCacheButton.removeClass('loading disabled');
+				ModuleBitrix24Integration.$rebuildCacheStatus.text(globalTranslate.mod_b24_i_RebuildCacheError);
+			}
+		});
+	},
+
+	updateCacheRebuildUI(data) {
+		const status = (data && data.status) || '';
+		if (status === 'running' || status === 'pending') {
+			ModuleBitrix24Integration.$rebuildCacheButton.addClass('loading disabled');
+			ModuleBitrix24Integration.$rebuildCacheStatus.text(data.message || '');
+		} else if (status === 'done') {
+			ModuleBitrix24Integration.$rebuildCacheButton.removeClass('loading disabled');
+			ModuleBitrix24Integration.$rebuildCacheStatus.text(data.message || globalTranslate.mod_b24_i_RebuildCacheDone);
+		} else if (status === 'error') {
+			ModuleBitrix24Integration.$rebuildCacheButton.removeClass('loading disabled');
+			ModuleBitrix24Integration.$rebuildCacheStatus.text(data.message || globalTranslate.mod_b24_i_RebuildCacheError);
+		} else {
+			ModuleBitrix24Integration.$rebuildCacheButton.removeClass('loading disabled');
+			ModuleBitrix24Integration.$rebuildCacheStatus.text('');
 		}
 	},
 
