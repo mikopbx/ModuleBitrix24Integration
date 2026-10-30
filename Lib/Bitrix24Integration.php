@@ -646,6 +646,28 @@ class Bitrix24Integration extends PbxExtensionBase
     }
 
     /**
+     * Номер отключён в «Фильтре по пользователям» (disabled=1) → полностью
+     * исключён из интеграции (ни register, ни карточка, ни лид, включая
+     * пропущенные). Единая точка для всех гейтов (actionCreateCdr,
+     * actionCompleteCdr, hangup-finish): проверяет и прямой внутренний номер,
+     * и mobile/work-номер, смапленный на отключённый внутренний (UF_PHONE_INNER).
+     *
+     * @param string $num внутренний номер или mobile/work-номер участника
+     * @return bool
+     */
+    public function isNumberDisabled(string $num): bool
+    {
+        if ($num === '') {
+            return false;
+        }
+        if (isset($this->disabledNumbers[$num])) {
+            return true;
+        }
+        $shotNum = $this->mobile_numbers[self::getPhoneIndex($num)]['UF_PHONE_INNER'] ?? '';
+        return $shotNum !== '' && isset($this->disabledNumbers[$shotNum]);
+    }
+
+    /**
      * Обновление данных сессии.
      *
      * @param $query_data
