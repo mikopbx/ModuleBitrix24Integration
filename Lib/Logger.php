@@ -19,15 +19,13 @@
 
 namespace Modules\ModuleBitrix24Integration\Lib;
 
-use Cesargb\Log\Exceptions\RotationFailed;
-use Cesargb\Log\Rotation;
 use MikoPBX\Core\System\Directories;
 use MikoPBX\Core\System\SystemMessages;
 use MikoPBX\Core\System\Util;
 use Phalcon\Logger\Adapter\Stream;
+use Throwable;
 
 require_once('Globals.php');
-require_once(dirname(__DIR__) . '/vendor/autoload.php');
 
 class Logger
 {
@@ -43,6 +41,11 @@ class Logger
     private const MAX_PAYLOAD_BYTES = 512 * 1024;
 
     /**
+     * Как часто проверять, что открытый файл лога всё ещё является текущим.
+     */
+    private const REOPEN_CHECK_INTERVAL = 30;
+
+    /**
      * Совместимость с прежним кодом, где встречается обращение к публичному
      * полю $debug. Теперь оно отражает: "уровень ≥ INFO".
      */
@@ -53,6 +56,7 @@ class Logger
     private string $module_name;
     private string $logFile;
     private int $lastRotateCheckTs = 0;
+    private ?int $logInode = null;
 
     /**
      * Logger constructor.
@@ -114,69 +118,94 @@ class Logger
      */
     private function initLogger(): void
     {
+        clearstatcache(true, $this->logFile);
         if (!file_exists($this->logFile)) {
             file_put_contents($this->logFile, '');
         }
         Util::addRegularWWWRights($this->logFile);
-        $adapter = new Stream($this->logFile);
 
         $loggerClass = MikoPBXVersion::getLoggerClass();
 
+        // Inode берём ДО открытия, а не после: если файл переименует внешняя
+        // ротация между stat и open, мы запомним старый inode, откроем новый —
+        // и на следующей проверке лишний раз переоткроем тот же файл. Обратный
+        // порядок мог бы скрыть устаревший дескриптор до следующей ротации.
+        clearstatcache(true, $this->logFile);
+        $inode = @fileinode($this->logFile);
 
         $this->logger = new $loggerClass(
             'messages',
             [
-                'main' => $adapter,
+                'main' => new Stream($this->logFile),
             ]
         );
 
-
+        // Запоминаем inode только после успешного открытия: иначе при ошибке
+        // открытия новый inode был бы записан при старом дескрипторе, и проверка
+        // в rotate() больше не заметила бы расхождения.
+        $this->logInode = ($inode === false) ? null : $inode;
     }
 
+    /**
+     * Следит за тем, чтобы записи уходили в текущий файл лога.
+     *
+     * Сам модуль логи не ротирует — это делает ядро (ежечасный logrotate по всем
+     * *.log в каталоге модуля). Задача метода — не отстать от ядра:
+     *  - copytruncate (прошивки с 07.2026) обрезает тот же файл, inode не меняется;
+     *  - переименование (старые прошивки, а также ручной mv) оставляет у воркера
+     *    открытый дескриптор переименованного файла. Без переоткрытия воркер
+     *    дописывал в него всю свою жизнь — так вырастали файлы в гигабайты.
+     *
+     * Имя сохранено ради точек вызова (rotate() зовут воркеры в основных циклах).
+     * @return void
+     */
     public function rotate(): void
     {
-        // Throttle rotation checks to reduce overhead in tight loops (fixed interval).
-        $rotateInterval = 30;
         $now = time();
-        if ($this->lastRotateCheckTs !== 0 && ($now - $this->lastRotateCheckTs) < $rotateInterval) {
+        if ($this->lastRotateCheckTs !== 0 && ($now - $this->lastRotateCheckTs) < self::REOPEN_CHECK_INTERVAL) {
             return;
         }
         $this->lastRotateCheckTs = $now;
-        $rotation = new Rotation([
-            'files'    => 4,
-            'compress' => false,
-            'min-size' => 10 * 1024 * 1024,
-            'truncate' => false,
-            'catch'    => function (RotationFailed $exception) {
-                SystemMessages::sysLogMsg($this->module_name, $exception->getMessage());
-            },
-        ]);
-        if ($rotation->rotate($this->logFile)) {
-            $this->initLogger();
-            $this->cleanupOrphanedLogs();
+
+        // clearstatcache обязателен: на PHP <= 8.2 дописывание файла не сбрасывает
+        // кеш stat, и file_exists()/fileinode() отдавали бы устаревшие данные.
+        clearstatcache(true, $this->logFile);
+        if (!file_exists($this->logFile)) {
+            $this->reopenLogSafely();
+            return;
+        }
+        $inode = @fileinode($this->logFile);
+        if ($inode !== false && $this->logInode !== null && $inode !== $this->logInode) {
+            $this->reopenLogSafely();
         }
     }
 
     /**
-     * Удаляет осиротевшие .gz и .0 файлы, которые Cesargb не отслеживает.
+     * Переоткрывает файл лога, не роняя воркер, если открыть не получилось:
+     * тогда пишем дальше в прежний дескриптор и сообщаем в syslog.
+     * @return void
      */
-    private function cleanupOrphanedLogs(): void
+    private function reopenLogSafely(): void
     {
-        $pattern = $this->logFile . '.*';
-        $files = glob($pattern);
-        if (!is_array($files)) {
+        $logDir = dirname($this->logFile);
+        // mkdir напрямую: Util::mwMkdir() создаёт каталоги только от root,
+        // а воркеры модуля работают от www.
+        if (!is_dir($logDir) && !@mkdir($logDir, 0777, true) && !is_dir($logDir)) {
+            SystemMessages::sysLogMsg($this->module_name, 'Cannot recreate log directory: ' . $logDir, LOG_WARNING);
             return;
         }
-        foreach ($files as $file) {
-            $basename = basename($file);
-            // Удаляем .gz файлы (остатки от compress=true) и .0 файлы (от другой ротации)
-            if (preg_match('/\.\d+\.gz$/', $basename) || preg_match('/\.0$/', $basename)) {
-                unlink($file);
-            }
-            // Удаляем файлы с номером > 4 (старые бэкапы от files=9)
-            if (preg_match('/\.(\d+)$/', $basename, $m) && (int)$m[1] > 4) {
-                unlink($file);
-            }
+        if (!is_writable($this->logFile) && file_exists($this->logFile)) {
+            SystemMessages::sysLogMsg($this->module_name, 'Log file is not writable: ' . $this->logFile, LOG_WARNING);
+            return;
+        }
+        try {
+            $this->initLogger();
+        } catch (Throwable $e) {
+            SystemMessages::sysLogMsg(
+                $this->module_name,
+                'Cannot reopen log file ' . $this->logFile . ': ' . $e->getMessage(),
+                LOG_WARNING
+            );
         }
     }
 
