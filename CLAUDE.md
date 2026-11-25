@@ -17,7 +17,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **WorkerBitrix24IntegrationHTTP** — основной демон: OAuth-авторизация, REST API Bitrix24, обработка событий звонков, синхронизация контактов
 - **WorkerBitrix24IntegrationAMI** — слушает события Asterisk AMI (состояния каналов, звонки, очереди)
 - **ConnectorDb** — все операции с БД: настройки, CDR, пользователи, контакты. Другие воркеры обращаются к нему через `ConnectorDb::invoke()`
-- **UploaderB24** — асинхронная загрузка записей разговоров в Bitrix24
+- **UploaderB24** — единственный путь загрузки записей разговоров в Bitrix24: ждёт готовности webm, конвертирует в mp3/wav, грузит файл по upload-ссылке. Синхронного режима нет
 - **safe.php** — cron-скрипт (раз в минуту), следит за жизнью воркеров и перезапускает упавшие
 
 ### Ключевые библиотеки (Lib/)
@@ -25,7 +25,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Bitrix24Integration** — ядро интеграции: OAuth-токены, REST API, работа с CRM (лиды, контакты, компании, сделки), управление звонками
 - **Bitrix24IntegrationConf** — конфигурация модуля в MikoPBX: регистрация REST-маршрутов, генерация диалплана Asterisk, cron-задачи, lifecycle-хуки модуля
 - **CacheManager** — Redis-кеш с префиксом `b24_token_`
-- **Logger** — логирование с ротацией (40MB, 9 бэкапов)
+- **Logger** — логирование. Ротацию делает ядро (часовой logrotate по `*.log` модуля), `Logger::rotate()` лишь переоткрывает файл после внешней ротации. Токены в записях маскируются
 - **Bitrix24InvokeRest** — очередь вызовов REST API
 
 ### MVC-слой (App/)
@@ -95,6 +95,7 @@ GET /pbxcore/api/bitrix-integration/workers/state (без авторизации
 - `array_search()` возвращает `false` → при использовании как индекс массива тихо приводится к `0` (PHP 7.4) или Deprecated (PHP 8.1). Всегда проверять `=== false`
 - `count(null)` — E_WARNING на всех версиях, но работает (возвращает 0). Инициализировать переменные перед count()
 - `tempnam()` может вернуть `false` — на PHP 8 `chown(false, ...)` даёт TypeError
+- **`exec()` в HTTP-воркере всегда возвращает -1.** Там стоит `pcntl_signal(SIGCHLD, SIG_IGN)` (авто-reap дочерних процессов), и код возврата дочернего процесса получить нельзя. В этом воркере годится только вывод команды; всё, что решает по коду возврата (конвертация записей), должно выполняться в другом воркере — сейчас в UploaderB24
 
 ## Call Processing Flow
 
@@ -124,6 +125,15 @@ GET /pbxcore/api/bitrix-integration/workers/state (без авторизации
 Для входящих звонков AMI-воркер шлёт `telephonyExternalCallFinish` на каждое CDR-плечо. Плечи, не дошедшие до оператора (IVR/queue), помечаются `USER_ID=responsibleMissedCalls`, `GLOBAL_STATUS=NOANSWER`. Эти эвенты могут опередить ANSWERED-finish реального оператора и переписать статус звонка на «пропущен».
 
 HTTP-воркер фильтрует их: при `action_dial_answer` ставит маркер `b24-answered-<linkedid>` в Redis (TTL 3 ч, через `CacheManager`/`b24->saveCache` — переживает рестарт воркера). При обработке `telephonyExternalCallFinish` с `GLOBAL_STATUS!=ANSWERED`, если маркер стоит — эвент пропускается. Полностью пропущенные звонки (никто не ответил) идут штатно — маркера нет.
+
+### Call recordings
+
+- **Загрузка только фоновая.** `telephonyExternalCallAttachRecord` не читает файл и не шлёт `FILE_CONTENT`: она только вызывает `telephony.externalCall.attachRecord` (без содержимого) и ставит задачу в очередь `b24-uploader`. Колонка `backgroundUpload` в настройках больше ни на что не влияет. Синхронный режим удалён: на прошивках с webm он отдавал Bitrix24 сырой webm под именем `.mp3`.
+- **Webm дописывается ядром после hangup** (6–9 с), поэтому в момент finish файла может не быть. Проверка `file_exists` при постановке задачи не делается.
+- **Bitrix24 принимает только mp3 и wav.** Формат выбирается в `getRecordUploadFormat()` до запроса upload-ссылки и попадает в задачу как `FORMAT`: `mp3`, если у ffmpeg есть `libmp3lame`, иначе `wav`. Расширение `FILENAME` в `attachRecord` обязано совпадать с `FORMAT`.
+- **Конвертация** — `convertRecordForUpload()` в UploaderB24: временный файл в `<CORE_TEMP_DIR>/b24_records` (не в `/tmp`, там tmpfs). При любой неудаче исходник не отправляется.
+- **Долгие операции должны отвечать на ping.** Watchdog ядра перезапускает beanstalk-воркер после трёх пропущенных ping (~15 с). Конвертация (`waitForProcess`) и передача (`execCurlWithTicks`) вызывают `UploaderB24::createQueueTick()` раз в 200 мс; возврат `false` прерывает операцию. Лимиты: нет движения байтов 60 с, ответ сервера 180 с, вся передача 900 с.
+- **Задача теряется при рестарте** — она живёт только в памяти воркера. Неудачная загрузка переотправляется через Beanstalk с выдержкой, до 8 попыток.
 
 ## MTS Historical Import
 
@@ -156,5 +166,9 @@ HTTP-воркер фильтрует их: при `action_dial_answer` став�
 
 ## Logs
 
-Логи воркеров: `ConnectorDb.log`, `HttpConnection.log`, `HttpConnection_SYNC.log`, `IntegrationAMI.log`, `Bitrix24Integration.log` (сюда пишется `inner_numbers_diff` — added/removed между снимками b24GetPhones).
+Логи воркеров: `ConnectorDb.log`, `HttpConnection.log`, `HttpConnection_SYNC.log`, `IntegrationAMI.log`, `Bitrix24Integration.log` (сюда пишется `inner_numbers_diff` — added/removed между снимками b24GetPhones), `UploaderB24.log` (готовность записи, результат загрузки) и `HttpConnection_uploader.log` (конвертация записи, ошибки загрузки).
 Формат: `[ISO8601][level] message(pid): JSON`. Для анализа звонка — искать по `linkedid` во всех логах.
+
+**Ротация.** Её делает ядро: раз в час logrotate по всем `*.log` в каталоге модуля (`copytruncate`, 10 МБ, 9 копий, старые сжимаются). Модуль ничего не переименовывает и не удаляет. `Logger::rotate()` раз в 30 с сверяет inode открытого файла с файлом по имени (после `clearstatcache()`) и переоткрывает его при расхождении или отсутствии — иначе воркер дописывал бы в переименованный файл всю свою жизнь (так вырастали логи в гигабайты). Собственную ротацию в модуль не возвращать: на PHP ≤ 8.2 она не срабатывала из-за кеша stat, а её очистка удаляла архивы ядра.
+
+**Токены.** `Logger` маскирует значения `auth`, `access_token`, `refresh_token`, `client_secret`, `token` (первые 6 символов + `…`), поэтому логи можно забирать у клиентов целиком. Токены вне `Logger` (например, в syslog) не маскируются.

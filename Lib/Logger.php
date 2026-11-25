@@ -46,6 +46,19 @@ class Logger
     private const REOPEN_CHECK_INTERVAL = 30;
 
     /**
+     * Ключи, значения которых не должны попадать в лог в открытом виде.
+     * Логи регулярно забирают у клиентов для разбора — вместе с ними уходили бы
+     * действующие токены портала. Соответствует ключу в JSON ("auth":"…"),
+     * в query-строке (&auth=…) и в экранированном JSON внутри строки (\"auth\":\"…\").
+     */
+    private const SECRET_KEY_REGEX = '(?<![A-Za-z0-9_])(?:access_token|refresh_token|client_secret|auth|token)(?![A-Za-z0-9_-])\\\\?["\']?\s*[:=]\s*\\\\?["\']?';
+
+    /**
+     * Значение секрета. Короткие значения (маски, статусы) не трогаем.
+     */
+    private const SECRET_VALUE_REGEX = '[A-Za-z0-9._~+%\/=\-]{8,}';
+
+    /**
      * Совместимость с прежним кодом, где встречается обращение к публичному
      * полю $debug. Теперь оно отражает: "уровень ≥ INFO".
      */
@@ -267,12 +280,14 @@ class Logger
     {
         if (is_string($data)) {
             $len = strlen($data);
-            return $len > self::MAX_PAYLOAD_BYTES
-                ? substr($data, 0, self::MAX_PAYLOAD_BYTES) . '...[truncated, ' . $len . ' bytes]'
-                : $data;
+            return $this->maskSecrets(
+                $len > self::MAX_PAYLOAD_BYTES
+                    ? substr($data, 0, self::MAX_PAYLOAD_BYTES) . '...[truncated, ' . $len . ' bytes]'
+                    : $data
+            );
         }
         if (is_scalar($data) || $data === null) {
-            return (string)$data;
+            return $this->maskSecrets((string)$data);
         }
         $printedData = json_encode(
             $data,
@@ -283,9 +298,36 @@ class Logger
         }
         $len = strlen($printedData);
         if ($len > self::MAX_PAYLOAD_BYTES) {
-            return substr($printedData, 0, self::MAX_PAYLOAD_BYTES)
+            $printedData = substr($printedData, 0, self::MAX_PAYLOAD_BYTES)
                 . '...[truncated, ' . $len . ' bytes]';
         }
-        return $printedData;
+        return $this->maskSecrets($printedData);
+    }
+
+    /**
+     * Заменяет значения токенов в тексте лога на первые 6 символов + «…».
+     * Префикс оставлен намеренно: по нему видно, сменился ли токен между
+     * записями (разбор шторма обновлений токена), не раскрывая сам токен.
+     *
+     * @param string $text
+     * @return string
+     */
+    private function maskSecrets(string $text): string
+    {
+        if ($text === '') {
+            return $text;
+        }
+        // Быстрый предфильтр: preg_replace_callback по каждому сообщению не нужен.
+        if (strpos($text, 'token') === false && strpos($text, 'auth') === false && strpos($text, 'client_secret') === false) {
+            return $text;
+        }
+        $result = preg_replace_callback(
+            '/(' . self::SECRET_KEY_REGEX . ')(' . self::SECRET_VALUE_REGEX . ')/',
+            static function (array $match): string {
+                return $match[1] . substr($match[2], 0, 6) . '…';
+            },
+            $text
+        );
+        return is_string($result) ? $result : $text;
     }
 }
