@@ -65,6 +65,9 @@ class Bitrix24Integration extends PbxExtensionBase
     /** Ключ кеша (Redis) возможностей ffmpeg. */
     private const FFMPEG_CAPS_CACHE_KEY = 'ffmpeg_caps';
 
+    /** Как долго не повторять подписку на события после ACCESS_DENIED. */
+    private const EVENTS_BIND_RETRY_DELAY = 3600;
+
     public array $b24Users = [];
     public array $inner_numbers = [];
     public array $mobile_numbers = [];
@@ -87,6 +90,9 @@ class Bitrix24Integration extends PbxExtensionBase
      */
     private ?array $ffmpegCaps = null;
 
+    /** До этого времени eventsBind() не повторяет подписку после ACCESS_DENIED. */
+    private int $eventsBindRetryAfter = 0;
+    private bool $eventsBindDeniedLogged = false;
     public MainLogger $mainLogger;
     private bool $mainProcess = false;
     private int $updateTokenTime = 300;
@@ -283,6 +289,18 @@ class Bitrix24Integration extends PbxExtensionBase
         }
 
         return $data;
+    }
+
+    /**
+     * Сохраняет значение в памяти процесса до первого чтения getMemCache().
+     *
+     * @param  string $key
+     * @param  mixed  $data
+     * @return void
+     */
+    public function setMemCache(string $key, $data): void
+    {
+        $this->mem_cache[$key] = $data;
     }
 
     /**
@@ -843,6 +861,13 @@ class Bitrix24Integration extends PbxExtensionBase
      */
     public function eventsBind(): bool
     {
+        // После ACCESS_DENIED не долбим REST каждым циклом (~10 с): у клиента без
+        // прав администратора выходило ~1900 неудачных batch за 6 часов. Права
+        // меняются редко — переподписка раз в EVENTS_BIND_RETRY_DELAY достаточна.
+        if (time() < $this->eventsBindRetryAfter) {
+            return false;
+        }
+
         $eventResults = $this->eventGet();
 
         usleep(500000);
@@ -881,12 +906,46 @@ class Bitrix24Integration extends PbxExtensionBase
             $this->mainLogger->writeInfo('Update event binding...');
             $arg      = array_merge($arg, $this->eventOfflineGet());
             $response = $this->sendBatch($arg);
-            $result   = empty($response['result']['result_error']??[]);
+            $errors   = $response['result']['result_error'] ?? [];
+            $result   = empty($errors);
+            $this->handleEventsBindErrors(is_array($errors) ? $errors : []);
         } else {
             $result = true;
         }
 
         return $result;
+    }
+
+    /**
+     * Реакция на ошибки подписки на события: ACCESS_DENIED означает, что
+     * приложение авторизовано не администратором — повторами не лечится,
+     * поэтому берём часовую паузу и один раз объясняем причину в логе.
+     *
+     * @param array $errors result_error ответа batch
+     * @return void
+     */
+    private function handleEventsBindErrors(array $errors): void
+    {
+        $denied = false;
+        foreach ($errors as $error) {
+            if (is_array($error) && strtoupper((string)($error['error'] ?? '')) === 'ACCESS_DENIED') {
+                $denied = true;
+                break;
+            }
+        }
+        if (!$denied) {
+            $this->eventsBindDeniedLogged = false;
+            return;
+        }
+        $this->eventsBindRetryAfter = time() + self::EVENTS_BIND_RETRY_DELAY;
+        if (!$this->eventsBindDeniedLogged) {
+            $this->eventsBindDeniedLogged = true;
+            $this->mainLogger->writeError(
+                'event.bind: ACCESS_DENIED — offline events require administrator access rights. '
+                . 'Authorize the application under a Bitrix24 administrator. Next attempt in '
+                . intdiv(self::EVENTS_BIND_RETRY_DELAY, 60) . ' minutes.'
+            );
+        }
     }
 
     /**
@@ -2086,7 +2145,8 @@ class Bitrix24Integration extends PbxExtensionBase
     public function telephonyExternalCallPostFinish(string $finishKey, array $response, array &$queryArray): void{
         $cache_data = $this->getMemCache($finishKey);
         $activityId = $response['CRM_ACTIVITY_ID']??'';
-        if($cache_data && !empty($activityId)){
+        $activityWillBeDeleted = (bool)$cache_data && !empty($activityId);
+        if($activityWillBeDeleted){
             // Постановка задачи на удаление activity.
             $queryArray[] = $this->crmActivityDelete($activityId);
         }
@@ -2095,6 +2155,16 @@ class Bitrix24Integration extends PbxExtensionBase
             $cacheData = $this->getMemCache("$finishKey-missed");
         }
         $id = str_replace(self::API_CALL_FINISH, '', $finishKey);
+
+        // Описание дела звонка (linkedid, плечо, длительность) обновляем только
+        // если B24 вернул CRM_ACTIVITY_ID. Раньше запрос уходил в одном batch с
+        // finish по ссылке на ещё пустой ID, и B24 отвечал ошибкой на каждом звонке.
+        // Для удаляемого дела описание не пишем.
+        $activityDescription = $this->getMemCache("$finishKey-desc");
+        if (!empty($activityId) && !$activityWillBeDeleted
+            && is_string($activityDescription) && $activityDescription !== '') {
+            $queryArray[] = $this->crmActivityUpdate($activityId, $id, $activityDescription);
+        }
 
         // ASSIGNED_BY_ID назначаем по "лучшему" плечу (с максимальной DURATION) звонка,
         // если оно известно. Это важно при переводе: B24 принимает только первый finish
