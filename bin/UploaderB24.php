@@ -24,6 +24,7 @@ use MikoPBX\Core\System\BeanstalkClient;
 use Exception;
 use MikoPBX\Core\System\Util;
 use MikoPBX\Core\Workers\WorkerBase;
+use Throwable;
 use Modules\ModuleBitrix24Integration\Lib\Bitrix24Integration;
 use Modules\ModuleBitrix24Integration\Lib\Logger;
 
@@ -115,6 +116,10 @@ class UploaderB24 extends WorkerBase
         }
         $now = time();
         $remaining = [];
+        // Во время долгой загрузки createQueueTick() может принять новую задачу:
+        // она дописывается в конец pendingTasks. foreach идёт по копии начала
+        // списка, поэтому новые задачи нужно сохранить за пределами этого прохода.
+        $initialCount = count($this->pendingTasks);
         foreach ($this->pendingTasks as $task) {
             $filename   = $task['FILENAME'] ?? '';
             $receivedAt = $task['_receivedAt'] ?? $now;
@@ -131,9 +136,19 @@ class UploaderB24 extends WorkerBase
                 }
                 continue;
             }
+            $format = (string)($task['FORMAT'] ?? '');
             try {
-                $this->logger->writeInfo("File ready after {$elapsed}s, uploading '$filename'.");
-                $result = $this->b24->uploadRecord($task['uploadUrl'] ?? '', $filename);
+                $this->logger->writeInfo(
+                    "File ready after {$elapsed}s, uploading '$filename'" . ($format === '' ? '' : " (converted to $format)") . '.'
+                );
+                $uploadUrl = $task['uploadUrl'] ?? '';
+                // Конвертация и передача файла могут занять минуты. Всё это время
+                // воркер должен отвечать на ping — см. runLongOperation().
+                $result = $this->runLongOperation(
+                    function () use ($uploadUrl, $filename, $format) {
+                        return $this->b24->uploadRecord($uploadUrl, $filename, $format, $this->createQueueTick());
+                    }
+                );
                 $errorName = $result['error'] ?? '';
 
                 if (in_array($errorName, ['expired_token', 'wrong_client', 'NO_AUTH_FOUND', 'invalid_token'], true)) {
@@ -152,12 +167,62 @@ class UploaderB24 extends WorkerBase
                     continue;
                 }
                 usleep(300000);
-            } catch (Exception $e) {
+            } catch (Throwable $e) {
+                // Задача уже снята с очереди: без requeue любая ошибка (включая
+                // TypeError/Error, которые не наследуют Exception) теряла запись.
                 $this->logger->writeError($e->getLine().';'.$e->getCode().';'.$e->getMessage());
                 $this->requeueWithDelay($task, 'exception: ' . $e->getMessage());
             }
         }
-        $this->pendingTasks = $remaining;
+        $this->pendingTasks = array_merge($remaining, array_slice($this->pendingTasks, $initialCount));
+    }
+
+    /**
+     * Выполняет долгую операцию (конвертацию и передачу записи), оставаясь
+     * отзывчивым на ping.
+     *
+     * Watchdog ядра перезапускает beanstalk-воркер после трёх пропущенных ping
+     * (~15 с). Блокирующий curl_exec/exec на это время молчит — длинная запись
+     * на медленном канале приводила к перезапуску воркера посреди загрузки, задача
+     * возвращалась в очередь, и цикл повторялся. На время операции обработчик
+     * таймаута подменён, чтобы wait(0) из createQueueTick() не вошёл в
+     * executeTasks() повторно.
+     *
+     * @param callable $operation
+     * @return mixed
+     */
+    private function runLongOperation(callable $operation)
+    {
+        $this->queueAgent->setTimeoutHandler([$this, 'noopHandler']);
+        try {
+            return $operation();
+        } finally {
+            $this->queueAgent->setTimeoutHandler([$this, 'executeTasks']);
+        }
+    }
+
+    /**
+     * Тик для долгих операций: обрабатывает одно сообщение очереди — отвечает на
+     * ping или принимает новую задачу загрузки в очередь ожидания.
+     *
+     * @return bool false — воркер должен завершиться, операцию нужно прервать
+     */
+    private function createQueueTick(): callable
+    {
+        return function (): bool {
+            if ($this->needRestart) {
+                return false;
+            }
+            $this->queueAgent->wait(0);
+            return true;
+        };
+    }
+
+    /**
+     * Пустой обработчик таймаута на время долгой операции (см. runLongOperation()).
+     */
+    public function noopHandler(): void
+    {
     }
 
     private function requeueWithDelay(array $task, string $reason): void

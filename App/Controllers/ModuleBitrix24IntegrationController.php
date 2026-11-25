@@ -349,10 +349,15 @@ class ModuleBitrix24IntegrationController extends BaseController
                         $record->$key = null;
                     }
                     break;
+                case 'backgroundUpload':
+                    // Синхронная загрузка записей удалена, режим всегда фоновый.
+                    // Колонка остаётся в таблице ради совместимости — держим в ней 1,
+                    // чтобы сохранённое значение не вводило в заблуждение.
+                    $record->$key = '1';
+                    break;
                 case 'export_cdr':
                 case 'use_interception':
                 case 'crmCreateLead':
-                case 'backgroundUpload':
                 case 'export_records':
                 case 'import_mts_calls':
                 case 'import_beeline_calls':
