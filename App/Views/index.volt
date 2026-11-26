@@ -28,12 +28,6 @@
                 <label>{{ t._('mod_b24_i_ExportRecords') }}</label>
             </div>
         </div>
-        <div class="field">
-            <div class="ui toggle checkbox ">
-                {{ form.render('backgroundUpload') }}
-                <label>{{ t._('mod_b24_i_backgroundUpload') }}</label>
-            </div>
-        </div>
         {% if isMtsModuleInstalled %}
         <div class="field">
             <div class="ui toggle checkbox">

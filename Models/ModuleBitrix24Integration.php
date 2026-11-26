@@ -72,6 +72,9 @@ class ModuleBitrix24Integration extends ModulesModelsBase
     public $export_records = "1";
 
     /**
+     * Не используется: синхронная загрузка записей удалена, режим всегда фоновый.
+     * Колонка оставлена ради совместимости; при сохранении настроек и при
+     * обновлении модуля в неё пишется 1.
      *
      * @Column(type="integer", nullable=true, default="1")
      */

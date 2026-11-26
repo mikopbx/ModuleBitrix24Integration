@@ -20,12 +20,19 @@
 namespace Modules\ModuleBitrix24Integration\Setup;
 
 use MikoPBX\Common\Models\PbxSettings;
+use MikoPBX\Core\System\Directories;
+use MikoPBX\Core\System\SystemMessages;
 use Modules\ModuleBitrix24Integration\Models\ContactLinks;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
 use MikoPBX\Modules\Setup\PbxExtensionSetupBase;
 
 class PbxExtensionSetup extends PbxExtensionSetupBase
 {
+    /**
+     * Размер, выше которого обычный (не сжатый) ротированный лог считается
+     * следом прежней сломанной ротации. Нормальный кусок — чуть больше 10 МБ.
+     */
+    private const OVERSIZED_LOG_BYTES = 50 * 1048576;
 
     /**
      * Создает структуру для хранения настроек модуля в своей модели
@@ -53,10 +60,58 @@ class PbxExtensionSetup extends PbxExtensionSetupBase
             if (empty($settings->logLevel)) {
                 $settings->logLevel = ModuleBitrix24Integration::LOG_LEVEL_INFO;
             }
+            // Синхронная загрузка записей удалена — режим всегда фоновый.
+            $settings->backgroundUpload = '1';
             $result = $settings->save();
+        }
+        if ($result) {
+            $this->cleanupOversizedRotatedLogs();
         }
 
         return $result;
+    }
+
+    /**
+     * Удаляет следы прежней (сломанной) ротации логов модуля.
+     *
+     * Раньше модуль ротировал логи сам, переименованием. Пока воркер не
+     * перезапустится, он дописывал в переименованный файл всю свою жизнь: у клиента
+     * так выросли IntegrationAMI.log.1 (1,17 ГБ) и .2 (962 МБ). Ротирует теперь
+     * ядро, а эти файлы никто не убирает — его очистка срабатывает только при
+     * нехватке места. Удаляем обычные *.log.N крупнее OVERSIZED_LOG_BYTES; сжатые
+     * *.log.N.gz и текущий *.log.0 принадлежат logrotate ядра, их не трогаем.
+     *
+     * @return void
+     */
+    private function cleanupOversizedRotatedLogs(): void
+    {
+        $logDir = Directories::getDir(Directories::CORE_LOGS_DIR) . '/' . $this->moduleUniqueID;
+        if (!is_dir($logDir)) {
+            return;
+        }
+        $removed = 0;
+        $freed   = 0;
+        $files   = glob($logDir . '/*.log.[1-9]*', GLOB_NOSORT);
+        foreach (is_array($files) ? $files : [] as $file) {
+            if (!preg_match('/\.log\.\d+$/', basename($file))) {
+                continue;
+            }
+            $size = @filesize($file);
+            if ($size === false || $size <= self::OVERSIZED_LOG_BYTES) {
+                continue;
+            }
+            if (@unlink($file)) {
+                $removed++;
+                $freed += $size;
+            }
+        }
+        if ($removed > 0) {
+            SystemMessages::sysLogMsg(
+                $this->moduleUniqueID,
+                'Removed ' . $removed . ' oversized rotated log file(s), ' . round($freed / 1048576) . ' MB (left by the old rotation).',
+                LOG_NOTICE
+            );
+        }
     }
 
     /**

@@ -43,7 +43,6 @@ class ModuleBitrix24IntegrationForm extends Form
         // CheckBoxes
         $this->addCheckBox('export_cdr', intval($entity->export_cdr) === 1);
         $this->addCheckBox('crmCreateLead', intval($entity->crmCreateLead) === 1);
-        $this->addCheckBox('backgroundUpload', intval($entity->backgroundUpload) === 1);
         $this->addCheckBox('export_records', intval($entity->export_records) === 1);
         $this->addCheckBox('use_interception', intval($entity->use_interception) === 1);
         $this->addCheckBox('import_mts_calls', intval($entity->import_mts_calls) === 1);

@@ -14,6 +14,7 @@ use Phalcon\Mvc\Model\Manager;
 use MikoPBX\Common\Models\CallQueues;
 use MikoPBX\Common\Models\IncomingRoutingTable;
 use MikoPBX\Common\Models\Extensions;
+use MikoPBX\Core\System\Directories;
 use MikoPBX\Modules\PbxExtensionBase;
 use MikoPBX\PBXCoreREST\Lib\PBXApiResult;
 use Modules\ModuleBitrix24Integration\Models\ModuleBitrix24Integration;
@@ -50,6 +51,23 @@ class Bitrix24Integration extends PbxExtensionBase
     public const B24_SEARCH_CHANNEL      = 'b24_search_channel';
     public const B24_INVOKE_REST_CHANNEL = 'b24.invoke.channel';
 
+    /**
+     * Лимиты фоновой загрузки записи. Воркер во время загрузки отвечает на ping
+     * (см. UploaderB24::createQueueTick), поэтому общий лимит выше прежних 30 с
+     * curl: файл длинного разговора на медленном канале грузится минутами.
+     */
+    private const UPLOAD_MAX_SECONDS   = 900;
+    private const UPLOAD_STALL_SECONDS = 60;
+
+    /** Максимальное время конвертации одной записи. */
+    private const CONVERT_MAX_SECONDS = 600;
+
+    /** Ключ кеша (Redis) возможностей ffmpeg. */
+    private const FFMPEG_CAPS_CACHE_KEY = 'ffmpeg_caps';
+
+    /** Как долго не повторять подписку на события после ACCESS_DENIED. */
+    private const EVENTS_BIND_RETRY_DELAY = 3600;
+
     public array $b24Users = [];
     public array $inner_numbers = [];
     public array $mobile_numbers = [];
@@ -66,7 +84,15 @@ class Bitrix24Integration extends PbxExtensionBase
     private string $client_secret;
     private string $queueExtension = '';
     private string $queueUid = '';
-    private bool $backgroundUpload = false;
+    /**
+     * Возможности ffmpeg в рамках процесса: ['found' => bool, 'mp3' => bool, 'path' => string].
+     * См. getFfmpegCaps().
+     */
+    private ?array $ffmpegCaps = null;
+
+    /** До этого времени eventsBind() не повторяет подписку после ACCESS_DENIED. */
+    private int $eventsBindRetryAfter = 0;
+    private bool $eventsBindDeniedLogged = false;
     public MainLogger $mainLogger;
     private bool $mainProcess = false;
     private int $updateTokenTime = 300;
@@ -149,7 +175,6 @@ class Bitrix24Integration extends PbxExtensionBase
         $this->cacheVerifyEnabled = !isset($settings->cacheVerifyEnabled) || intval($settings->cacheVerifyEnabled) !== 0;
 
         $this->loadUsersSettings();
-        $this->backgroundUpload = intval($settings->backgroundUpload) === 1;
         $default_action = IncomingRoutingTable::findFirst('priority = 9999');
         if(!empty($settings->callbackQueue)){
             $filter =  [
@@ -264,6 +289,18 @@ class Bitrix24Integration extends PbxExtensionBase
         }
 
         return $data;
+    }
+
+    /**
+     * Сохраняет значение в памяти процесса до первого чтения getMemCache().
+     *
+     * @param  string $key
+     * @param  mixed  $data
+     * @return void
+     */
+    public function setMemCache(string $key, $data): void
+    {
+        $this->mem_cache[$key] = $data;
     }
 
     /**
@@ -384,12 +421,15 @@ class Bitrix24Integration extends PbxExtensionBase
 
     /**
      * Совершает запрос с заданными данными по заданному адресу. В ответ ожидается JSON
-     * @param string $url
-     * @param array  $data
-     * @param        $needBuildQuery
+     *
+     * @param string        $url
+     * @param array         $data
+     * @param               $needBuildQuery false — тело уже готово (multipart, загрузка записи)
+     * @param array         $extraCurlOptions дополняют/переопределяют стандартные опции cURL
+     * @param callable|null $onTick см. execCurl(); null — обычный блокирующий запрос
      * @return array
      */
-    private function query(string $url, array $data, $needBuildQuery = true): array
+    private function query(string $url, array $data, $needBuildQuery = true, array $extraCurlOptions = [], ?callable $onTick = null): array
     {
         if(($data['grant_type']??'') !== 'refresh_token'){
             $expires = (int)($this->SESSION['expires']??0);
@@ -409,24 +449,33 @@ class Bitrix24Integration extends PbxExtensionBase
         $curlOptions[CURLOPT_RETURNTRANSFER] = true;
         $curlOptions[CURLOPT_TIMEOUT]        = 30;
         $curlOptions[CURLOPT_CONNECTTIMEOUT] = 10;
+        if ($extraCurlOptions !== []) {
+            $curlOptions = array_replace($curlOptions, $extraCurlOptions);
+        }
 
         $status          = 0;
         $headersResponse = '';
 
         $totalTime = 0;
-        $response  = $this->execCurl($url, $curlOptions, $status, $headersResponse, $totalTime);
+        $response  = $this->execCurl($url, $curlOptions, $status, $headersResponse, $totalTime, $onTick);
 
          if (is_array($response)) {
              $error_name = $response['error'] ?? '';
              if ('expired_token' === $error_name) {
                  $this->updateToken();
                  // Обновляем параметры запроса:
-                 $data['auth']                    = $this->getAccessToken();
-                 $curlOptions[CURLOPT_POSTFIELDS] = http_build_query($data);
+                 if ($needBuildQuery) {
+                     $data['auth']                    = $this->getAccessToken();
+                     $curlOptions[CURLOPT_POSTFIELDS] = http_build_query($data);
+                 } else {
+                     // multipart (загрузка записи): тело нельзя прогонять через
+                     // http_build_query — вместо файла ушла бы пустышка. Токен меняем в URL.
+                     $url = $this->replaceUrlAuth($url, $this->getAccessToken());
+                 }
                  // Передышка. Сохраняем требование к кол-ву запросов в секунду (2шт.)
                  usleep(500000);
                  // Отправляем запрос повторно:
-                 $response = $this->execCurl($url, $curlOptions, $status, $headersResponse, $totalTime);
+                 $response = $this->execCurl($url, $curlOptions, $status, $headersResponse, $totalTime, $onTick);
                  // Проверяем наличие ошибки:
                  $error_name = $response['error'] ?? '';
              } elseif (in_array($error_name,['wrong_client','NO_AUTH_FOUND'], true)) {
@@ -573,16 +622,24 @@ class Bitrix24Integration extends PbxExtensionBase
      * @param     $status
      * @param     $headers
      * @param float $time
+     * @param callable|null $onTick Если задан, передача идёт через curl_multi и не
+     *                              реже чем раз в 200 мс вызывается $onTick(). Возврат
+     *                              false прерывает запрос. Нужно для долгих запросов
+     *                              (загрузка записи): при блокирующем curl_exec воркер
+     *                              не отвечает на ping, и Watchdog перезапускает его
+     *                              через ~15 с. null — обычный блокирующий запрос.
      *
      * @return mixed
      */
-    private function execCurl($url, $curlOptions, &$status = 0, &$headers = '', float &$time = 0)
+    private function execCurl($url, $curlOptions, &$status = 0, &$headers = '', float &$time = 0, ?callable $onTick = null)
     {
         $curl = curl_init($url);
         curl_setopt_array($curl, $curlOptions);
         curl_setopt($curl, CURLOPT_HEADER, 1);
 
-        $result      = curl_exec($curl);
+        $result = ($onTick === null) ? curl_exec($curl) : $this->execCurlWithTicks($curl, $onTick);
+
+        $result      = (string)$result;
         $header_size = curl_getinfo($curl, CURLINFO_HEADER_SIZE);
         $headers     = substr($result, 0, $header_size);
         $response    = trim(substr($result, $header_size));
@@ -596,6 +653,115 @@ class Bitrix24Integration extends PbxExtensionBase
         }
 
         return $data;
+    }
+
+    /**
+     * Пауза между вызовами $onTick внутри долгого запроса или процесса.
+     */
+    private const TICK_INTERVAL = 0.2;
+
+    /**
+     * Сколько ждать ответ сервера после того, как тело запроса отправлено целиком.
+     */
+    private const UPLOAD_RESPONSE_WAIT_SECONDS = 180;
+
+    /**
+     * Передача через curl_multi с периодическим вызовом $onTick() (см. execCurl).
+     * Запрос прерывается, если воркер должен завершиться, если байты не движутся
+     * дольше UPLOAD_STALL_SECONDS или истёк общий лимит UPLOAD_MAX_SECONDS.
+     *
+     * @param          $curl
+     * @param callable $onTick
+     * @return string|false тело ответа либо false, если запрос прерван
+     */
+    private function execCurlWithTicks($curl, callable $onTick)
+    {
+        $multi = curl_multi_init();
+        if ($multi === false) {
+            return curl_exec($curl);
+        }
+        curl_multi_add_handle($multi, $curl);
+
+        $uploadedOption = defined('CURLINFO_SIZE_UPLOAD_T') ? CURLINFO_SIZE_UPLOAD_T : CURLINFO_SIZE_UPLOAD;
+        $expectedOption = defined('CURLINFO_CONTENT_LENGTH_UPLOAD_T')
+            ? CURLINFO_CONTENT_LENGTH_UPLOAD_T : CURLINFO_CONTENT_LENGTH_UPLOAD;
+
+        $startedAt      = microtime(true);
+        $lastTickAt     = 0.0;
+        $lastProgressAt = $startedAt;
+        $lastBytes      = -1.0;
+        $uploadDoneAt   = 0.0;
+        $aborted        = false;
+        $shutdown       = false;
+
+        do {
+            curl_multi_exec($multi, $running);
+            if ($running === 0) {
+                break;
+            }
+            $now = microtime(true);
+            if (($now - $lastTickAt) >= self::TICK_INTERVAL) {
+                $lastTickAt = $now;
+                if (!$onTick()) {
+                    $aborted  = true;
+                    $shutdown = true;
+                    break;
+                }
+            }
+            $uploaded = (float)curl_getinfo($curl, $uploadedOption);
+            $expected = (float)curl_getinfo($curl, $expectedOption);
+            if ($uploaded > $lastBytes) {
+                $lastBytes      = $uploaded;
+                $lastProgressAt = $now;
+            }
+            if ($uploadDoneAt === 0.0 && $expected > 0.0 && $uploaded >= $expected) {
+                // Тело отправлено, ждём ответ сервера: байты больше не растут,
+                // поэтому с этой точки застой считаем отдельно.
+                $uploadDoneAt = $now;
+            }
+            if (($now - $lastProgressAt) > self::UPLOAD_STALL_SECONDS
+                || ($uploadDoneAt > 0.0 && ($now - $uploadDoneAt) > self::UPLOAD_RESPONSE_WAIT_SECONDS)
+                || ($now - $startedAt) > self::UPLOAD_MAX_SECONDS) {
+                $aborted = true;
+                break;
+            }
+            if (curl_multi_select($multi, self::TICK_INTERVAL) === -1) {
+                usleep((int)(self::TICK_INTERVAL * 1000000));
+            }
+        } while (true);
+
+        $content = $aborted ? false : curl_multi_getcontent($curl);
+        curl_multi_remove_handle($multi, $curl);
+        curl_multi_close($multi);
+
+        $summary = ' sent ' . (int)$lastBytes . ' bytes in ' . round(microtime(true) - $startedAt) . ' s.';
+        if ($shutdown) {
+            $this->mainLogger->writeInfo('Upload interrupted by worker shutdown.' . $summary);
+        } elseif ($aborted) {
+            $this->mainLogger->writeError('Upload aborted by timeout.' . $summary);
+        }
+        return $content;
+    }
+
+    /**
+     * Подменяет access-токен в URL (параметр auth) либо добавляет его.
+     * Нужно для upload-ссылки записи: токен в неё зашит на момент attachRecord,
+     * а повтор загрузки может случиться уже после ротации токена.
+     *
+     * @param string $url
+     * @param string $token
+     * @return string
+     */
+    private function replaceUrlAuth(string $url, string $token): string
+    {
+        if ($token === '') {
+            return $url;
+        }
+        $replacement = 'auth=' . rawurlencode($token);
+        if (strpos($url, 'auth=') !== false) {
+            return preg_replace('/([?&])auth=[^&]*/', '$1' . $replacement, $url, 1) ?? $url;
+        }
+        return $url . (strpos($url, '?') === false ? '?' : '&') . $replacement;
     }
 
     /**
@@ -695,6 +861,13 @@ class Bitrix24Integration extends PbxExtensionBase
      */
     public function eventsBind(): bool
     {
+        // После ACCESS_DENIED не долбим REST каждым циклом (~10 с): у клиента без
+        // прав администратора выходило ~1900 неудачных batch за 6 часов. Права
+        // меняются редко — переподписка раз в EVENTS_BIND_RETRY_DELAY достаточна.
+        if (time() < $this->eventsBindRetryAfter) {
+            return false;
+        }
+
         $eventResults = $this->eventGet();
 
         usleep(500000);
@@ -733,12 +906,46 @@ class Bitrix24Integration extends PbxExtensionBase
             $this->mainLogger->writeInfo('Update event binding...');
             $arg      = array_merge($arg, $this->eventOfflineGet());
             $response = $this->sendBatch($arg);
-            $result   = empty($response['result']['result_error']??[]);
+            $errors   = $response['result']['result_error'] ?? [];
+            $result   = empty($errors);
+            $this->handleEventsBindErrors(is_array($errors) ? $errors : []);
         } else {
             $result = true;
         }
 
         return $result;
+    }
+
+    /**
+     * Реакция на ошибки подписки на события: ACCESS_DENIED означает, что
+     * приложение авторизовано не администратором — повторами не лечится,
+     * поэтому берём часовую паузу и один раз объясняем причину в логе.
+     *
+     * @param array $errors result_error ответа batch
+     * @return void
+     */
+    private function handleEventsBindErrors(array $errors): void
+    {
+        $denied = false;
+        foreach ($errors as $error) {
+            if (is_array($error) && strtoupper((string)($error['error'] ?? '')) === 'ACCESS_DENIED') {
+                $denied = true;
+                break;
+            }
+        }
+        if (!$denied) {
+            $this->eventsBindDeniedLogged = false;
+            return;
+        }
+        $this->eventsBindRetryAfter = time() + self::EVENTS_BIND_RETRY_DELAY;
+        if (!$this->eventsBindDeniedLogged) {
+            $this->eventsBindDeniedLogged = true;
+            $this->mainLogger->writeError(
+                'event.bind: ACCESS_DENIED — offline events require administrator access rights. '
+                . 'Authorize the application under a Bitrix24 administrator. Next attempt in '
+                . intdiv(self::EVENTS_BIND_RETRY_DELAY, 60) . ' minutes.'
+            );
+        }
     }
 
     /**
@@ -757,42 +964,255 @@ class Bitrix24Integration extends PbxExtensionBase
     }
 
     /**
-     * Отправка файла по ссылке в b24 POST запросом.
-     * @param $targetUrl
-     * @param $filename
-     * @return array
+     * Загрузка записи разговора на портал по upload-ссылке из attachRecord.
+     *
+     * Единственная точка конвертации записей. Вызывается только из UploaderB24:
+     * в HTTP-воркере нельзя полагаться на код возврата exec() — там стоит
+     * pcntl_signal(SIGCHLD, SIG_IGN), и код всегда равен -1.
+     *
+     * @param string        $targetUrl
+     * @param string        $filename путь к записи на диске
+     * @param string        $format   целевой формат для источника, который Bitrix24 не
+     *                                принимает (webm): 'mp3' или 'wav'. Должен совпадать
+     *                                с расширением FILENAME из attachRecord.
+     * @param callable|null $onTick   см. execCurl()
+     * @return array ответ B24 либо массив с описанием ошибки в 'error'
      */
-    public function uploadRecord($targetUrl, $filename): array
+    public function uploadRecord($targetUrl, $filename, string $format = 'mp3', ?callable $onTick = null): array
     {
         if (!file_exists($filename)) {
             return [];
         }
         $uploadFile = $filename;
-        $tmpFile = '';
-        $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        $tmpFile    = '';
+        $ext        = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
         if (!in_array($ext, ['mp3', 'wav'], true)) {
-            $tmpFile = tempnam('/tmp', 'b24_') . '.mp3';
-            $cmd = "ffmpeg -i " . escapeshellarg($filename) . " -y -codec:a libmp3lame -b:a 64k " . escapeshellarg($tmpFile) . " 2>&1";
-            exec($cmd, $output, $retCode);
-            if ($retCode === 0 && file_exists($tmpFile) && filesize($tmpFile) > 0) {
-                $uploadFile = $tmpFile;
-            } else {
-                $this->mainLogger->writeError("ffmpeg convert failed ($retCode): " . implode("\n", $output));
-                if ($tmpFile !== '' && file_exists($tmpFile)) {
-                    unlink($tmpFile);
-                }
+            // При любой неудаче конвертации исходник не отправляем: Bitrix24 его
+            // всё равно отвергнет («Неверный тип файла»).
+            $tmpFile = $this->convertRecordForUpload($filename, $format, $onTick);
+            if ($tmpFile === '') {
                 return [
-                    'error' => 'ffmpeg_failed',
-                    'error_description' => 'ffmpeg conversion failed, upload aborted',
+                    'error'             => 'convert_failed',
+                    'error_description' => "record conversion to $format failed, upload aborted",
                 ];
             }
+            $uploadFile = $tmpFile;
         }
-        $post = ['file'=> curl_file_create($uploadFile)];
-        $result = $this->query($targetUrl, $post, false);
-        if ($tmpFile !== '' && file_exists($tmpFile)) {
-            unlink($tmpFile);
+        try {
+            $post = ['file' => curl_file_create($uploadFile)];
+            // Общий лимит curl снят: у долгой загрузки свои пределы в execCurlWithTicks().
+            $result = $this->query($targetUrl, $post, false, [CURLOPT_TIMEOUT => 0], $onTick);
+        } finally {
+            if ($tmpFile !== '' && file_exists($tmpFile)) {
+                unlink($tmpFile);
+            }
         }
         return $result;
+    }
+
+    /**
+     * Конвертирует запись в формат, который принимает Bitrix24 (mp3 или wav).
+     *
+     * В отличие от прежнего exec() процесс ffmpeg ожидается с вызовами $onTick:
+     * конвертация длинного разговора занимает десятки секунд, и воркер всё это
+     * время должен отвечать на ping. Временный файл — на диске хранения, а не в /tmp
+     * (там tmpfs, то есть оперативная память).
+     *
+     * @param string        $filename исходная запись
+     * @param string        $format   'mp3' | 'wav'
+     * @param callable|null $onTick
+     * @return string путь к готовому файлу либо '' при неудаче
+     */
+    private function convertRecordForUpload(string $filename, string $format, ?callable $onTick): string
+    {
+        $caps = $this->getFfmpegCaps();
+        if (!$caps['found']) {
+            $this->mainLogger->writeError("Cannot convert record '$filename': ffmpeg not found.");
+            return '';
+        }
+        $format = ($format === 'wav') ? 'wav' : 'mp3';
+        if ($format === 'mp3' && !$caps['mp3']) {
+            // Задача пришла с FILENAME=*.mp3, а кодировщика нет. Отправить wav нельзя:
+            // расширение в attachRecord уже объявлено.
+            $this->mainLogger->writeError("Cannot convert record '$filename': ffmpeg has no libmp3lame encoder.");
+            return '';
+        }
+
+        $tmpDir = rtrim(Directories::getDir(Directories::CORE_TEMP_DIR), '/') . '/b24_records';
+        if (!is_dir($tmpDir) && !@mkdir($tmpDir, 0777, true) && !is_dir($tmpDir)) {
+            $this->mainLogger->writeError("Cannot create temp directory '$tmpDir' for record conversion.");
+            return '';
+        }
+        $base    = pathinfo($filename, PATHINFO_FILENAME);
+        $tmpFile = $tmpDir . '/' . $base . '.' . $format;
+        $errFile = $tmpDir . '/' . $base . '.ffmpeg.log';
+        @unlink($tmpFile);
+        @unlink($errFile);
+
+        if ($format === 'wav') {
+            // Телефонный диапазон, моно: стерео 48 кГц дало бы ~690 МБ на час разговора.
+            $codecOptions = '-codec:a pcm_s16le -ar 8000 -ac 1';
+        } else {
+            $codecOptions = '-codec:a libmp3lame -b:a 64k';
+        }
+        $command = escapeshellarg($caps['path'])
+            . ' -hide_banner -loglevel error -nostats -i ' . escapeshellarg($filename)
+            . ' -vn -y ' . $codecOptions . ' ' . escapeshellarg($tmpFile);
+
+        $startedAt = microtime(true);
+        $process   = @proc_open(
+            $command,
+            [
+                0 => ['file', '/dev/null', 'r'],
+                1 => ['file', '/dev/null', 'w'],
+                2 => ['file', $errFile, 'w'],
+            ],
+            $pipes
+        );
+        if ($process === false) {
+            $this->mainLogger->writeError("Cannot start ffmpeg: $command");
+            return '';
+        }
+        // null — процесс прерван (завершение воркера или лимит времени).
+        $exitCode    = $this->waitForProcess($process, self::CONVERT_MAX_SECONDS, $onTick);
+        $errorOutput = trim((string)@file_get_contents($errFile));
+        @unlink($errFile);
+        $elapsed = round(microtime(true) - $startedAt, 1);
+
+        clearstatcache(true, $tmpFile);
+        $resultSize = file_exists($tmpFile) ? (int)filesize($tmpFile) : 0;
+        if ($exitCode !== 0 || $resultSize === 0) {
+            if (file_exists($tmpFile)) {
+                unlink($tmpFile);
+            }
+            $this->mainLogger->writeError(
+                "ffmpeg convert failed (exit " . var_export($exitCode, true) . ", {$elapsed}s): " . $errorOutput
+            );
+            return '';
+        }
+        $sourceExt = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        $this->mainLogger->writeInfo(
+            "Record converted for upload: $sourceExt -> $format, "
+            . filesize($filename) . ' -> ' . $resultSize . " bytes in {$elapsed}s."
+        );
+        return $tmpFile;
+    }
+
+    /**
+     * Ожидает завершения процесса, вызывая $onTick() раз в TICK_INTERVAL.
+     *
+     * @param               $process    дескриптор proc_open()
+     * @param int           $maxSeconds
+     * @param callable|null $onTick
+     * @return int|null код возврата процесса; null — процесс прерван
+     */
+    private function waitForProcess($process, int $maxSeconds, ?callable $onTick): ?int
+    {
+        $startedAt  = microtime(true);
+        $lastTickAt = 0.0;
+        while (true) {
+            $status = proc_get_status($process);
+            if (!$status['running']) {
+                // Код возврата достоверен только в первом вызове после завершения.
+                return (int)$status['exitcode'];
+            }
+            $now = microtime(true);
+            if (($now - $lastTickAt) >= self::TICK_INTERVAL) {
+                $lastTickAt = $now;
+                if ($onTick !== null && !$onTick()) {
+                    $this->killProcess($process);
+                    return null;
+                }
+                if (($now - $startedAt) > $maxSeconds) {
+                    $this->killProcess($process);
+                    return null;
+                }
+            }
+            usleep(100000);
+        }
+    }
+
+    /**
+     * Завершает процесс и дожидается его смерти.
+     * @param $process
+     * @return void
+     */
+    private function killProcess($process): void
+    {
+        @proc_terminate($process, 9);
+        @proc_close($process);
+    }
+
+    /**
+     * Определяет, чем конвертировать записи: есть ли ffmpeg и кодировщик libmp3lame.
+     * Результат кешируется в Redis на час и в памяти процесса, поэтому probing
+     * выполняется редко и в любом воркере.
+     *
+     * @return array ['found' => bool, 'mp3' => bool, 'path' => string]
+     */
+    private function getFfmpegCaps(): array
+    {
+        if ($this->ffmpegCaps !== null) {
+            return $this->ffmpegCaps;
+        }
+        $cached = $this->getCache(self::FFMPEG_CAPS_CACHE_KEY);
+        if (is_array($cached) && isset($cached['v'], $cached['found'], $cached['mp3'], $cached['path'])) {
+            $this->ffmpegCaps = $cached;
+            return $this->ffmpegCaps;
+        }
+        $this->ffmpegCaps = $this->probeFfmpeg();
+        $this->saveCache(self::FFMPEG_CAPS_CACHE_KEY, $this->ffmpegCaps, 3600);
+        return $this->ffmpegCaps;
+    }
+
+    /**
+     * @return array см. getFfmpegCaps()
+     */
+    private function probeFfmpeg(): array
+    {
+        $caps = ['v' => 1, 'found' => false, 'mp3' => false, 'path' => ''];
+        // Util::which() возвращает само имя команды, если бинарника нет в PATH.
+        $path = Util::which('ffmpeg');
+        if ($path === '' || !is_executable($path)) {
+            return $caps;
+        }
+        $caps['path'] = $path;
+        $output = [];
+        // Код возврата не смотрим намеренно: в HTTP-воркере exec() всегда даёт -1.
+        exec(escapeshellarg($path) . ' -hide_banner -encoders 2>/dev/null', $output);
+        if ($output === []) {
+            // Бинарник есть, но не запускается (битая сборка) — считаем его отсутствующим.
+            return $caps;
+        }
+        $caps['found'] = true;
+        $caps['mp3']   = (bool)preg_grep('/\blibmp3lame\b/', $output);
+        return $caps;
+    }
+
+    /**
+     * Формат, в котором запись будет отправлена в Bitrix24.
+     *
+     * Bitrix24 принимает только mp3 и wav, поэтому webm нужно конвертировать, а
+     * расширение FILENAME в attachRecord обязано совпадать с реальным форматом:
+     * формат выбирается здесь, до запроса uploadUrl.
+     *
+     * @return string 'mp3' или 'wav'; '' — конвертация невозможна
+     */
+    private function getRecordUploadFormat(): string
+    {
+        $caps = $this->getFfmpegCaps();
+        if ($caps['found']) {
+            return $caps['mp3'] ? 'mp3' : 'wav';
+        }
+        // Одно сообщение в час, а не на каждый звонок.
+        $noticeKey = 'record_ffmpeg_missing';
+        if (empty($this->getCache($noticeKey))) {
+            $this->saveCache($noticeKey, true, 3600);
+            $this->mainLogger->writeError(
+                'ffmpeg is not installed: recordings cannot be converted to mp3/wav and will not be attached to Bitrix24 calls.'
+            );
+        }
+        return '';
     }
 
     /**
@@ -1579,7 +1999,7 @@ class Bitrix24Integration extends PbxExtensionBase
         // 1) Дедуп ПЛЕЧА (UNIQUEID): блокирует повтор того же AMI-эвента (один и тот же leg).
         $legDedupKey = self::API_CALL_FINISH.'_leg_'.$options['UNIQUEID'];
         if($this->getCache($legDedupKey)){
-            if ($options['export_records'] && !empty($options['FILE']) && ($this->backgroundUpload || file_exists($options['FILE']))) {
+            if ($options['export_records'] && !empty($options['FILE'])) {
                 $this->mainLogger->writeInfo($options, "Duplicate finish for leg, attaching record ($callId).");
                 $this->telephonyExternalCallAttachRecord($options['FILE'], $callId, $arg);
             } else {
@@ -1610,12 +2030,10 @@ class Bitrix24Integration extends PbxExtensionBase
         // запись, свой DURATION. Регрессия c0de8d3 (24.02.2026) отменена.
         $callData = &$tmpCallsData[$id];
         $regData  = $tmpCallsData[$id]['ARGS_REGISTER_'.$options['UNIQUEID']]??[];
-        // file_exists || backgroundUpload — выравниваем с проверкой ниже в attachRecord:
-        // при асинхронной загрузке (backgroundUpload=1) запись плеча ещё не лежит на
-        // диске в момент finish, но UploaderB24 догрузит её позже. Без || backgroundUpload
-        // блок не срабатывал бы, и второе плечо снова попадало бы в дедуп по первому
-        // CALL_ID и теряло свою карточку.
-        $fileReady = !empty($options['FILE']) && ($this->backgroundUpload || file_exists($options['FILE']));
+        // Запись всегда загружается фоново: webm дописывается ядром уже после
+        // hangup, и в момент finish файла на диске может не быть — его дождётся
+        // UploaderB24. Поэтому достаточно непустого пути к записи.
+        $fileReady = !empty($options['FILE']);
         // Проверяем, что register не отдедупился: при повторе он возвращает [[],''] —
         // если подставить $key='' в "$result[][CALL_ID]", получится невалидная
         // batch-ссылка, и B24 отвергнет finish с "Call is not found". В таком случае
@@ -1639,7 +2057,7 @@ class Bitrix24Integration extends PbxExtensionBase
         // и finish пройдёт в B24 как самостоятельный звонок.
         $finishOneKey = self::API_CALL_FINISH.'_'.$callId;
         if($this->getCache($finishOneKey)){
-            if ($options['export_records'] && !empty($options['FILE']) && ($this->backgroundUpload || file_exists($options['FILE']))) {
+            if ($options['export_records'] && !empty($options['FILE'])) {
                 $this->mainLogger->writeInfo($options, "Finish already sent, attaching record ($callId).");
                 $this->telephonyExternalCallAttachRecord($options['FILE'], $callId, $arg);
             } else {
@@ -1727,7 +2145,8 @@ class Bitrix24Integration extends PbxExtensionBase
     public function telephonyExternalCallPostFinish(string $finishKey, array $response, array &$queryArray): void{
         $cache_data = $this->getMemCache($finishKey);
         $activityId = $response['CRM_ACTIVITY_ID']??'';
-        if($cache_data && !empty($activityId)){
+        $activityWillBeDeleted = (bool)$cache_data && !empty($activityId);
+        if($activityWillBeDeleted){
             // Постановка задачи на удаление activity.
             $queryArray[] = $this->crmActivityDelete($activityId);
         }
@@ -1736,6 +2155,16 @@ class Bitrix24Integration extends PbxExtensionBase
             $cacheData = $this->getMemCache("$finishKey-missed");
         }
         $id = str_replace(self::API_CALL_FINISH, '', $finishKey);
+
+        // Описание дела звонка (linkedid, плечо, длительность) обновляем только
+        // если B24 вернул CRM_ACTIVITY_ID. Раньше запрос уходил в одном batch с
+        // finish по ссылке на ещё пустой ID, и B24 отвечал ошибкой на каждом звонке.
+        // Для удаляемого дела описание не пишем.
+        $activityDescription = $this->getMemCache("$finishKey-desc");
+        if (!empty($activityId) && !$activityWillBeDeleted
+            && is_string($activityDescription) && $activityDescription !== '') {
+            $queryArray[] = $this->crmActivityUpdate($activityId, $id, $activityDescription);
+        }
 
         // ASSIGNED_BY_ID назначаем по "лучшему" плечу (с максимальной DURATION) звонка,
         // если оно известно. Это важно при переводе: B24 принимает только первый finish
@@ -1996,6 +2425,14 @@ class Bitrix24Integration extends PbxExtensionBase
 
     /**
      * Прикрепление записи разговора к звонку в b24.
+     *
+     * Запись всегда загружается фоново (UploaderB24): webm дописывается ядром уже
+     * после hangup, и в момент finish файла на диске может не быть. Поэтому здесь
+     * проверка file_exists не делается — здесь только запрашивается uploadUrl и
+     * ставится задача загрузчику. Раньше был и синхронный режим (файл читался и
+     * отправлялся в этом же batch): на прошивках с webm он отдавал Bitrix24 сырой
+     * webm под именем .mp3.
+     *
      * @param $filename
      * @param $callId
      * @param $arg
@@ -2006,15 +2443,17 @@ class Bitrix24Integration extends PbxExtensionBase
         if (empty($filename)) {
             return;
         }
-        // При фоновой загрузке файл может ещё не существовать (race condition с Asterisk),
-        // но он не нужен сейчас — UploaderB24 загрузит позже с задержкой 30с.
-        if (!$this->backgroundUpload && !file_exists($filename)) {
-            return;
-        }
         $FILENAME     = basename($filename);
         $ext = strtolower(pathinfo($FILENAME, PATHINFO_EXTENSION));
+        $targetFormat = '';
         if (!in_array($ext, ['mp3', 'wav'], true)) {
-            $FILENAME = pathinfo($FILENAME, PATHINFO_FILENAME) . '.mp3';
+            // Bitrix24 принимает только mp3 и wav. Расширение должно совпадать с тем,
+            // что реально отправит загрузчик, поэтому формат выбирается уже здесь.
+            $targetFormat = $this->getRecordUploadFormat();
+            if ($targetFormat === '') {
+                return;
+            }
+            $FILENAME = pathinfo($FILENAME, PATHINFO_FILENAME) . '.' . $targetFormat;
         }
         $callId = $this->resolveBatchCallId((string)$callId);
         $params = [
@@ -2022,29 +2461,13 @@ class Bitrix24Integration extends PbxExtensionBase
             'FILENAME'     => $FILENAME,
             'auth'         => $this->getAccessToken(),
         ];
-        if(!$this->backgroundUpload){
-            $uploadFile = $filename;
-            if (!in_array($ext, ['mp3', 'wav'], true)) {
-                $tmpFile = tempnam('/tmp', 'b24_') . '.mp3';
-                $cmd = "ffmpeg -i " . escapeshellarg($filename) . " -y -codec:a libmp3lame -b:a 64k " . escapeshellarg($tmpFile) . " 2>&1";
-                exec($cmd, $output, $retCode);
-                if ($retCode === 0 && file_exists($tmpFile) && filesize($tmpFile) > 0) {
-                    $uploadFile = $tmpFile;
-                } else {
-                    $this->mainLogger->writeError("ffmpeg convert failed ($retCode): " . implode("\n", $output));
-                }
-            }
-            $params['FILE_CONTENT'] = base64_encode(file_get_contents($uploadFile));
-            if (isset($tmpFile) && $tmpFile !== '' && file_exists($tmpFile)) {
-                unlink($tmpFile);
-            }
-        }
         $cmd = self::API_ATTACH_RECORD.'?'.http_build_query($params);
         $key = self::API_ATTACH_RECORD.'_'.uniqid('', true);
         $arg[$key] = $cmd;
         $this->mem_cache[$key] = [
             'CALL_ID'      => $callId,
             'FILENAME'     => $filename,
+            'FORMAT'       => $targetFormat,
         ];
     }
 

@@ -139,7 +139,14 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
 
         $this->searchEntities = !empty($this->didUsers);
 
-        // Автоматический reap дочерних процессов (без зомби)
+        // Автоматический reap дочерних процессов (без зомби).
+        //
+        // ПОБОЧНЫЙ ЭФФЕКТ: после этого exec() и proc_get_status() не могут получить
+        // код возврата дочернего процесса — ядро убирает потомков само, и wait
+        // отвечает ECHILD. exec() в этом воркере ВСЕГДА возвращает -1, даже когда
+        // команда отработала успешно. Поэтому конвертация записей (где код возврата
+        // ffmpeg решает, отправлять файл) живёт в UploaderB24, а здесь нельзя
+        // полагаться на код возврата exec() — только на его вывод.
         pcntl_signal(SIGCHLD, SIG_IGN);
 
         // Watchdog: SIGALRM прерывает зависший poll() в reserveWithTimeout()
@@ -871,8 +878,11 @@ class WorkerBitrix24IntegrationHTTP extends WorkerBase
                         $descParts[] = implode(', ', $legParts);
                     }
                     $description = implode(' | ', $descParts);
-                    $arg = $this->b24->crmActivityUpdate('$result['.$finishKey.'][CRM_ACTIVITY_ID]', $data['linkedid'], $description);
-                    $this->q_req = array_merge($this->q_req, $arg);
+                    // Обновление уходит следующим batch и только если B24 вернул
+                    // CRM_ACTIVITY_ID: в одном batch с finish запрос ссылался на ещё
+                    // пустой ID, и B24 отвечал ошибкой на каждом звонке.
+                    // См. Bitrix24Integration::telephonyExternalCallPostFinish().
+                    $this->b24->setMemCache($finishKey.'-desc', $description);
                 }
             }
         }else{
